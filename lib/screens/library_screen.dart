@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/book.dart';
 import '../services/library_service.dart';
+import 'reader_screen.dart';
 
 class LibraryScreen extends StatefulWidget {
   const LibraryScreen({super.key});
@@ -108,8 +109,17 @@ class _LibraryScreenState extends State<LibraryScreen> {
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
         itemCount: _books.length,
         separatorBuilder: (_, __) => const SizedBox(height: 8),
-        itemBuilder: (context, index) => _BookTile(book: _books[index]),
+        itemBuilder: (context, index) => _BookTile(
+          book: _books[index],
+          onTap: () => _openReader(_books[index]),
+        ),
       ),
+    );
+  }
+
+  void _openReader(Book book) {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => ReaderScreen(book: book)),
     );
   }
 
@@ -142,9 +152,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
 }
 
 class _BookTile extends StatelessWidget {
-  const _BookTile({required this.book});
+  const _BookTile({required this.book, this.onTap});
 
   final Book book;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -168,9 +179,7 @@ class _BookTile extends StatelessWidget {
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
         ),
-        onTap: () {
-          // Navigation to ReaderScreen will be wired in Prompt 07.
-        },
+        onTap: onTap,
       ),
     );
   }

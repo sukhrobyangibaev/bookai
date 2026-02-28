@@ -205,7 +205,7 @@ Validation:
   - `FloatingActionButton.extended` ("Import EPUB") triggers import and shows a loading spinner while in progress; displays `SnackBar` for success, duplicate, or error outcomes.
 - `flutter analyze` passed with **no issues**.
 
-## Prompt 06 - EPUB Parsing Service
+## Prompt 06 - EPUB Parsing Service [DONE]
 
 ```text
 Create `lib/services/epub_service.dart` to parse epub content into chapters.
@@ -228,7 +228,17 @@ Validation:
 - Run `flutter analyze`.
 ```
 
-## Prompt 07 - Reader Screen Baseline
+### Summary of what was done:
+- Created `lib/services/epub_service.dart` — singleton `EpubService` (private constructor + `instance` static field) with:
+  - `Future<List<Chapter>> parseChapters(String filePath)` — reads the epub file, extracts chapters via `epubx`, returns an ordered list of `Chapter` model objects.
+  - In-memory cache keyed by file path (`Map<String, List<Chapter>>`) — subsequent calls with the same path skip parsing; `evict(path)` and `clearCache()` methods provided.
+  - `_flattenChapters` — recursively walks `EpubChapter` trees (including `SubChapters`) into a flat list; assigns sequential indices; uses chapter title with fallback to "Chapter N".
+  - `_extractFromContent` — fallback for epubs that store content only in `Content.Html` map rather than `Chapters` list.
+  - `_stripHtml` — removes HTML tags, decodes common HTML entities (`&nbsp;`, `&amp;`, `&lt;`, `&gt;`, `&quot;`, `&#39;`, `&apos;`), and collapses whitespace to plain text.
+  - Empty/malformed chapters are safely skipped (no content = no chapter entry).
+- `flutter analyze` passed with **no issues**.
+
+## Prompt 07 - Reader Screen Baseline [DONE]
 
 ```text
 Implement baseline reader UI in `lib/screens/reader_screen.dart`.
@@ -247,6 +257,22 @@ Constraints:
 Validation:
 - Run `flutter analyze`.
 ```
+
+### Summary of what was done:
+- Rewrote `lib/screens/reader_screen.dart` — converted from placeholder `StatelessWidget` to full `StatefulWidget`:
+  - Accepts a `Book` argument via constructor.
+  - On `initState`, parses chapters via `EpubService.instance.parseChapters(book.filePath)`.
+  - Three UI states: loading (`CircularProgressIndicator`), error (icon + message + retry button), empty ("No readable content found").
+  - Content view: `SingleChildScrollView` displaying chapter title (`headlineSmall`, bold) and chapter body text (`bodyLarge`, 1.6 line height) with comfortable padding.
+  - App bar shows current chapter title (falls back to book title) and "X / N" chapter counter badge.
+  - Bottom navigation bar with Previous/Next `OutlinedButton.icon` buttons; buttons are disabled at first/last chapter boundaries.
+  - `_goToChapter(index)` centralises chapter switching and resets scroll position.
+  - `ScrollController` is properly disposed.
+- Updated `lib/screens/library_screen.dart`:
+  - Added import for `reader_screen.dart`.
+  - Added `_openReader(Book)` method that navigates via `MaterialPageRoute` to `ReaderScreen(book: book)`.
+  - `_BookTile` now accepts an optional `onTap` callback; wired to `_openReader` from the list builder.
+- `flutter analyze` passed with **no issues**.
 
 ## Prompt 08 - Table of Contents + Chapter Jump
 
