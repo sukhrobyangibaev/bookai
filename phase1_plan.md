@@ -2,7 +2,7 @@
 
 Use these prompts in order. Each prompt is scoped to one agent run and only targets Phase 1.
 
-## Prompt 01 - Project Setup + Folder Structure
+## Prompt 01 - Project Setup + Folder Structure [DONE]
 
 ```text
 You are working in a Flutter project at the repository root.
@@ -32,6 +32,16 @@ Validation:
 - Run `flutter pub get`.
 - Run `flutter analyze`.
 ```
+
+### Summary of what was done:
+- Added dependencies to `pubspec.yaml`: `file_picker ^8.0.0`, `epubx ^4.0.0`, `sqflite ^2.3.0`, `path ^1.9.0`, `path_provider ^2.1.0`, `shared_preferences ^2.2.0`.
+- Created folder structure: `lib/models/`, `lib/services/`, `lib/screens/`, `lib/widgets/`.
+- Created `lib/app.dart` with `BookAiApp` widget (MaterialApp using Material 3, indigo color scheme, `LibraryScreen` as home).
+- Replaced `lib/main.dart` — now calls `runApp(const BookAiApp())`.
+- Created placeholder screens: `lib/screens/library_screen.dart`, `lib/screens/reader_screen.dart`, `lib/screens/settings_screen.dart` — each displays a centered title text.
+- Updated `test/widget_test.dart` to match new app structure (verifies `LibraryScreen` renders).
+- `flutter pub get` succeeded.
+- `flutter analyze` passed with **no issues**.
 
 ## Prompt 02 - Core Models for Phase 1
 
