@@ -337,7 +337,7 @@ Validation:
   - `_BookTile` now accepts an optional `ReadingProgress?` parameter; `_buildSubtitle()` appends "Chapter X/N (Y%)" alongside the author when progress exists and `totalChapters > 0`.
 - `flutter analyze` passed with **no issues**.
 
-## Prompt 10 - Bookmarks
+## Prompt 10 - Bookmarks [DONE]
 
 ```text
 Implement bookmarks end-to-end.
@@ -356,7 +356,17 @@ Validation:
 - Run `flutter analyze`.
 ```
 
-## Prompt 11 - Text Highlights
+### Summary of what was done:
+- Added bookmark add icon (`Icons.bookmark_add_outlined`) to the `ReaderScreen` app bar — one tap saves a bookmark at the current chapter with an auto-generated excerpt (first 80 characters of the chapter content).
+- Added bookmarks list icon (`Icons.bookmarks_outlined`) to open a `DraggableScrollableSheet` bottom sheet listing all bookmarks for the current book, ordered most-recent first, with chapter title and excerpt preview.
+- Tapping a bookmark in the list dismisses the sheet and jumps the reader to the saved chapter via the existing `_goToChapter()` method.
+- Bookmark deletion supported via both swipe-to-dismiss (`Dismissible`) and a delete icon button on each list tile; deletes from both in-memory list and SQLite via `DatabaseService.deleteBookmark`.
+- Empty state shown when no bookmarks exist (icon + hint text).
+- Bookmarks loaded from the database alongside chapters during `_loadChapters()`.
+- `SnackBar` confirmation shown after adding a bookmark, with a "View All" action to open the bookmarks panel.
+- `flutter analyze` passed with **no issues**.
+
+## Prompt 11 - Text Highlights [DONE]
 
 ```text
 Implement basic text highlight flow.
@@ -375,6 +385,19 @@ Constraints:
 Validation:
 - Run `flutter analyze`.
 ```
+
+### Summary of what was done:
+- Replaced `Text` with `SelectableText.rich` for the chapter body content, enabling native text selection.
+- Added a custom `contextMenuBuilder` that appends a "Highlight" button to the default selection toolbar (Copy, Select All, etc.) via `AdaptiveTextSelectionToolbar.buttonItems`.
+- Selecting text and tapping "Highlight" saves it via `DatabaseService.addHighlight` with the current chapter index, selected text, and a default warm-yellow color (`#FFEB3B`).
+- Inline highlight rendering: `_buildHighlightedText()` finds all saved highlight text occurrences in the current chapter content, merges overlapping ranges, and renders them as `TextSpan` children with a semi-transparent yellow background.
+- Added highlights list icon (`Icons.highlight_outlined`) in the app bar to open a `DraggableScrollableSheet` bottom sheet showing all highlights for the book, with italic quoted text and chapter name.
+- Highlight deletion via both swipe-to-dismiss (`Dismissible`) and delete icon button; removes from in-memory list and SQLite.
+- Tapping a highlight in the list jumps the reader to that chapter.
+- Empty state shown when no highlights exist.
+- Highlights loaded from the database during `_loadChapters()` alongside bookmarks.
+- `SnackBar` confirmation shown after saving a highlight, with a "View All" action.
+- `flutter analyze` passed with **no issues**.
 
 ## Prompt 12 - Settings Screen UI
 

@@ -3,7 +3,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../models/book.dart';
+import '../models/bookmark.dart';
 import '../models/chapter.dart';
+import '../models/highlight.dart';
 import '../models/reading_progress.dart';
 import '../services/database_service.dart';
 import '../services/epub_service.dart';
@@ -27,6 +29,15 @@ class _ReaderScreenState extends State<ReaderScreen> {
   int _currentIndex = 0;
   bool _loading = true;
   String? _error;
+
+  /// Bookmarks for the current book.
+  List<Bookmark> _bookmarks = [];
+
+  /// Highlights for the current book.
+  List<Highlight> _highlights = [];
+
+  /// Default highlight color (warm yellow).
+  static const _defaultHighlightColorHex = '#FFEB3B';
 
   /// Debounce timer for persisting scroll offset.
   Timer? _saveTimer;
@@ -68,6 +79,9 @@ class _ReaderScreenState extends State<ReaderScreen> {
       ReadingProgress? saved;
       if (bookId != null) {
         saved = await _db.getProgressByBookId(bookId);
+        // Load bookmarks and highlights for this book.
+        _bookmarks = await _db.getBookmarksByBookId(bookId);
+        _highlights = await _db.getHighlightsByBookId(bookId);
       }
 
       if (mounted) {
@@ -147,6 +161,454 @@ class _ReaderScreenState extends State<ReaderScreen> {
         scrollOffset: offset,
         updatedAt: DateTime.now(),
       ),
+    );
+  }
+
+  // ── Bookmarks ────────────────────────────────────────────────────────────
+
+  /// Adds a bookmark at the current reading position.
+  Future<void> _addBookmark() async {
+    final bookId = widget.book.id;
+    if (bookId == null || _currentChapter == null) return;
+
+    // Generate a short excerpt from the start of the current chapter content.
+    final content = _currentChapter!.content;
+    final excerpt = content.length > 80
+        ? '${content.substring(0, 80).trim()}...'
+        : content.trim();
+
+    final bookmark = Bookmark(
+      bookId: bookId,
+      chapterIndex: _currentIndex,
+      excerpt: excerpt,
+      createdAt: DateTime.now(),
+    );
+
+    final saved = await _db.addBookmark(bookmark);
+    setState(() {
+      _bookmarks.insert(0, saved);
+    });
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Bookmarked: ${_currentChapter!.title}',
+          ),
+          duration: const Duration(seconds: 2),
+          action: SnackBarAction(
+            label: 'View All',
+            onPressed: _showBookmarks,
+          ),
+        ),
+      );
+    }
+  }
+
+  /// Shows a bottom sheet listing all bookmarks for the current book.
+  void _showBookmarks() {
+    if (widget.book.id == null) return;
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) {
+        return StatefulBuilder(
+          builder: (sheetContext, setSheetState) {
+            return DraggableScrollableSheet(
+              initialChildSize: 0.6,
+              minChildSize: 0.3,
+              maxChildSize: 0.9,
+              expand: false,
+              builder: (context, scrollController) {
+                return Column(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 12),
+                      child: Row(
+                        children: [
+                          Text(
+                            'Bookmarks',
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            '(${_bookmarks.length})',
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodySmall
+                                ?.copyWith(
+                                  color: Theme.of(context).colorScheme.outline,
+                                ),
+                          ),
+                          const Spacer(),
+                          IconButton(
+                            icon: const Icon(Icons.close),
+                            onPressed: () => Navigator.of(context).pop(),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Divider(height: 1),
+                    if (_bookmarks.isEmpty)
+                      Expanded(
+                        child: Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.bookmark_border,
+                                size: 48,
+                                color: Theme.of(context).colorScheme.outline,
+                              ),
+                              const SizedBox(height: 12),
+                              Text(
+                                'No bookmarks yet',
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .bodyMedium
+                                    ?.copyWith(
+                                      color:
+                                          Theme.of(context).colorScheme.outline,
+                                    ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'Tap the bookmark icon to save your position',
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .bodySmall
+                                    ?.copyWith(
+                                      color:
+                                          Theme.of(context).colorScheme.outline,
+                                    ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      )
+                    else
+                      Expanded(
+                        child: ListView.builder(
+                          controller: scrollController,
+                          itemCount: _bookmarks.length,
+                          itemBuilder: (context, index) {
+                            final bm = _bookmarks[index];
+                            final chapterTitle = _chapters != null &&
+                                    bm.chapterIndex >= 0 &&
+                                    bm.chapterIndex < _chapters!.length
+                                ? _chapters![bm.chapterIndex].title
+                                : 'Chapter ${bm.chapterIndex + 1}';
+
+                            return Dismissible(
+                              key: ValueKey(bm.id),
+                              direction: DismissDirection.endToStart,
+                              background: Container(
+                                alignment: Alignment.centerRight,
+                                padding: const EdgeInsets.only(right: 20),
+                                color: Theme.of(context).colorScheme.error,
+                                child: Icon(
+                                  Icons.delete,
+                                  color: Theme.of(context).colorScheme.onError,
+                                ),
+                              ),
+                              onDismissed: (_) async {
+                                final removed = _bookmarks[index];
+                                setState(() {
+                                  _bookmarks.removeAt(index);
+                                });
+                                setSheetState(() {});
+                                if (removed.id != null) {
+                                  await _db.deleteBookmark(removed.id!);
+                                }
+                              },
+                              child: ListTile(
+                                leading: Icon(
+                                  Icons.bookmark,
+                                  color: Theme.of(context).colorScheme.primary,
+                                ),
+                                title: Text(
+                                  chapterTitle,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                subtitle: Text(
+                                  bm.excerpt,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .bodySmall
+                                      ?.copyWith(
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .outline,
+                                      ),
+                                ),
+                                trailing: IconButton(
+                                  icon: Icon(
+                                    Icons.delete_outline,
+                                    size: 20,
+                                    color:
+                                        Theme.of(context).colorScheme.outline,
+                                  ),
+                                  onPressed: () async {
+                                    final removed = _bookmarks[index];
+                                    setState(() {
+                                      _bookmarks.removeAt(index);
+                                    });
+                                    setSheetState(() {});
+                                    if (removed.id != null) {
+                                      await _db.deleteBookmark(removed.id!);
+                                    }
+                                  },
+                                ),
+                                onTap: () {
+                                  Navigator.of(context).pop();
+                                  _goToChapter(bm.chapterIndex);
+                                },
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                  ],
+                );
+              },
+            );
+          },
+        );
+      },
+    );
+  }
+
+  // ── Highlights ───────────────────────────────────────────────────────────
+
+  /// Saves the given selected text as a highlight.
+  Future<void> _saveHighlight(String selectedText) async {
+    final bookId = widget.book.id;
+    if (bookId == null) return;
+
+    final trimmed = selectedText.trim();
+    if (trimmed.isEmpty) return;
+
+    final highlight = Highlight(
+      bookId: bookId,
+      chapterIndex: _currentIndex,
+      selectedText: trimmed,
+      colorHex: _defaultHighlightColorHex,
+      createdAt: DateTime.now(),
+    );
+
+    final saved = await _db.addHighlight(highlight);
+    setState(() {
+      _highlights.insert(0, saved);
+    });
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('Highlight saved'),
+          duration: const Duration(seconds: 2),
+          action: SnackBarAction(
+            label: 'View All',
+            onPressed: _showHighlights,
+          ),
+        ),
+      );
+    }
+  }
+
+  /// Shows a bottom sheet listing all highlights for the current book.
+  void _showHighlights() {
+    if (widget.book.id == null) return;
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) {
+        return StatefulBuilder(
+          builder: (sheetContext, setSheetState) {
+            return DraggableScrollableSheet(
+              initialChildSize: 0.6,
+              minChildSize: 0.3,
+              maxChildSize: 0.9,
+              expand: false,
+              builder: (context, scrollController) {
+                return Column(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 12),
+                      child: Row(
+                        children: [
+                          Text(
+                            'Highlights',
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            '(${_highlights.length})',
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodySmall
+                                ?.copyWith(
+                                  color: Theme.of(context).colorScheme.outline,
+                                ),
+                          ),
+                          const Spacer(),
+                          IconButton(
+                            icon: const Icon(Icons.close),
+                            onPressed: () => Navigator.of(context).pop(),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Divider(height: 1),
+                    if (_highlights.isEmpty)
+                      Expanded(
+                        child: Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.highlight_off,
+                                size: 48,
+                                color: Theme.of(context).colorScheme.outline,
+                              ),
+                              const SizedBox(height: 12),
+                              Text(
+                                'No highlights yet',
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .bodyMedium
+                                    ?.copyWith(
+                                      color:
+                                          Theme.of(context).colorScheme.outline,
+                                    ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'Select text and tap "Highlight" to save',
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .bodySmall
+                                    ?.copyWith(
+                                      color:
+                                          Theme.of(context).colorScheme.outline,
+                                    ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      )
+                    else
+                      Expanded(
+                        child: ListView.builder(
+                          controller: scrollController,
+                          itemCount: _highlights.length,
+                          itemBuilder: (context, index) {
+                            final hl = _highlights[index];
+                            final chapterTitle = _chapters != null &&
+                                    hl.chapterIndex >= 0 &&
+                                    hl.chapterIndex < _chapters!.length
+                                ? _chapters![hl.chapterIndex].title
+                                : 'Chapter ${hl.chapterIndex + 1}';
+
+                            return Dismissible(
+                              key: ValueKey(hl.id),
+                              direction: DismissDirection.endToStart,
+                              background: Container(
+                                alignment: Alignment.centerRight,
+                                padding: const EdgeInsets.only(right: 20),
+                                color: Theme.of(context).colorScheme.error,
+                                child: Icon(
+                                  Icons.delete,
+                                  color: Theme.of(context).colorScheme.onError,
+                                ),
+                              ),
+                              onDismissed: (_) async {
+                                final removed = _highlights[index];
+                                setState(() {
+                                  _highlights.removeAt(index);
+                                });
+                                setSheetState(() {});
+                                if (removed.id != null) {
+                                  await _db.deleteHighlight(removed.id!);
+                                }
+                              },
+                              child: ListTile(
+                                leading: Container(
+                                  width: 4,
+                                  height: 40,
+                                  decoration: BoxDecoration(
+                                    color: Color(
+                                      int.parse(
+                                            hl.colorHex.replaceFirst('#', ''),
+                                            radix: 16,
+                                          ) |
+                                          0xFF000000,
+                                    ),
+                                    borderRadius: BorderRadius.circular(2),
+                                  ),
+                                ),
+                                title: Text(
+                                  '"${hl.selectedText}"',
+                                  maxLines: 3,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .bodyMedium
+                                      ?.copyWith(
+                                        fontStyle: FontStyle.italic,
+                                      ),
+                                ),
+                                subtitle: Text(
+                                  chapterTitle,
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .bodySmall
+                                      ?.copyWith(
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .outline,
+                                      ),
+                                ),
+                                trailing: IconButton(
+                                  icon: Icon(
+                                    Icons.delete_outline,
+                                    size: 20,
+                                    color:
+                                        Theme.of(context).colorScheme.outline,
+                                  ),
+                                  onPressed: () async {
+                                    final removed = _highlights[index];
+                                    setState(() {
+                                      _highlights.removeAt(index);
+                                    });
+                                    setSheetState(() {});
+                                    if (removed.id != null) {
+                                      await _db.deleteHighlight(removed.id!);
+                                    }
+                                  },
+                                ),
+                                onTap: () {
+                                  Navigator.of(context).pop();
+                                  _goToChapter(hl.chapterIndex);
+                                },
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                  ],
+                );
+              },
+            );
+          },
+        );
+      },
     );
   }
 
@@ -246,13 +708,27 @@ class _ReaderScreenState extends State<ReaderScreen> {
           overflow: TextOverflow.ellipsis,
         ),
         actions: [
-          if (_chapters != null && _chapters!.isNotEmpty)
+          if (_chapters != null && _chapters!.isNotEmpty) ...[
+            IconButton(
+              icon: const Icon(Icons.bookmark_add_outlined),
+              tooltip: 'Add Bookmark',
+              onPressed: _addBookmark,
+            ),
+            IconButton(
+              icon: const Icon(Icons.bookmarks_outlined),
+              tooltip: 'Bookmarks',
+              onPressed: _showBookmarks,
+            ),
+            IconButton(
+              icon: const Icon(Icons.highlight_outlined),
+              tooltip: 'Highlights',
+              onPressed: _showHighlights,
+            ),
             IconButton(
               icon: const Icon(Icons.toc),
               tooltip: 'Table of Contents',
               onPressed: _showTableOfContents,
             ),
-          if (_chapters != null && _chapters!.isNotEmpty)
             Center(
               child: Padding(
                 padding: const EdgeInsets.only(right: 16),
@@ -262,6 +738,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
                 ),
               ),
             ),
+          ],
         ],
       ),
       body: _buildBody(),
@@ -345,6 +822,12 @@ class _ReaderScreenState extends State<ReaderScreen> {
 
   Widget _buildContent() {
     final chapter = _currentChapter!;
+
+    // Collect highlight texts for the current chapter to display inline
+    // highlighting. Build a set for quick lookups.
+    final currentHighlights =
+        _highlights.where((h) => h.chapterIndex == _currentIndex).toList();
+
     return SingleChildScrollView(
       controller: _scrollController,
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
@@ -358,14 +841,109 @@ class _ReaderScreenState extends State<ReaderScreen> {
                 ),
           ),
           const SizedBox(height: 16),
-          Text(
-            chapter.content,
+          SelectableText.rich(
+            _buildHighlightedText(chapter.content, currentHighlights),
+            contextMenuBuilder: (context, editableTextState) {
+              return _buildSelectionToolbar(context, editableTextState);
+            },
             style: Theme.of(context).textTheme.bodyLarge?.copyWith(
                   height: 1.6,
                 ),
           ),
         ],
       ),
+    );
+  }
+
+  /// Builds a [TextSpan] tree that highlights saved highlight texts inline.
+  TextSpan _buildHighlightedText(
+      String content, List<Highlight> currentHighlights) {
+    if (currentHighlights.isEmpty) {
+      return TextSpan(text: content);
+    }
+
+    // Find all highlight ranges in the text.
+    final List<_HighlightRange> ranges = [];
+    for (final hl in currentHighlights) {
+      int startFrom = 0;
+      // Find all occurrences of this highlight text in the content.
+      while (true) {
+        final idx = content.indexOf(hl.selectedText, startFrom);
+        if (idx == -1) break;
+        ranges.add(_HighlightRange(idx, idx + hl.selectedText.length));
+        startFrom = idx + hl.selectedText.length;
+      }
+    }
+
+    if (ranges.isEmpty) {
+      return TextSpan(text: content);
+    }
+
+    // Sort ranges by start index and merge overlaps.
+    ranges.sort((a, b) => a.start.compareTo(b.start));
+    final merged = <_HighlightRange>[];
+    for (final r in ranges) {
+      if (merged.isNotEmpty && r.start <= merged.last.end) {
+        final last = merged.last;
+        merged[merged.length - 1] = _HighlightRange(
+          last.start,
+          r.end > last.end ? r.end : last.end,
+        );
+      } else {
+        merged.add(r);
+      }
+    }
+
+    // Build spans.
+    final highlightColor = Color(
+      int.parse(
+            _defaultHighlightColorHex.replaceFirst('#', ''),
+            radix: 16,
+          ) |
+          0xFF000000,
+    ).withAlpha(100);
+
+    final spans = <TextSpan>[];
+    int cursor = 0;
+    for (final r in merged) {
+      if (r.start > cursor) {
+        spans.add(TextSpan(text: content.substring(cursor, r.start)));
+      }
+      spans.add(TextSpan(
+        text: content.substring(r.start, r.end),
+        style: TextStyle(backgroundColor: highlightColor),
+      ));
+      cursor = r.end;
+    }
+    if (cursor < content.length) {
+      spans.add(TextSpan(text: content.substring(cursor)));
+    }
+
+    return TextSpan(children: spans);
+  }
+
+  /// Custom context menu with a "Highlight" action when text is selected.
+  Widget _buildSelectionToolbar(
+      BuildContext context, EditableTextState editableTextState) {
+    final List<ContextMenuButtonItem> items = [
+      ...editableTextState.contextMenuButtonItems,
+      ContextMenuButtonItem(
+        label: 'Highlight',
+        onPressed: () {
+          final selection = editableTextState.textEditingValue.selection;
+          final text = editableTextState.textEditingValue.text;
+          if (selection.isValid && !selection.isCollapsed) {
+            final selected = text.substring(selection.start, selection.end);
+            _saveHighlight(selected);
+          }
+          editableTextState.hideToolbar();
+        },
+      ),
+    ];
+
+    return AdaptiveTextSelectionToolbar.buttonItems(
+      anchors: editableTextState.contextMenuAnchors,
+      buttonItems: items,
     );
   }
 
@@ -400,4 +978,11 @@ class _ReaderScreenState extends State<ReaderScreen> {
       ),
     );
   }
+}
+
+/// Helper class to represent a range in text for highlighting.
+class _HighlightRange {
+  final int start;
+  final int end;
+  const _HighlightRange(this.start, this.end);
 }
