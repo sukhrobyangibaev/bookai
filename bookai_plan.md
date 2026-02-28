@@ -16,14 +16,15 @@ A personal AI-powered epub reader for Android.
 
 ### Phase 1 — Basic Reader (learn Flutter + get something working)
 
-- [ ] Load epub files from device storage
-- [ ] Parse epub and display book content (chapters, pages)
-- [ ] Basic navigation (table of contents, swipe between pages)
-- [ ] Reading progress tracking
-- [ ] Bookmarks
-- [ ] Highlights (tap and hold to select text → highlight)
-- [ ] Local library — list of your uploaded books
-- [ ] Settings (font size, theme: light/dark/sepia)
+- [x] Load epub files from device storage
+- [x] Parse epub and display book content (chapters, pages)
+- [x] Basic navigation (table of contents, prev/next chapter buttons)
+- [x] Swipe gesture navigation between chapters
+- [x] Reading progress tracking
+- [x] Bookmarks
+- [x] Highlights (tap and hold to select text → highlight)
+- [x] Local library — list of your uploaded books
+- [x] Settings (font size, theme: light/dark/sepia)
 
 ### Phase 2 — AI Reading Companion
 

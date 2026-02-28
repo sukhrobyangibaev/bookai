@@ -46,6 +46,15 @@ class _ReaderScreenState extends State<ReaderScreen> {
   /// Duration to debounce scroll-based progress saves.
   static const _saveDebounceDuration = Duration(seconds: 2);
 
+  /// Minimum horizontal velocity (px/s) to trigger a chapter swipe.
+  static const _swipeVelocityThreshold = 300.0;
+
+  /// Minimum horizontal distance (px) to trigger a chapter swipe.
+  static const _swipeDistanceThreshold = 50.0;
+
+  /// Tracks the starting X position of a horizontal drag.
+  double _dragStartX = 0.0;
+
   @override
   void initState() {
     super.initState();
@@ -145,6 +154,33 @@ class _ReaderScreenState extends State<ReaderScreen> {
   void _onScroll() {
     _saveTimer?.cancel();
     _saveTimer = Timer(_saveDebounceDuration, _saveProgressNow);
+  }
+
+  // ── Swipe navigation ────────────────────────────────────────────────────
+
+  void _onHorizontalDragStart(DragStartDetails details) {
+    _dragStartX = details.globalPosition.dx;
+  }
+
+  void _onHorizontalDragEnd(DragEndDetails details) {
+    if (_chapters == null || _chapters!.isEmpty) return;
+
+    final velocity = details.primaryVelocity ?? 0.0;
+    final dragDistance = (details.globalPosition.dx - _dragStartX).abs();
+
+    // Only respond to swipes that are fast enough or long enough.
+    if (velocity.abs() < _swipeVelocityThreshold &&
+        dragDistance < _swipeDistanceThreshold) {
+      return;
+    }
+
+    if (velocity < 0) {
+      // Swiped left → next chapter.
+      _goToChapter(_currentIndex + 1);
+    } else if (velocity > 0) {
+      // Swiped right → previous chapter.
+      _goToChapter(_currentIndex - 1);
+    }
   }
 
   void _saveProgressNow() {
@@ -830,30 +866,35 @@ class _ReaderScreenState extends State<ReaderScreen> {
     final currentHighlights =
         _highlights.where((h) => h.chapterIndex == _currentIndex).toList();
 
-    return SingleChildScrollView(
-      controller: _scrollController,
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            chapter.title,
-            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
-          ),
-          const SizedBox(height: 16),
-          SelectableText.rich(
-            _buildHighlightedText(chapter.content, currentHighlights),
-            contextMenuBuilder: (context, editableTextState) {
-              return _buildSelectionToolbar(context, editableTextState);
-            },
-            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                  fontSize: settingsFontSize,
-                  height: 1.6,
-                ),
-          ),
-        ],
+    return GestureDetector(
+      onHorizontalDragStart: _onHorizontalDragStart,
+      onHorizontalDragEnd: _onHorizontalDragEnd,
+      behavior: HitTestBehavior.translucent,
+      child: SingleChildScrollView(
+        controller: _scrollController,
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              chapter.title,
+              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+            ),
+            const SizedBox(height: 16),
+            SelectableText.rich(
+              _buildHighlightedText(chapter.content, currentHighlights),
+              contextMenuBuilder: (context, editableTextState) {
+                return _buildSelectionToolbar(context, editableTextState);
+              },
+              style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                    fontSize: settingsFontSize,
+                    height: 1.6,
+                  ),
+            ),
+          ],
+        ),
       ),
     );
   }
