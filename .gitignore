@@ -31,6 +31,13 @@ migrate_working_dir/
 .pub/
 /build/
 
+# Platform-specific generated plugin files
+linux/flutter/generated_plugin_registrant.*
+linux/flutter/generated_plugins.cmake
+macos/Flutter/GeneratedPluginRegistrant.swift
+windows/flutter/generated_plugin_registrant.*
+windows/flutter/generated_plugins.cmake
+
 # Symbolication related
 app.*.symbols
 
