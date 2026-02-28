@@ -81,7 +81,7 @@ Validation:
 - Created `lib/models/reader_settings.dart` — immutable `ReaderSettings` class with `fontSize` (double) and `themeMode` (`AppThemeMode` enum: `light`, `dark`, `sepia`), includes `defaults` constant, `copyWith`, `toMap`, `fromMap`, `==`, and `hashCode`.
 - `flutter analyze` passed with **no issues**.
 
-## Prompt 03 - Local Database Service (SQLite)
+## Prompt 03 - Local Database Service (SQLite) [DONE]
 
 ```text
 Implement SQLite persistence in `lib/services/database_service.dart`.
@@ -107,6 +107,22 @@ Constraints:
 Validation:
 - Run `flutter analyze`.
 ```
+
+### Summary of what was done:
+- Created `lib/services/database_service.dart` — singleton `DatabaseService` (private constructor + `instance` static field, lazy-initialized `_db`).
+- Database file: `bookai.db` stored in the platform's default databases path.
+- Schema (version 1, created in `_onCreate`):
+  - `books` — id (PK autoincrement), title, author, filePath (UNIQUE), coverPath (nullable), totalChapters, createdAt.
+  - `progress` — bookId (PK, FK → books with CASCADE DELETE), chapterIndex, scrollOffset (REAL), updatedAt.
+  - `bookmarks` — id (PK autoincrement), bookId (FK → books CASCADE), chapterIndex, excerpt, createdAt. Index on `bookId`.
+  - `highlights` — id (PK autoincrement), bookId (FK → books CASCADE), chapterIndex, selectedText, colorHex, createdAt. Index on `bookId`.
+- CRUD methods implemented:
+  - `insertBook` / `getAllBooks` (ordered by createdAt DESC) / `deleteBook`
+  - `upsertProgress` (INSERT OR REPLACE) / `getProgressByBookId`
+  - `addBookmark` / `getBookmarksByBookId` (ordered by createdAt DESC) / `deleteBookmark`
+  - `addHighlight` / `getHighlightsByBookId` (ordered by createdAt DESC) / `deleteHighlight`
+- All methods use model `toMap()` / `fromMap()` helpers.
+- `flutter analyze` passed with **no issues**.
 
 ## Prompt 04 - Reader Settings Service
 
