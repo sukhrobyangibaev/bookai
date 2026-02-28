@@ -117,8 +117,17 @@ class EpubService {
 
   /// Strips HTML tags and collapses whitespace to produce plain text.
   static String _stripHtml(String html) {
-    // Remove all HTML tags.
-    var text = html.replaceAll(RegExp(r'<[^>]*>'), ' ');
+    // Remove non-visible elements entirely (tag + content), e.g. <head>,
+    // <style>, <script>. Without this, text inside <title>Unknown</title>
+    // and similar tags leaks into the visible chapter content.
+    var text = html.replaceAll(
+        RegExp(r'<head[^>]*>[\s\S]*?</head>', caseSensitive: false), ' ');
+    text = text.replaceAll(
+        RegExp(r'<style[^>]*>[\s\S]*?</style>', caseSensitive: false), ' ');
+    text = text.replaceAll(
+        RegExp(r'<script[^>]*>[\s\S]*?</script>', caseSensitive: false), ' ');
+    // Remove all remaining HTML tags.
+    text = text.replaceAll(RegExp(r'<[^>]*>'), ' ');
     // Decode common HTML entities.
     text = text
         .replaceAll('&nbsp;', ' ')
