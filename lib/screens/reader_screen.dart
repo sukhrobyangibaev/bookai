@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../app.dart';
 import '../models/book.dart';
 import '../models/bookmark.dart';
 import '../models/chapter.dart';
@@ -822,6 +823,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
 
   Widget _buildContent() {
     final chapter = _currentChapter!;
+    final settingsFontSize = SettingsControllerScope.of(context).fontSize;
 
     // Collect highlight texts for the current chapter to display inline
     // highlighting. Build a set for quick lookups.
@@ -847,6 +849,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
               return _buildSelectionToolbar(context, editableTextState);
             },
             style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                  fontSize: settingsFontSize,
                   height: 1.6,
                 ),
           ),

@@ -5,6 +5,7 @@ import '../models/reading_progress.dart';
 import '../services/database_service.dart';
 import '../services/library_service.dart';
 import 'reader_screen.dart';
+import 'settings_screen.dart';
 
 class LibraryScreen extends StatefulWidget {
   const LibraryScreen({super.key});
@@ -101,6 +102,17 @@ class _LibraryScreenState extends State<LibraryScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('BookAI Library'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.settings_outlined),
+            tooltip: 'Settings',
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const SettingsScreen()),
+              );
+            },
+          ),
+        ],
       ),
       body: _buildBody(),
       floatingActionButton: FloatingActionButton.extended(

@@ -399,7 +399,7 @@ Validation:
 - `SnackBar` confirmation shown after saving a highlight, with a "View All" action.
 - `flutter analyze` passed with **no issues**.
 
-## Prompt 12 - Settings Screen UI
+## Prompt 12 - Settings Screen UI [DONE]
 
 ```text
 Build `SettingsScreen` and wire it to `SettingsController`.
@@ -417,6 +417,20 @@ Constraints:
 Validation:
 - Run `flutter analyze`.
 ```
+
+### Summary of what was done:
+- Rewrote `lib/screens/settings_screen.dart` — replaced placeholder with full settings UI wired to `SettingsController` via `SettingsControllerScope.of(context)`:
+  - **Font Size** section: `Slider` with range 14–28 (14 discrete divisions), small "A" and large "A" labels on either side, current value shown as slider label, and a live preview box displaying sample text at the selected size.
+  - **Theme** section: `SegmentedButton<AppThemeMode>` with three options — Light (sun icon), Dark (moon icon), Sepia (book icon).
+  - Both controls call `controller.setFontSize()` / `controller.setThemeMode()` directly on change, persisting immediately via `SharedPreferences` through the existing `SettingsService`.
+  - Entire body wrapped in `ListenableBuilder` so UI rebuilds reactively when the controller notifies.
+- Updated `lib/screens/library_screen.dart`:
+  - Added settings icon button (`Icons.settings_outlined`) in the app bar actions.
+  - Tapping navigates to `SettingsScreen` via `MaterialPageRoute`.
+- Updated `lib/screens/reader_screen.dart`:
+  - Imported `app.dart` to access `SettingsControllerScope`.
+  - `_buildContent()` now reads `SettingsControllerScope.of(context).fontSize` and applies it to the chapter body `SelectableText.rich` style, so reader content reflects the chosen font size live when reopened.
+- `flutter analyze` passed with **no issues**.
 
 ## Prompt 13 - Local Library Improvements
 
