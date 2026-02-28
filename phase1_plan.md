@@ -147,6 +147,22 @@ Validation:
 - Run `flutter analyze`.
 ```
 
+### Summary of what was done:
+- Created `lib/services/settings_service.dart` — loads and saves `fontSize` (double) and `themeMode` (string) using `SharedPreferences` keys `reader_font_size` and `reader_theme_mode`; falls back to `ReaderSettings.defaults` when keys are absent.
+- Created `lib/services/settings_controller.dart` — `ChangeNotifier`-based `SettingsController` with:
+  - `load()` async initialiser that reads persisted values via `SettingsService` and calls `notifyListeners()`.
+  - `setFontSize(double)` and `setThemeMode(AppThemeMode)` — update in-memory state, notify listeners, then persist asynchronously.
+  - Accepts an optional `SettingsService` in its constructor for testability.
+- Updated `lib/app.dart`:
+  - Converted `BookAiApp` to `StatefulWidget`; creates (and disposes) a `SettingsController` unless one is injected.
+  - Added `SettingsControllerScope` (`InheritedNotifier<SettingsController>`) so any descendant widget can call `SettingsControllerScope.of(context)` to access the controller.
+  - `_buildTheme(AppThemeMode)` maps each mode to a distinct `ThemeData`:
+    - `light` — default indigo `ColorScheme.fromSeed` (Material 3).
+    - `dark` — dark brightness indigo seed scheme.
+    - `sepia` — custom `ColorScheme.light` with warm brown/cream palette; custom `scaffoldBackgroundColor`, `AppBarTheme`, and `TextTheme`.
+  - `MaterialApp` is rebuilt reactively via `ListenableBuilder` whenever the controller notifies.
+- `flutter analyze` passed with **no issues**.
+
 ## Prompt 05 - EPUB Import + Local Storage
 
 ```text
