@@ -274,7 +274,7 @@ Validation:
   - `_BookTile` now accepts an optional `onTap` callback; wired to `_openReader` from the list builder.
 - `flutter analyze` passed with **no issues**.
 
-## Prompt 08 - Table of Contents + Chapter Jump
+## Prompt 08 - Table of Contents + Chapter Jump [DONE]
 
 ```text
 Enhance reader navigation.
@@ -292,7 +292,16 @@ Validation:
 - Run `flutter analyze`.
 ```
 
-## Prompt 09 - Reading Progress Tracking
+### Summary of what was done:
+- Added a TOC icon button (`Icons.toc`) in the `ReaderScreen` app bar actions, placed before the chapter counter badge.
+- `_showTableOfContents()` opens a `showModalBottomSheet` with a `DraggableScrollableSheet` (initial 60%, max 90%) containing:
+  - A header row with "Table of Contents" title and a close button.
+  - A `ListView.builder` listing all chapters with their 1-based index number and title.
+  - The current chapter is highlighted: bold text in primary color, with a tinted `selectedTileColor` background.
+- Tapping a chapter in the TOC dismisses the bottom sheet and calls the existing centralised `_goToChapter(index)` method, which resets scroll position.
+- `flutter analyze` passed with **no issues**.
+
+## Prompt 09 - Reading Progress Tracking [DONE]
 
 ```text
 Add persistent reading progress.
@@ -314,6 +323,19 @@ Constraints:
 Validation:
 - Run `flutter analyze`.
 ```
+
+### Summary of what was done:
+- Updated `lib/screens/reader_screen.dart`:
+  - Added `DatabaseService` reference and a `Timer`-based debounce (`_saveTimer`, 2-second `_saveDebounceDuration`).
+  - `_onScroll()` listener resets the debounce timer on every scroll event; when it fires, `_saveProgressNow()` persists current `chapterIndex` and `scrollOffset` via `DatabaseService.upsertProgress`.
+  - `_goToChapter()` now calls `_saveProgressNow()` immediately on chapter change (in addition to resetting scroll).
+  - `dispose()` cancels the timer and calls `_saveProgressNow()` to persist final position before the screen is destroyed.
+  - `_loadChapters()` now restores saved progress: after parsing chapters, it queries `DatabaseService.getProgressByBookId`; if a saved progress exists it restores `_currentIndex` and uses `addPostFrameCallback` to restore `scrollOffset` (clamped to `maxScrollExtent`) after the frame renders.
+- Updated `lib/screens/library_screen.dart`:
+  - Added `DatabaseService` reference and a `_progressMap` (`Map<int, ReadingProgress>`) that is populated during `_loadBooks()` by querying progress for each book.
+  - `_openReader()` now awaits the `Navigator.push` and calls `_loadBooks()` on return, so progress subtitles refresh after reading.
+  - `_BookTile` now accepts an optional `ReadingProgress?` parameter; `_buildSubtitle()` appends "Chapter X/N (Y%)" alongside the author when progress exists and `totalChapters > 0`.
+- `flutter analyze` passed with **no issues**.
 
 ## Prompt 10 - Bookmarks
 
