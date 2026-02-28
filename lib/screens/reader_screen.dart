@@ -55,6 +55,9 @@ class _ReaderScreenState extends State<ReaderScreen> {
   /// Tracks the starting X position of a horizontal drag.
   double _dragStartX = 0.0;
 
+  /// Monotonic token used to avoid stale delayed snackbar dismissals.
+  int _snackBarToken = 0;
+
   @override
   void initState() {
     super.initState();
@@ -206,6 +209,24 @@ class _ReaderScreenState extends State<ReaderScreen> {
     );
   }
 
+  /// Shows a snackbar and guarantees auto-dismiss even when accessibility
+  /// settings keep action snackbars visible indefinitely.
+  void _showAutoDismissSnackBar(
+    SnackBar snackBar, {
+    Duration autoDismissAfter = const Duration(seconds: 2),
+  }) {
+    if (!mounted) return;
+
+    final messenger = ScaffoldMessenger.of(context);
+    final token = ++_snackBarToken;
+    messenger.showSnackBar(snackBar);
+
+    Future<void>.delayed(autoDismissAfter, () {
+      if (!mounted || token != _snackBarToken) return;
+      messenger.hideCurrentSnackBar();
+    });
+  }
+
   // ── Bookmarks ────────────────────────────────────────────────────────────
 
   /// Adds a bookmark at the current reading position.
@@ -231,20 +252,18 @@ class _ReaderScreenState extends State<ReaderScreen> {
       _bookmarks.insert(0, saved);
     });
 
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Bookmarked: ${_currentChapter!.title}',
-          ),
-          duration: const Duration(seconds: 2),
-          action: SnackBarAction(
-            label: 'View All',
-            onPressed: _showBookmarks,
-          ),
+    _showAutoDismissSnackBar(
+      SnackBar(
+        content: Text(
+          'Bookmarked: ${_currentChapter!.title}',
         ),
-      );
-    }
+        duration: const Duration(seconds: 2),
+        action: SnackBarAction(
+          label: 'View All',
+          onPressed: _showBookmarks,
+        ),
+      ),
+    );
   }
 
   /// Shows a bottom sheet listing all bookmarks for the current book.
@@ -448,18 +467,16 @@ class _ReaderScreenState extends State<ReaderScreen> {
       _highlights.insert(0, saved);
     });
 
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('Highlight saved'),
-          duration: const Duration(seconds: 2),
-          action: SnackBarAction(
-            label: 'View All',
-            onPressed: _showHighlights,
-          ),
+    _showAutoDismissSnackBar(
+      SnackBar(
+        content: const Text('Highlight saved'),
+        duration: const Duration(seconds: 2),
+        action: SnackBarAction(
+          label: 'View All',
+          onPressed: _showHighlights,
         ),
-      );
-    }
+      ),
+    );
   }
 
   /// Shows a bottom sheet listing all highlights for the current book.
