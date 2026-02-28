@@ -890,6 +890,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
             const SizedBox(height: 16),
             SelectableText.rich(
               _buildHighlightedText(chapter.content, currentHighlights),
+              textAlign: TextAlign.justify,
               contextMenuBuilder: (context, editableTextState) {
                 return _buildSelectionToolbar(context, editableTextState);
               },
