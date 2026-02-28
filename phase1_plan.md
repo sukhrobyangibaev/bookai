@@ -43,7 +43,7 @@ Validation:
 - `flutter pub get` succeeded.
 - `flutter analyze` passed with **no issues**.
 
-## Prompt 02 - Core Models for Phase 1
+## Prompt 02 - Core Models for Phase 1 [DONE]
 
 ```text
 Create Dart models for Phase 1 with `fromMap` and `toMap` helpers:
@@ -71,6 +71,15 @@ Constraints:
 Validation:
 - Run `flutter analyze`.
 ```
+
+### Summary of what was done:
+- Created `lib/models/book.dart` — immutable `Book` class with all required fields (`id`, `title`, `author`, `filePath`, `coverPath`, `totalChapters`, `createdAt`), plus `copyWith`, `toMap`, `fromMap`, `==`, and `hashCode`.
+- Created `lib/models/chapter.dart` — immutable `Chapter` class with `id` (optional), `bookId` (optional), `index`, `title`, `content`, plus `copyWith`, `toMap`, `fromMap`, `==`, and `hashCode`.
+- Created `lib/models/reading_progress.dart` — immutable `ReadingProgress` class with `bookId`, `chapterIndex`, `scrollOffset` (double), `updatedAt`, plus `copyWith`, `toMap`, `fromMap`, `==`, and `hashCode`.
+- Created `lib/models/bookmark.dart` — immutable `Bookmark` class with `id` (optional), `bookId`, `chapterIndex`, `excerpt`, `createdAt`, plus `copyWith`, `toMap`, `fromMap`, `==`, and `hashCode`.
+- Created `lib/models/highlight.dart` — immutable `Highlight` class with `id` (optional), `bookId`, `chapterIndex`, `selectedText`, `colorHex`, `createdAt`, plus `copyWith`, `toMap`, `fromMap`, `==`, and `hashCode`.
+- Created `lib/models/reader_settings.dart` — immutable `ReaderSettings` class with `fontSize` (double) and `themeMode` (`AppThemeMode` enum: `light`, `dark`, `sepia`), includes `defaults` constant, `copyWith`, `toMap`, `fromMap`, `==`, and `hashCode`.
+- `flutter analyze` passed with **no issues**.
 
 ## Prompt 03 - Local Database Service (SQLite)
 
