@@ -115,19 +115,31 @@ class EpubService {
     }
   }
 
-  /// Strips HTML tags and collapses whitespace to produce plain text.
+  /// Strips HTML tags and collapses whitespace to produce plain text,
+  /// preserving paragraph breaks for block-level elements.
   static String _stripHtml(String html) {
     // Remove non-visible elements entirely (tag + content), e.g. <head>,
     // <style>, <script>. Without this, text inside <title>Unknown</title>
     // and similar tags leaks into the visible chapter content.
     var text = html.replaceAll(
-        RegExp(r'<head[^>]*>[\s\S]*?</head>', caseSensitive: false), ' ');
+        RegExp(r'<head[^>]*>[\s\S]*?</head>', caseSensitive: false), '');
     text = text.replaceAll(
-        RegExp(r'<style[^>]*>[\s\S]*?</style>', caseSensitive: false), ' ');
+        RegExp(r'<style[^>]*>[\s\S]*?</style>', caseSensitive: false), '');
     text = text.replaceAll(
-        RegExp(r'<script[^>]*>[\s\S]*?</script>', caseSensitive: false), ' ');
+        RegExp(r'<script[^>]*>[\s\S]*?</script>', caseSensitive: false), '');
+
+    // Replace block-level elements with a single newline marker so
+    // paragraph boundaries survive tag stripping.
+    text = text.replaceAll(
+        RegExp(
+          r'<\s*/?\s*(?:p|div|br|h[1-6]|li|blockquote|hr|section|article|aside|header|footer|nav|figure|figcaption|details|summary|main|tr|dt|dd)\b[^>]*\/?>',
+          caseSensitive: false,
+        ),
+        '\n');
+
     // Remove all remaining HTML tags.
     text = text.replaceAll(RegExp(r'<[^>]*>'), ' ');
+
     // Decode common HTML entities.
     text = text
         .replaceAll('&nbsp;', ' ')
@@ -137,8 +149,24 @@ class EpubService {
         .replaceAll('&quot;', '"')
         .replaceAll('&#39;', "'")
         .replaceAll('&apos;', "'");
-    // Collapse multiple whitespace chars into a single space.
-    text = text.replaceAll(RegExp(r'\s+'), ' ');
+
+    // Normalise line endings.
+    text = text.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
+
+    // Any whitespace run that contains at least one newline → single \n.
+    // This collapses sequences like "\n  \n  \n" into one break.
+    text = text.replaceAll(RegExp(r'[ \t]*\n[\s]*'), '\n');
+
+    // Collapse remaining horizontal whitespace into a single space.
+    text = text.replaceAll(RegExp(r'[ \t]+'), ' ');
+
+    // Trim each line.
+    text = text
+        .split('\n')
+        .map((line) => line.trim())
+        .where((line) => line.isNotEmpty)
+        .join('\n\n');
+
     return text;
   }
 }
