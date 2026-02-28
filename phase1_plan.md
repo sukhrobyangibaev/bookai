@@ -474,7 +474,7 @@ Validation:
 - List refresh is consistent: `_loadBooks()` is called after import success, after delete, and when returning from the reader screen.
 - `flutter analyze` passed with **no issues**.
 
-## Prompt 14 - Phase 1 Hardening + Basic Tests
+## Prompt 14 - Phase 1 Hardening + Basic Tests [DONE]
 
 ```text
 Do a stabilization pass for Phase 1 only.
@@ -497,4 +497,28 @@ Validation:
 - Run `flutter test`.
 - Run `flutter analyze`.
 ```
+
+### Summary of what was done:
+- Added `sqflite_common_ffi` as a dev dependency for FFI-based SQLite in the test environment.
+- Created **model serialization unit tests** (49 tests total across 6 files):
+  - `test/models/book_test.dart` — 8 tests: `toMap`, `fromMap`, roundtrip, `copyWith`, null id/coverPath handling, equality.
+  - `test/models/chapter_test.dart` — 6 tests: `toMap`, `fromMap`, roundtrip, `copyWith`, null id/bookId handling.
+  - `test/models/reading_progress_test.dart` — 6 tests: `toMap`, `fromMap`, roundtrip, `copyWith`, int-to-double coercion, bookId-only equality.
+  - `test/models/bookmark_test.dart` — 6 tests: `toMap`, `fromMap`, roundtrip, `copyWith`, null id handling.
+  - `test/models/highlight_test.dart` — 7 tests: `toMap`, `fromMap`, roundtrip, `copyWith`, null id handling, selectedText-based equality.
+  - `test/models/reader_settings_test.dart` — 16 tests: defaults, `toMap`/`fromMap` for all theme modes, fallbacks for missing/null/unknown values, int-to-double coercion, empty map defaults, roundtrip, `copyWith`, equality, `AppThemeMode` enum validation.
+- Created **settings service and controller tests** (`test/services/settings_test.dart` — 15 tests):
+  - `SettingsService`: load defaults from empty `SharedPreferences`, load stored values, unknown theme mode fallback, `saveFontSize`/`saveThemeMode` persistence, save-then-load roundtrip.
+  - `SettingsController`: starts with defaults, `load()` reads persisted settings and notifies, `setFontSize`/`setThemeMode` update + notify + persist, skip-if-unchanged (no notification), settings getter returns current state.
+- Created **widget test** for `LibraryScreen` (`test/widget_test.dart` — 1 comprehensive test):
+  - Initializes `sqflite_common_ffi` and pre-initializes the database for async compatibility.
+  - Verifies empty state: app bar title "BookAI Library", empty state icon, "Your library is empty" heading, descriptive text, "Import Your First Book" CTA button, "Import EPUB" FAB, settings icon, and no loading indicator.
+- **No analyzer warnings** — `flutter analyze` reports no issues.
+- Updated `README.md` with:
+  - How to run the app (prerequisites, dev commands, APK build instructions).
+  - Complete list of Phase 1 features implemented.
+  - Tech stack summary.
+  - Known limitations (no covers, plain text only, no search, no pagination, no export, single-device, Android only, substring-based highlight matching).
+- `flutter test` — **65 tests passed**.
+- `flutter analyze` — **no issues found**.
 
