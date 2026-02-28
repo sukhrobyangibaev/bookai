@@ -1,0 +1,326 @@
+# Phase 1 Implementation Prompts (BookAI)
+
+Use these prompts in order. Each prompt is scoped to one agent run and only targets Phase 1.
+
+## Prompt 01 - Project Setup + Folder Structure
+
+```text
+You are working in a Flutter project at the repository root.
+
+Task:
+1. Add Phase 1 dependencies in `pubspec.yaml`: `file_picker`, `epubx`, `sqflite`, `path`, `path_provider`, `shared_preferences`.
+2. Create folder structure:
+   - `lib/app.dart`
+   - `lib/models/`
+   - `lib/services/`
+   - `lib/screens/`
+   - `lib/widgets/`
+3. Replace template counter app with a minimal app shell:
+   - `main.dart` should call `runApp(const BookAiApp())`.
+   - `BookAiApp` should render `LibraryScreen` as home.
+4. Add placeholder screens:
+   - `library_screen.dart`
+   - `reader_screen.dart`
+   - `settings_screen.dart`
+   Each screen can show a centered title for now.
+
+Constraints:
+- Keep code compile-safe.
+- Do not implement full business logic yet.
+
+Validation:
+- Run `flutter pub get`.
+- Run `flutter analyze`.
+```
+
+## Prompt 02 - Core Models for Phase 1
+
+```text
+Create Dart models for Phase 1 with `fromMap` and `toMap` helpers:
+
+Files:
+- `lib/models/book.dart`
+- `lib/models/chapter.dart`
+- `lib/models/reading_progress.dart`
+- `lib/models/bookmark.dart`
+- `lib/models/highlight.dart`
+- `lib/models/reader_settings.dart`
+
+Requirements:
+1. `Book`: id, title, author, filePath, coverPath(optional), totalChapters, createdAt.
+2. `Chapter`: id(optional), bookId(optional), index, title, content.
+3. `ReadingProgress`: bookId, chapterIndex, scrollOffset, updatedAt.
+4. `Bookmark`: id(optional), bookId, chapterIndex, excerpt, createdAt.
+5. `Highlight`: id(optional), bookId, chapterIndex, selectedText, colorHex, createdAt.
+6. `ReaderSettings`: fontSize, themeMode (light/dark/sepia as string).
+
+Constraints:
+- Keep models immutable where practical.
+- Use plain Dart classes (no code generation).
+
+Validation:
+- Run `flutter analyze`.
+```
+
+## Prompt 03 - Local Database Service (SQLite)
+
+```text
+Implement SQLite persistence in `lib/services/database_service.dart`.
+
+Task:
+1. Create a singleton `DatabaseService`.
+2. Initialize DB with tables:
+   - books
+   - progress
+   - bookmarks
+   - highlights
+3. Add CRUD methods needed for Phase 1:
+   - insertBook, getAllBooks, deleteBook
+   - upsertProgress, getProgressByBookId
+   - addBookmark, getBookmarksByBookId, deleteBookmark
+   - addHighlight, getHighlightsByBookId, deleteHighlight
+4. Use model map conversion methods.
+
+Constraints:
+- Keep schema simple and readable.
+- Use indexes for `bookId` columns where useful.
+
+Validation:
+- Run `flutter analyze`.
+```
+
+## Prompt 04 - Reader Settings Service
+
+```text
+Implement settings persistence in `lib/services/settings_service.dart` using `shared_preferences`.
+
+Task:
+1. Store and load:
+   - font size (double)
+   - theme mode (`light`, `dark`, `sepia`)
+2. Provide sensible defaults.
+3. Create a `ChangeNotifier`-based controller in `lib/services/settings_controller.dart`:
+   - holds current settings
+   - exposes `setFontSize`, `setThemeMode`
+   - persists changes through `SettingsService`
+4. Wire `BookAiApp` (`lib/app.dart`) to use controller and apply theme mode globally.
+
+Constraints:
+- Keep sepia as a custom ThemeData mapping (not just light/dark).
+
+Validation:
+- Run `flutter analyze`.
+```
+
+## Prompt 05 - EPUB Import + Local Storage
+
+```text
+Implement file import flow.
+
+Files:
+- `lib/services/storage_service.dart`
+- `lib/services/library_service.dart`
+- update `lib/screens/library_screen.dart`
+
+Task:
+1. Use `file_picker` to choose `.epub` files.
+2. Copy selected file into app documents directory (`books/`).
+3. Parse minimal metadata (title/author if available; fallback to filename).
+4. Save book record via `DatabaseService`.
+5. In `LibraryScreen`, add floating action button `Import EPUB` to trigger import.
+6. Refresh and show imported books in a list.
+
+Constraints:
+- Avoid blocking UI; use async loading states.
+- Handle duplicate imports gracefully (same filepath or same title+author).
+
+Validation:
+- Run `flutter analyze`.
+```
+
+## Prompt 06 - EPUB Parsing Service
+
+```text
+Create `lib/services/epub_service.dart` to parse epub content into chapters.
+
+Task:
+1. Load epub from local file path using `epubx`.
+2. Extract ordered chapter list with:
+   - chapter index
+   - chapter title (fallback: "Chapter N")
+   - plain text content (strip HTML tags if needed)
+3. Expose:
+   - `Future<List<Chapter>> parseChapters(String filePath)`
+4. Add simple in-memory cache by bookId or filepath to avoid repeated heavy parsing in one session.
+
+Constraints:
+- Handle malformed/empty chapter content safely.
+- Keep API small and easy to test.
+
+Validation:
+- Run `flutter analyze`.
+```
+
+## Prompt 07 - Reader Screen Baseline
+
+```text
+Implement baseline reader UI in `lib/screens/reader_screen.dart`.
+
+Task:
+1. Accept a `Book` argument.
+2. On load, parse chapters via `EpubService`.
+3. Display current chapter title and scrollable chapter content.
+4. Add previous/next chapter buttons.
+5. From `LibraryScreen`, tap a book item to open `ReaderScreen(book: selectedBook)`.
+
+Constraints:
+- Show loading and error states.
+- Keep UI simple but clean.
+
+Validation:
+- Run `flutter analyze`.
+```
+
+## Prompt 08 - Table of Contents + Chapter Jump
+
+```text
+Enhance reader navigation.
+
+Task:
+1. Add a table of contents drawer/bottom sheet in `ReaderScreen`.
+2. TOC should list chapter titles and allow jumping to selected chapter index.
+3. Highlight current chapter in TOC.
+4. Preserve scroll reset behavior when switching chapters.
+
+Constraints:
+- Keep chapter switch logic centralized in one method.
+
+Validation:
+- Run `flutter analyze`.
+```
+
+## Prompt 09 - Reading Progress Tracking
+
+```text
+Add persistent reading progress.
+
+Task:
+1. In `ReaderScreen`, track:
+   - current chapter index
+   - scroll offset
+2. Save progress via `DatabaseService.upsertProgress`:
+   - periodically (debounced)
+   - on chapter change
+   - on dispose
+3. On opening a book, restore last saved chapter and scroll position.
+4. In `LibraryScreen`, show a lightweight subtitle like "Chapter X" or percentage if possible.
+
+Constraints:
+- Avoid excessive writes; debounce saves.
+
+Validation:
+- Run `flutter analyze`.
+```
+
+## Prompt 10 - Bookmarks
+
+```text
+Implement bookmarks end-to-end.
+
+Task:
+1. In reader app bar, add bookmark action to save current position.
+2. Bookmark record should include chapter index and small excerpt.
+3. Add bookmarks panel (bottom sheet or separate route) listing bookmarks for current book.
+4. Tapping a bookmark jumps reader to saved chapter.
+5. Support bookmark deletion from list.
+
+Constraints:
+- Keep bookmark creation available in one tap.
+
+Validation:
+- Run `flutter analyze`.
+```
+
+## Prompt 11 - Text Highlights
+
+```text
+Implement basic text highlight flow.
+
+Task:
+1. Enable text selection in reader content (`SelectableText`-based approach is fine).
+2. When user selects text, show action to save highlight.
+3. Persist highlight with chapter index + selected text + default color.
+4. Add "Highlights" view for current book (sheet or route).
+5. Allow deleting highlights.
+
+Constraints:
+- Keep implementation robust even if exact text appears multiple times.
+- Do not over-engineer color system; one default highlight color is enough.
+
+Validation:
+- Run `flutter analyze`.
+```
+
+## Prompt 12 - Settings Screen UI
+
+```text
+Build `SettingsScreen` and wire it to `SettingsController`.
+
+Task:
+1. Add font size slider (e.g., 14-28).
+2. Add theme selector (light/dark/sepia).
+3. Persist changes immediately.
+4. Add entry point from `LibraryScreen` (app bar action).
+5. Ensure reader content uses chosen font size and updates live when reopened.
+
+Constraints:
+- Keep settings screen minimal and readable.
+
+Validation:
+- Run `flutter analyze`.
+```
+
+## Prompt 13 - Local Library Improvements
+
+```text
+Polish `LibraryScreen`.
+
+Task:
+1. Show each book as card/list tile with title, author, and progress snippet.
+2. Add delete book action:
+   - remove DB records (book, progress, bookmarks, highlights)
+   - delete local epub file from storage
+3. Add empty state with clear import CTA.
+4. Keep list refresh consistent after import/delete.
+
+Constraints:
+- Confirm deletion with dialog.
+
+Validation:
+- Run `flutter analyze`.
+```
+
+## Prompt 14 - Phase 1 Hardening + Basic Tests
+
+```text
+Do a stabilization pass for Phase 1 only.
+
+Task:
+1. Add basic unit tests for:
+   - settings read/write defaults
+   - model map serialization
+2. Add one widget test for `LibraryScreen` empty state and import button presence.
+3. Fix analyzer warnings.
+4. Update `README.md` with:
+   - how to run app
+   - Phase 1 features implemented
+   - known limitations
+
+Constraints:
+- Do not start Phase 2/3/4/5 features.
+
+Validation:
+- Run `flutter test`.
+- Run `flutter analyze`.
+```
+
