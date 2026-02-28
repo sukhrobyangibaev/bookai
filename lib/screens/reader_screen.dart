@@ -88,6 +88,11 @@ class _ReaderScreenState extends State<ReaderScreen> {
       final bookId = widget.book.id;
       ReadingProgress? saved;
       if (bookId != null) {
+        // Persist the actual chapter count so the library card can show progress.
+        if (chapters.length != widget.book.totalChapters) {
+          await _db.updateBookTotalChapters(bookId, chapters.length);
+        }
+
         saved = await _db.getProgressByBookId(bookId);
         // Load bookmarks and highlights for this book.
         _bookmarks = await _db.getBookmarksByBookId(bookId);

@@ -115,6 +115,16 @@ class DatabaseService {
     await db.delete('books', where: 'id = ?', whereArgs: [bookId]);
   }
 
+  Future<void> updateBookTotalChapters(int bookId, int totalChapters) async {
+    final db = await database;
+    await db.update(
+      'books',
+      {'totalChapters': totalChapters},
+      where: 'id = ?',
+      whereArgs: [bookId],
+    );
+  }
+
   // ── Reading Progress ──────────────────────────────────────────────────────
 
   Future<void> upsertProgress(ReadingProgress progress) async {
