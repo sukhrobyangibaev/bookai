@@ -124,7 +124,7 @@ Validation:
 - All methods use model `toMap()` / `fromMap()` helpers.
 - `flutter analyze` passed with **no issues**.
 
-## Prompt 04 - Reader Settings Service
+## Prompt 04 - Reader Settings Service [DONE]
 
 ```text
 Implement settings persistence in `lib/services/settings_service.dart` using `shared_preferences`.
@@ -163,7 +163,7 @@ Validation:
   - `MaterialApp` is rebuilt reactively via `ListenableBuilder` whenever the controller notifies.
 - `flutter analyze` passed with **no issues**.
 
-## Prompt 05 - EPUB Import + Local Storage
+## Prompt 05 - EPUB Import + Local Storage [DONE]
 
 ```text
 Implement file import flow.
@@ -188,6 +188,22 @@ Constraints:
 Validation:
 - Run `flutter analyze`.
 ```
+
+### Summary of what was done:
+- Created `lib/services/storage_service.dart` — singleton `StorageService` with:
+  - `getBooksDirectory()` — returns (and lazily creates) `<documents>/books/` directory via `path_provider`.
+  - `copyEpubToStorage(File, {overwrite})` — copies a source epub into the books directory; returns the destination `File`; skips overwrite by default if destination already exists.
+  - `deleteBookFile(String)` — deletes the epub file from storage if it exists.
+- Created `lib/services/library_service.dart` — singleton `LibraryService` with a sealed `ImportResult` union (`ImportSuccess`, `ImportCancelled`, `ImportDuplicate`, `ImportError`) and:
+  - `importEpub()` — full import flow: opens `file_picker` (epub only), checks for duplicates by destination path via new `DatabaseService.getBookByFilePath`, copies file via `StorageService`, parses title/author with `epubx` (falls back to filename / "Unknown Author"), persists `Book` via `DatabaseService`; rolls back copied file on DB failure.
+  - `getAllBooks()` — thin wrapper over `DatabaseService.getAllBooks()`.
+- Added `getBookByFilePath(String)` to `DatabaseService` — queries `books` table by `filePath`.
+- Updated `lib/screens/library_screen.dart` — converted to `StatefulWidget`:
+  - Loads books on `initState`; shows `CircularProgressIndicator` while loading.
+  - Empty state with icon and "Tap Import EPUB" hint when no books exist.
+  - `ListView` with `Card`/`ListTile` items (title, author, book icon) when books are present; pull-to-refresh supported.
+  - `FloatingActionButton.extended` ("Import EPUB") triggers import and shows a loading spinner while in progress; displays `SnackBar` for success, duplicate, or error outcomes.
+- `flutter analyze` passed with **no issues**.
 
 ## Prompt 06 - EPUB Parsing Service
 

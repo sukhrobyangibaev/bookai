@@ -98,6 +98,18 @@ class DatabaseService {
     return rows.map(Book.fromMap).toList();
   }
 
+  Future<Book?> getBookByFilePath(String filePath) async {
+    final db = await database;
+    final rows = await db.query(
+      'books',
+      where: 'filePath = ?',
+      whereArgs: [filePath],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return Book.fromMap(rows.first);
+  }
+
   Future<void> deleteBook(int bookId) async {
     final db = await database;
     await db.delete('books', where: 'id = ?', whereArgs: [bookId]);
