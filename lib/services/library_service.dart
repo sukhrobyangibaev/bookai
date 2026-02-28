@@ -6,6 +6,7 @@ import 'package:path/path.dart' as p;
 
 import '../models/book.dart';
 import 'database_service.dart';
+import 'epub_service.dart';
 import 'storage_service.dart';
 
 /// Outcome of an [LibraryService.importEpub] call.
@@ -120,6 +121,23 @@ class LibraryService {
     }
 
     return ImportSuccess(saved);
+  }
+
+  // ── Delete ──────────────────────────────────────────────────────────────────
+
+  /// Deletes a book and all associated data (progress, bookmarks, highlights,
+  /// local epub file, and in-memory epub cache).
+  Future<void> deleteBook(Book book) async {
+    if (book.id != null) {
+      // CASCADE deletes handle progress, bookmarks, and highlights.
+      await _db.deleteBook(book.id!);
+    }
+
+    // Remove the epub file from local storage.
+    await _storage.deleteBookFile(book.filePath);
+
+    // Evict from EpubService in-memory cache so stale data isn't served.
+    EpubService.instance.evict(book.filePath);
   }
 
   // ── Library queries ────────────────────────────────────────────────────────

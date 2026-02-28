@@ -432,7 +432,7 @@ Validation:
   - `_buildContent()` now reads `SettingsControllerScope.of(context).fontSize` and applies it to the chapter body `SelectableText.rich` style, so reader content reflects the chosen font size live when reopened.
 - `flutter analyze` passed with **no issues**.
 
-## Prompt 13 - Local Library Improvements
+## Prompt 13 - Local Library Improvements [DONE]
 
 ```text
 Polish `LibraryScreen`.
@@ -451,6 +451,28 @@ Constraints:
 Validation:
 - Run `flutter analyze`.
 ```
+
+### Summary of what was done:
+- Rewrote `lib/screens/library_screen.dart` — replaced `_BookTile` (`ListTile`) with a polished `_BookCard` widget:
+  - Book icon container (rounded rectangle, primary container color) on the left.
+  - Title (up to 2 lines, bold `titleMedium`) and author (`bodyMedium`, muted color) with proper text overflow handling.
+  - `LinearProgressIndicator` bar showing reading progress fraction (0 when not started), with a text label below: "Chapter X of N (Y%)" or "Not started".
+  - `PopupMenuButton` (three-dot menu) with a "Delete" option styled in the error color.
+- Added `_deleteBook(Book)` method with a confirmation `AlertDialog`:
+  - Shows book title and warns that bookmarks, highlights, and progress will be permanently removed.
+  - "Cancel" (`TextButton`) and "Delete" (`FilledButton` in error color) actions.
+  - On confirmation, calls `LibraryService.deleteBook(book)` then refreshes the list and shows a `SnackBar`.
+- Added `deleteBook(Book)` method to `lib/services/library_service.dart`:
+  - Calls `DatabaseService.deleteBook(id)` (CASCADE deletes handle progress, bookmarks, highlights).
+  - Calls `StorageService.deleteBookFile(filePath)` to remove the local epub file.
+  - Calls `EpubService.instance.evict(filePath)` to clear the in-memory chapter cache.
+- Improved empty state in `_buildEmptyState()`:
+  - Larger icon (`auto_stories_outlined`, 96px, faded primary color).
+  - `headlineSmall` title "Your library is empty" with bold weight.
+  - Descriptive body text explaining local storage.
+  - `FilledButton.icon` CTA: "Import Your First Book" (also shows spinner when importing).
+- List refresh is consistent: `_loadBooks()` is called after import success, after delete, and when returning from the reader screen.
+- `flutter analyze` passed with **no issues**.
 
 ## Prompt 14 - Phase 1 Hardening + Basic Tests
 
