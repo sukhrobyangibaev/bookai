@@ -42,10 +42,9 @@ The APK will be at `build/app/outputs/flutter-apk/app-release.apk`. Install it d
 - **Reader** -- scrollable chapter content with previous/next navigation
 - **Table of contents** -- bottom sheet listing all chapters; tap to jump; current chapter highlighted
 - **Reading progress** -- persisted chapter index and scroll offset; debounced saves; restored on reopen; progress shown in library
-- **Bookmarks** -- one-tap bookmark at current chapter with auto-excerpt; bookmarks panel; tap to jump; swipe or tap to delete
 - **Text highlights** -- select text and tap "Highlight" from context menu; inline highlight rendering; highlights panel; delete support
 - **Settings** -- font size slider (14--28), theme selector (light / dark / sepia); persisted via SharedPreferences; applied globally
-- **SQLite persistence** -- books, progress, bookmarks, and highlights stored locally with cascade deletes
+- **SQLite persistence** -- books, progress, highlights, and resume markers stored locally with cascade deletes
 
 ## Tech Stack
 
@@ -61,7 +60,7 @@ The APK will be at `build/app/outputs/flutter-apk/app-release.apk`. Install it d
 - **Plain text only** -- HTML formatting in EPUB chapters is stripped; no rich text, images, or CSS styling in the reader
 - **No search** -- no full-text search within books
 - **No pagination** -- chapters render as a single scrollable view rather than paginated pages
-- **No annotation export** -- bookmarks and highlights cannot be exported
+- **No annotation export** -- highlights and resume markers cannot be exported
 - **Single-device** -- all data is local with no sync or backup mechanism
 - **Android only** -- tested on Android; iOS/desktop builds are not validated
 - **Highlight matching** -- highlights are matched by plain-text substring; if the same text appears multiple times in a chapter, all occurrences are highlighted

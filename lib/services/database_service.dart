@@ -3,7 +3,6 @@ import 'package:path/path.dart';
 
 import '../models/book.dart';
 import '../models/reading_progress.dart';
-import '../models/bookmark.dart';
 import '../models/highlight.dart';
 import '../models/resume_marker.dart';
 
@@ -24,7 +23,7 @@ class DatabaseService {
 
     return openDatabase(
       path,
-      version: 2,
+      version: 3,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -54,19 +53,6 @@ class DatabaseService {
     ''');
 
     await db.execute('''
-      CREATE TABLE bookmarks (
-        id           INTEGER PRIMARY KEY AUTOINCREMENT,
-        bookId       INTEGER NOT NULL,
-        chapterIndex INTEGER NOT NULL,
-        excerpt      TEXT    NOT NULL,
-        createdAt    TEXT    NOT NULL,
-        FOREIGN KEY (bookId) REFERENCES books(id) ON DELETE CASCADE
-      )
-    ''');
-
-    await db.execute('CREATE INDEX idx_bookmarks_bookId ON bookmarks(bookId)');
-
-    await db.execute('''
       CREATE TABLE highlights (
         id           INTEGER PRIMARY KEY AUTOINCREMENT,
         bookId       INTEGER NOT NULL,
@@ -87,6 +73,10 @@ class DatabaseService {
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
     if (oldVersion < 2) {
       await _createResumeMarkersTable(db);
+    }
+    if (oldVersion < 3) {
+      await db.execute('DROP INDEX IF EXISTS idx_bookmarks_bookId');
+      await db.execute('DROP TABLE IF EXISTS bookmarks');
     }
   }
 
@@ -194,35 +184,6 @@ class DatabaseService {
     );
     if (rows.isEmpty) return null;
     return ResumeMarker.fromMap(rows.first);
-  }
-
-  Future<void> deleteResumeMarkerByBookId(int bookId) async {
-    final db = await database;
-    await db.delete('resume_markers', where: 'bookId = ?', whereArgs: [bookId]);
-  }
-
-  // ── Bookmarks ─────────────────────────────────────────────────────────────
-
-  Future<Bookmark> addBookmark(Bookmark bookmark) async {
-    final db = await database;
-    final id = await db.insert('bookmarks', bookmark.toMap());
-    return bookmark.copyWith(id: id);
-  }
-
-  Future<List<Bookmark>> getBookmarksByBookId(int bookId) async {
-    final db = await database;
-    final rows = await db.query(
-      'bookmarks',
-      where: 'bookId = ?',
-      whereArgs: [bookId],
-      orderBy: 'createdAt DESC',
-    );
-    return rows.map(Bookmark.fromMap).toList();
-  }
-
-  Future<void> deleteBookmark(int bookmarkId) async {
-    final db = await database;
-    await db.delete('bookmarks', where: 'id = ?', whereArgs: [bookmarkId]);
   }
 
   // ── Highlights ────────────────────────────────────────────────────────────

@@ -94,7 +94,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
         title: const Text('Delete Book'),
         content: Text(
           'Are you sure you want to delete "${book.title}"?\n\n'
-          'This will remove the book, all bookmarks, highlights, '
+          'This will remove the book, all highlights, '
           'and reading progress permanently.',
         ),
         actions: [

@@ -20,7 +20,6 @@ void main() {
       final db = await DatabaseService.instance.database;
       await db.delete('resume_markers');
       await db.delete('progress');
-      await db.delete('bookmarks');
       await db.delete('highlights');
       await db.delete('books');
     });

@@ -102,6 +102,7 @@ class _BookAiAppState extends State<BookAiApp> {
           controller: _controller,
           child: MaterialApp(
             title: 'BookAI',
+            debugShowCheckedModeBanner: false,
             theme: _buildTheme(_controller.themeMode),
             home: const LibraryScreen(),
           ),

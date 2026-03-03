@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 
 import '../app.dart';
 import '../models/book.dart';
-import '../models/bookmark.dart';
 import '../models/chapter.dart';
 import '../models/highlight.dart';
 import '../models/reading_progress.dart';
@@ -31,9 +30,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
   int _currentIndex = 0;
   bool _loading = true;
   String? _error;
-
-  /// Bookmarks for the current book.
-  List<Bookmark> _bookmarks = [];
+  bool _isNavbarVisible = false;
 
   /// Highlights for the current book.
   List<Highlight> _highlights = [];
@@ -106,8 +103,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
 
         savedProgress = await _db.getProgressByBookId(bookId);
         savedMarker = await _db.getResumeMarkerByBookId(bookId);
-        // Load bookmarks and highlights for this book.
-        _bookmarks = await _db.getBookmarksByBookId(bookId);
+        // Load highlights for this book.
         _highlights = await _db.getHighlightsByBookId(bookId);
       }
 
@@ -167,6 +163,10 @@ class _ReaderScreenState extends State<ReaderScreen> {
   }
 
   // ── Chapter navigation ───────────────────────────────────────────────────
+
+  void _toggleNavbar() {
+    setState(() => _isNavbarVisible = !_isNavbarVisible);
+  }
 
   void _goToChapter(int index) {
     if (_chapters == null) return;
@@ -284,22 +284,6 @@ class _ReaderScreenState extends State<ReaderScreen> {
     );
   }
 
-  Future<void> _clearResumeMarker() async {
-    final bookId = widget.book.id;
-    if (bookId == null || _resumeMarker == null) return;
-
-    await _db.deleteResumeMarkerByBookId(bookId);
-    if (!mounted) return;
-
-    setState(() => _resumeMarker = null);
-    _showAutoDismissSnackBar(
-      const SnackBar(
-        content: Text('Resume point cleared'),
-        duration: Duration(seconds: 2),
-      ),
-    );
-  }
-
   /// Shows a snackbar and guarantees auto-dismiss even when accessibility
   /// settings keep action snackbars visible indefinitely.
   void _showAutoDismissSnackBar(
@@ -316,223 +300,6 @@ class _ReaderScreenState extends State<ReaderScreen> {
       if (!mounted || token != _snackBarToken) return;
       messenger.hideCurrentSnackBar();
     });
-  }
-
-  // ── Bookmarks ────────────────────────────────────────────────────────────
-
-  /// Adds a bookmark at the current reading position.
-  Future<void> _addBookmark() async {
-    final bookId = widget.book.id;
-    if (bookId == null || _currentChapter == null) return;
-
-    // Generate a short excerpt from the start of the current chapter content.
-    final content = _currentChapter!.content;
-    final excerpt = content.length > 80
-        ? '${content.substring(0, 80).trim()}...'
-        : content.trim();
-
-    final bookmark = Bookmark(
-      bookId: bookId,
-      chapterIndex: _currentIndex,
-      excerpt: excerpt,
-      createdAt: DateTime.now(),
-    );
-
-    final saved = await _db.addBookmark(bookmark);
-    setState(() {
-      _bookmarks.insert(0, saved);
-    });
-
-    _showAutoDismissSnackBar(
-      SnackBar(
-        content: Text(
-          'Bookmarked: ${_currentChapter!.title}',
-        ),
-        duration: const Duration(seconds: 2),
-        action: SnackBarAction(
-          label: 'View All',
-          onPressed: _showBookmarks,
-        ),
-      ),
-    );
-  }
-
-  /// Shows a bottom sheet listing all bookmarks for the current book.
-  void _showBookmarks() {
-    if (widget.book.id == null) return;
-
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      builder: (sheetContext) {
-        return StatefulBuilder(
-          builder: (sheetContext, setSheetState) {
-            return DraggableScrollableSheet(
-              initialChildSize: 0.6,
-              minChildSize: 0.3,
-              maxChildSize: 0.9,
-              expand: false,
-              builder: (context, scrollController) {
-                return Column(
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 16, vertical: 12),
-                      child: Row(
-                        children: [
-                          Text(
-                            'Bookmarks',
-                            style: Theme.of(context).textTheme.titleMedium,
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            '(${_bookmarks.length})',
-                            style: Theme.of(context)
-                                .textTheme
-                                .bodySmall
-                                ?.copyWith(
-                                  color: Theme.of(context).colorScheme.outline,
-                                ),
-                          ),
-                          const Spacer(),
-                          IconButton(
-                            icon: const Icon(Icons.close),
-                            onPressed: () => Navigator.of(context).pop(),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const Divider(height: 1),
-                    if (_bookmarks.isEmpty)
-                      Expanded(
-                        child: Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(
-                                Icons.bookmark_border,
-                                size: 48,
-                                color: Theme.of(context).colorScheme.outline,
-                              ),
-                              const SizedBox(height: 12),
-                              Text(
-                                'No bookmarks yet',
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .bodyMedium
-                                    ?.copyWith(
-                                      color:
-                                          Theme.of(context).colorScheme.outline,
-                                    ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                'Tap the bookmark icon to save your position',
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .bodySmall
-                                    ?.copyWith(
-                                      color:
-                                          Theme.of(context).colorScheme.outline,
-                                    ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      )
-                    else
-                      Expanded(
-                        child: ListView.builder(
-                          controller: scrollController,
-                          itemCount: _bookmarks.length,
-                          itemBuilder: (context, index) {
-                            final bm = _bookmarks[index];
-                            final chapterTitle = _chapters != null &&
-                                    bm.chapterIndex >= 0 &&
-                                    bm.chapterIndex < _chapters!.length
-                                ? _chapters![bm.chapterIndex].title
-                                : 'Chapter ${bm.chapterIndex + 1}';
-
-                            return Dismissible(
-                              key: ValueKey(bm.id),
-                              direction: DismissDirection.endToStart,
-                              background: Container(
-                                alignment: Alignment.centerRight,
-                                padding: const EdgeInsets.only(right: 20),
-                                color: Theme.of(context).colorScheme.error,
-                                child: Icon(
-                                  Icons.delete,
-                                  color: Theme.of(context).colorScheme.onError,
-                                ),
-                              ),
-                              onDismissed: (_) async {
-                                final removed = _bookmarks[index];
-                                setState(() {
-                                  _bookmarks.removeAt(index);
-                                });
-                                setSheetState(() {});
-                                if (removed.id != null) {
-                                  await _db.deleteBookmark(removed.id!);
-                                }
-                              },
-                              child: ListTile(
-                                leading: Icon(
-                                  Icons.bookmark,
-                                  color: Theme.of(context).colorScheme.primary,
-                                ),
-                                title: Text(
-                                  chapterTitle,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                                subtitle: Text(
-                                  bm.excerpt,
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: Theme.of(context)
-                                      .textTheme
-                                      .bodySmall
-                                      ?.copyWith(
-                                        color: Theme.of(context)
-                                            .colorScheme
-                                            .outline,
-                                      ),
-                                ),
-                                trailing: IconButton(
-                                  icon: Icon(
-                                    Icons.delete_outline,
-                                    size: 20,
-                                    color:
-                                        Theme.of(context).colorScheme.outline,
-                                  ),
-                                  onPressed: () async {
-                                    final removed = _bookmarks[index];
-                                    setState(() {
-                                      _bookmarks.removeAt(index);
-                                    });
-                                    setSheetState(() {});
-                                    if (removed.id != null) {
-                                      await _db.deleteBookmark(removed.id!);
-                                    }
-                                  },
-                                ),
-                                onTap: () {
-                                  Navigator.of(context).pop();
-                                  _goToChapter(bm.chapterIndex);
-                                },
-                              ),
-                            );
-                          },
-                        ),
-                      ),
-                  ],
-                );
-              },
-            );
-          },
-        );
-      },
-    );
   }
 
   // ── Highlights ───────────────────────────────────────────────────────────
@@ -851,53 +618,71 @@ class _ReaderScreenState extends State<ReaderScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text(
-          _currentChapter?.title ?? widget.book.title,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
-        actions: [
-          if (_chapters != null && _chapters!.isNotEmpty) ...[
-            IconButton(
-              icon: const Icon(Icons.bookmark_add_outlined),
-              tooltip: 'Add Bookmark',
-              onPressed: _addBookmark,
-            ),
-            IconButton(
-              icon: const Icon(Icons.bookmarks_outlined),
-              tooltip: 'Bookmarks',
-              onPressed: _showBookmarks,
-            ),
-            IconButton(
-              icon: const Icon(Icons.highlight_outlined),
-              tooltip: 'Highlights',
-              onPressed: _showHighlights,
-            ),
-            if (_resumeMarker != null)
-              IconButton(
-                icon: const Icon(Icons.bookmark_remove_outlined),
-                tooltip: 'Clear Resume Point',
-                onPressed: _clearResumeMarker,
+      appBar: _isNavbarVisible
+          ? AppBar(
+              title: Text(
+                _currentChapter?.title ?? widget.book.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
-            IconButton(
-              icon: const Icon(Icons.toc),
-              tooltip: 'Table of Contents',
-              onPressed: _showTableOfContents,
-            ),
-            Center(
-              child: Padding(
-                padding: const EdgeInsets.only(right: 16),
-                child: Text(
-                  '${_currentIndex + 1} / ${_chapters!.length}',
-                  style: Theme.of(context).textTheme.bodySmall,
+              actions: [
+                if (_chapters != null && _chapters!.isNotEmpty) ...[
+                  IconButton(
+                    icon: const Icon(Icons.highlight_outlined),
+                    tooltip: 'Highlights',
+                    onPressed: _showHighlights,
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.toc),
+                    tooltip: 'Table of Contents',
+                    onPressed: _showTableOfContents,
+                  ),
+                  Center(
+                    child: Padding(
+                      padding: const EdgeInsets.only(right: 16),
+                      child: Text(
+                        '${_currentIndex + 1} / ${_chapters!.length}',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ),
+                  ),
+                ],
+                IconButton(
+                  icon: const Icon(Icons.menu),
+                  tooltip: 'Hide Navigation Bar',
+                  onPressed: _toggleNavbar,
+                ),
+              ],
+            )
+          : null,
+      body: Stack(
+        children: [
+          Positioned.fill(child: _buildBody()),
+          if (!_isNavbarVisible)
+            SafeArea(
+              child: Align(
+                alignment: Alignment.topRight,
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 8, right: 8),
+                  child: Material(
+                    elevation: 2,
+                    color: Theme.of(context).colorScheme.surface.withAlpha(220),
+                    shape: const CircleBorder(),
+                    child: IconButton(
+                      icon: const Icon(Icons.menu),
+                      iconSize: 20,
+                      tooltip: 'Show Navigation Bar',
+                      onPressed: _toggleNavbar,
+                      padding: const EdgeInsets.all(8),
+                      constraints:
+                          const BoxConstraints.tightFor(width: 36, height: 36),
+                    ),
+                  ),
                 ),
               ),
             ),
-          ],
         ],
       ),
-      body: _buildBody(),
     );
   }
 
@@ -1159,7 +944,6 @@ class _ReaderScreenState extends State<ReaderScreen> {
       buttonItems: items,
     );
   }
-
 }
 
 class _StyledRange {

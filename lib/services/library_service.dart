@@ -125,11 +125,11 @@ class LibraryService {
 
   // ── Delete ──────────────────────────────────────────────────────────────────
 
-  /// Deletes a book and all associated data (progress, bookmarks, highlights,
+  /// Deletes a book and all associated data (progress, highlights,
   /// local epub file, and in-memory epub cache).
   Future<void> deleteBook(Book book) async {
     if (book.id != null) {
-      // CASCADE deletes handle progress, bookmarks, and highlights.
+      // CASCADE deletes handle progress and highlights.
       await _db.deleteBook(book.id!);
     }
 
