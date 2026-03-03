@@ -5,6 +5,7 @@ import '../models/book.dart';
 import '../models/reading_progress.dart';
 import '../models/bookmark.dart';
 import '../models/highlight.dart';
+import '../models/resume_marker.dart';
 
 class DatabaseService {
   DatabaseService._();
@@ -23,8 +24,9 @@ class DatabaseService {
 
     return openDatabase(
       path,
-      version: 1,
+      version: 2,
       onCreate: _onCreate,
+      onUpgrade: _onUpgrade,
     );
   }
 
@@ -78,6 +80,29 @@ class DatabaseService {
 
     await db
         .execute('CREATE INDEX idx_highlights_bookId ON highlights(bookId)');
+
+    await _createResumeMarkersTable(db);
+  }
+
+  Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 2) {
+      await _createResumeMarkersTable(db);
+    }
+  }
+
+  Future<void> _createResumeMarkersTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS resume_markers (
+        bookId         INTEGER PRIMARY KEY,
+        chapterIndex   INTEGER NOT NULL,
+        selectedText   TEXT    NOT NULL,
+        selectionStart INTEGER NOT NULL,
+        selectionEnd   INTEGER NOT NULL,
+        scrollOffset   REAL    NOT NULL DEFAULT 0.0,
+        createdAt      TEXT    NOT NULL,
+        FOREIGN KEY (bookId) REFERENCES books(id) ON DELETE CASCADE
+      )
+    ''');
   }
 
   // ── Books ─────────────────────────────────────────────────────────────────
@@ -146,6 +171,34 @@ class DatabaseService {
     );
     if (rows.isEmpty) return null;
     return ReadingProgress.fromMap(rows.first);
+  }
+
+  // ── Resume Markers ────────────────────────────────────────────────────────
+
+  Future<void> upsertResumeMarker(ResumeMarker marker) async {
+    final db = await database;
+    await db.insert(
+      'resume_markers',
+      marker.toMap(),
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<ResumeMarker?> getResumeMarkerByBookId(int bookId) async {
+    final db = await database;
+    final rows = await db.query(
+      'resume_markers',
+      where: 'bookId = ?',
+      whereArgs: [bookId],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return ResumeMarker.fromMap(rows.first);
+  }
+
+  Future<void> deleteResumeMarkerByBookId(int bookId) async {
+    final db = await database;
+    await db.delete('resume_markers', where: 'bookId = ?', whereArgs: [bookId]);
   }
 
   // ── Bookmarks ─────────────────────────────────────────────────────────────

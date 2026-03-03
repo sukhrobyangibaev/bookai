@@ -15,6 +15,16 @@ void main() {
   });
 
   group('LibraryScreen', () {
+    setUp(() async {
+      // Ensure test isolation: library empty-state expectations require no books.
+      final db = await DatabaseService.instance.database;
+      await db.delete('resume_markers');
+      await db.delete('progress');
+      await db.delete('bookmarks');
+      await db.delete('highlights');
+      await db.delete('books');
+    });
+
     testWidgets('empty state shows correct elements and import buttons',
         (WidgetTester tester) async {
       SharedPreferences.setMockInitialValues({});

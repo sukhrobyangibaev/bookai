@@ -8,6 +8,7 @@ import '../models/bookmark.dart';
 import '../models/chapter.dart';
 import '../models/highlight.dart';
 import '../models/reading_progress.dart';
+import '../models/resume_marker.dart';
 import '../services/database_service.dart';
 import '../services/epub_service.dart';
 
@@ -37,8 +38,14 @@ class _ReaderScreenState extends State<ReaderScreen> {
   /// Highlights for the current book.
   List<Highlight> _highlights = [];
 
+  /// Optional manual "resume from here" marker for this book.
+  ResumeMarker? _resumeMarker;
+
   /// Default highlight color (warm yellow).
   static const _defaultHighlightColorHex = '#FFEB3B';
+
+  /// Visual color for manual resume marker text.
+  static const _resumeMarkerColor = Color(0xFF80DEEA);
 
   /// Debounce timer for persisting scroll offset.
   Timer? _saveTimer;
@@ -87,40 +94,65 @@ class _ReaderScreenState extends State<ReaderScreen> {
       final chapters = await _epub.parseChapters(widget.book.filePath);
       if (!mounted) return;
 
-      // Restore saved progress if available.
+      // Restore saved progress and manual resume marker if available.
       final bookId = widget.book.id;
-      ReadingProgress? saved;
+      ReadingProgress? savedProgress;
+      ResumeMarker? savedMarker;
       if (bookId != null) {
         // Persist the actual chapter count so the library card can show progress.
         if (chapters.length != widget.book.totalChapters) {
           await _db.updateBookTotalChapters(bookId, chapters.length);
         }
 
-        saved = await _db.getProgressByBookId(bookId);
+        savedProgress = await _db.getProgressByBookId(bookId);
+        savedMarker = await _db.getResumeMarkerByBookId(bookId);
         // Load bookmarks and highlights for this book.
         _bookmarks = await _db.getBookmarksByBookId(bookId);
         _highlights = await _db.getHighlightsByBookId(bookId);
       }
 
+      final markerChapterIndex = savedMarker?.chapterIndex ?? -1;
+      final markerChapterIsValid =
+          markerChapterIndex >= 0 && markerChapterIndex < chapters.length;
+      final progressChapterIndex = savedProgress?.chapterIndex ?? -1;
+      final progressChapterIsValid =
+          progressChapterIndex >= 0 && progressChapterIndex < chapters.length;
+      final restoredFromMarker = markerChapterIsValid;
+
+      final initialChapterIndex = markerChapterIsValid
+          ? markerChapterIndex
+          : (progressChapterIsValid ? progressChapterIndex : 0);
+      final initialScrollOffset = markerChapterIsValid
+          ? (savedMarker?.scrollOffset ?? 0.0)
+          : (savedProgress?.scrollOffset ?? 0.0);
+
       if (mounted) {
         setState(() {
           _chapters = chapters;
-          if (saved != null &&
-              saved.chapterIndex >= 0 &&
-              saved.chapterIndex < chapters.length) {
-            _currentIndex = saved.chapterIndex;
-          }
+          _resumeMarker = savedMarker;
+          _currentIndex = initialChapterIndex;
           _loading = false;
         });
 
         // Restore scroll offset after the frame renders.
-        if (saved != null && saved.scrollOffset > 0) {
+        if (initialScrollOffset > 0) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (_scrollController.hasClients) {
               final maxScroll = _scrollController.position.maxScrollExtent;
               _scrollController
-                  .jumpTo(saved!.scrollOffset.clamp(0.0, maxScroll));
+                  .jumpTo(initialScrollOffset.clamp(0.0, maxScroll));
             }
+          });
+        }
+
+        if (restoredFromMarker) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            _showAutoDismissSnackBar(
+              const SnackBar(
+                content: Text('Resumed from saved point'),
+                duration: Duration(seconds: 2),
+              ),
+            );
           });
         }
       }
@@ -205,6 +237,65 @@ class _ReaderScreenState extends State<ReaderScreen> {
         chapterIndex: _currentIndex,
         scrollOffset: offset,
         updatedAt: DateTime.now(),
+      ),
+    );
+  }
+
+  // ── Resume Marker ────────────────────────────────────────────────────────
+
+  Future<void> _saveResumeMarker({
+    required String selectedText,
+    required int selectionStart,
+    required int selectionEnd,
+  }) async {
+    final bookId = widget.book.id;
+    final chapter = _currentChapter;
+    if (bookId == null || chapter == null) return;
+
+    final rawSelectedText = selectedText;
+    if (rawSelectedText.trim().isEmpty) return;
+
+    if (selectionStart < 0 ||
+        selectionEnd <= selectionStart ||
+        selectionEnd > chapter.content.length) {
+      return;
+    }
+
+    final marker = ResumeMarker(
+      bookId: bookId,
+      chapterIndex: _currentIndex,
+      selectedText: rawSelectedText,
+      selectionStart: selectionStart,
+      selectionEnd: selectionEnd,
+      scrollOffset:
+          _scrollController.hasClients ? _scrollController.offset : 0.0,
+      createdAt: DateTime.now(),
+    );
+
+    await _db.upsertResumeMarker(marker);
+    if (!mounted) return;
+
+    setState(() => _resumeMarker = marker);
+    _showAutoDismissSnackBar(
+      const SnackBar(
+        content: Text('Resume point saved'),
+        duration: Duration(seconds: 2),
+      ),
+    );
+  }
+
+  Future<void> _clearResumeMarker() async {
+    final bookId = widget.book.id;
+    if (bookId == null || _resumeMarker == null) return;
+
+    await _db.deleteResumeMarkerByBookId(bookId);
+    if (!mounted) return;
+
+    setState(() => _resumeMarker = null);
+    _showAutoDismissSnackBar(
+      const SnackBar(
+        content: Text('Resume point cleared'),
+        duration: Duration(seconds: 2),
       ),
     );
   }
@@ -783,6 +874,12 @@ class _ReaderScreenState extends State<ReaderScreen> {
               tooltip: 'Highlights',
               onPressed: _showHighlights,
             ),
+            if (_resumeMarker != null)
+              IconButton(
+                icon: const Icon(Icons.bookmark_remove_outlined),
+                tooltip: 'Clear Resume Point',
+                onPressed: _clearResumeMarker,
+              ),
             IconButton(
               icon: const Icon(Icons.toc),
               tooltip: 'Table of Contents',
@@ -887,6 +984,10 @@ class _ReaderScreenState extends State<ReaderScreen> {
     // highlighting. Build a set for quick lookups.
     final currentHighlights =
         _highlights.where((h) => h.chapterIndex == _currentIndex).toList();
+    final currentResumeMarker =
+        _resumeMarker != null && _resumeMarker!.chapterIndex == _currentIndex
+            ? _resumeMarker
+            : null;
 
     return GestureDetector(
       onHorizontalDragStart: _onHorizontalDragStart,
@@ -906,7 +1007,11 @@ class _ReaderScreenState extends State<ReaderScreen> {
             ),
             const SizedBox(height: 16),
             SelectableText.rich(
-              _buildHighlightedText(chapter.content, currentHighlights),
+              _buildHighlightedText(
+                chapter.content,
+                currentHighlights,
+                currentResumeMarker,
+              ),
               textAlign: TextAlign.justify,
               contextMenuBuilder: (context, editableTextState) {
                 return _buildSelectionToolbar(context, editableTextState);
@@ -924,44 +1029,17 @@ class _ReaderScreenState extends State<ReaderScreen> {
 
   /// Builds a [TextSpan] tree that highlights saved highlight texts inline.
   TextSpan _buildHighlightedText(
-      String content, List<Highlight> currentHighlights) {
-    if (currentHighlights.isEmpty) {
+    String content,
+    List<Highlight> currentHighlights,
+    ResumeMarker? currentResumeMarker,
+  ) {
+    if (currentHighlights.isEmpty && currentResumeMarker == null) {
       return TextSpan(text: content);
     }
 
-    // Find all highlight ranges in the text.
-    final List<_HighlightRange> ranges = [];
-    for (final hl in currentHighlights) {
-      int startFrom = 0;
-      // Find all occurrences of this highlight text in the content.
-      while (true) {
-        final idx = content.indexOf(hl.selectedText, startFrom);
-        if (idx == -1) break;
-        ranges.add(_HighlightRange(idx, idx + hl.selectedText.length));
-        startFrom = idx + hl.selectedText.length;
-      }
-    }
+    // Build styled ranges for both regular highlights and resume marker.
+    final List<_StyledRange> ranges = [];
 
-    if (ranges.isEmpty) {
-      return TextSpan(text: content);
-    }
-
-    // Sort ranges by start index and merge overlaps.
-    ranges.sort((a, b) => a.start.compareTo(b.start));
-    final merged = <_HighlightRange>[];
-    for (final r in ranges) {
-      if (merged.isNotEmpty && r.start <= merged.last.end) {
-        final last = merged.last;
-        merged[merged.length - 1] = _HighlightRange(
-          last.start,
-          r.end > last.end ? r.end : last.end,
-        );
-      } else {
-        merged.add(r);
-      }
-    }
-
-    // Build spans.
     final highlightColor = Color(
       int.parse(
             _defaultHighlightColorHex.replaceFirst('#', ''),
@@ -970,26 +1048,80 @@ class _ReaderScreenState extends State<ReaderScreen> {
           0xFF000000,
     ).withAlpha(100);
 
-    final spans = <TextSpan>[];
-    int cursor = 0;
-    for (final r in merged) {
-      if (r.start > cursor) {
-        spans.add(TextSpan(text: content.substring(cursor, r.start)));
+    final resumeColor = _resumeMarkerColor.withAlpha(140);
+
+    // Find all highlight ranges in the text.
+    for (final hl in currentHighlights) {
+      int startFrom = 0;
+      // Find all occurrences of this highlight text in the content.
+      while (true) {
+        final idx = content.indexOf(hl.selectedText, startFrom);
+        if (idx == -1) break;
+        ranges.add(
+          _StyledRange(
+            start: idx,
+            end: idx + hl.selectedText.length,
+            style: TextStyle(backgroundColor: highlightColor),
+            priority: 1,
+          ),
+        );
+        startFrom = idx + hl.selectedText.length;
       }
-      spans.add(TextSpan(
-        text: content.substring(r.start, r.end),
-        style: TextStyle(backgroundColor: highlightColor),
-      ));
-      cursor = r.end;
     }
-    if (cursor < content.length) {
-      spans.add(TextSpan(text: content.substring(cursor)));
+
+    if (currentResumeMarker != null &&
+        currentResumeMarker.selectionStart >= 0 &&
+        currentResumeMarker.selectionEnd > currentResumeMarker.selectionStart &&
+        currentResumeMarker.selectionEnd <= content.length) {
+      ranges.add(
+        _StyledRange(
+          start: currentResumeMarker.selectionStart,
+          end: currentResumeMarker.selectionEnd,
+          style: TextStyle(backgroundColor: resumeColor),
+          priority: 2,
+        ),
+      );
+    }
+
+    if (ranges.isEmpty) {
+      return TextSpan(text: content);
+    }
+
+    // Build boundaries, then style each segment by highest-priority range.
+    final boundaries = <int>{0, content.length};
+    for (final range in ranges) {
+      boundaries.add(range.start);
+      boundaries.add(range.end);
+    }
+    final sortedBoundaries = boundaries.toList()..sort();
+
+    final spans = <TextSpan>[];
+    for (int i = 0; i < sortedBoundaries.length - 1; i++) {
+      final segStart = sortedBoundaries[i];
+      final segEnd = sortedBoundaries[i + 1];
+      if (segEnd <= segStart) continue;
+
+      _StyledRange? activeRange;
+      for (final range in ranges) {
+        final intersects = range.start < segEnd && range.end > segStart;
+        if (!intersects) continue;
+        if (activeRange == null || range.priority > activeRange.priority) {
+          activeRange = range;
+        }
+      }
+
+      spans.add(
+        TextSpan(
+          text: content.substring(segStart, segEnd),
+          style: activeRange?.style,
+        ),
+      );
     }
 
     return TextSpan(children: spans);
   }
 
-  /// Custom context menu with a "Highlight" action when text is selected.
+  /// Custom context menu with "Highlight" and "Resume Here" actions.
   Widget _buildSelectionToolbar(
       BuildContext context, EditableTextState editableTextState) {
     final List<ContextMenuButtonItem> items = [
@@ -1002,6 +1134,22 @@ class _ReaderScreenState extends State<ReaderScreen> {
           if (selection.isValid && !selection.isCollapsed) {
             final selected = text.substring(selection.start, selection.end);
             _saveHighlight(selected);
+          }
+          editableTextState.hideToolbar();
+        },
+      ),
+      ContextMenuButtonItem(
+        label: 'Resume Here',
+        onPressed: () {
+          final selection = editableTextState.textEditingValue.selection;
+          final text = editableTextState.textEditingValue.text;
+          if (selection.isValid && !selection.isCollapsed) {
+            final selected = text.substring(selection.start, selection.end);
+            _saveResumeMarker(
+              selectedText: selected,
+              selectionStart: selection.start,
+              selectionEnd: selection.end,
+            );
           }
           editableTextState.hideToolbar();
         },
@@ -1047,9 +1195,16 @@ class _ReaderScreenState extends State<ReaderScreen> {
   }
 }
 
-/// Helper class to represent a range in text for highlighting.
-class _HighlightRange {
+class _StyledRange {
   final int start;
   final int end;
-  const _HighlightRange(this.start, this.end);
+  final TextStyle style;
+  final int priority;
+
+  const _StyledRange({
+    required this.start,
+    required this.end,
+    required this.style,
+    required this.priority,
+  });
 }
