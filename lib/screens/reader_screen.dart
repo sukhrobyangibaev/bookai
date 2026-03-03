@@ -898,8 +898,6 @@ class _ReaderScreenState extends State<ReaderScreen> {
         ],
       ),
       body: _buildBody(),
-      bottomNavigationBar:
-          _chapters != null && _chapters!.isNotEmpty ? _buildNavBar() : null,
     );
   }
 
@@ -1162,37 +1160,6 @@ class _ReaderScreenState extends State<ReaderScreen> {
     );
   }
 
-  Widget _buildNavBar() {
-    final hasPrev = _currentIndex > 0;
-    final hasNext = _currentIndex < _chapters!.length - 1;
-
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        child: Row(
-          children: [
-            Expanded(
-              child: OutlinedButton.icon(
-                onPressed:
-                    hasPrev ? () => _goToChapter(_currentIndex - 1) : null,
-                icon: const Icon(Icons.chevron_left),
-                label: const Text('Previous'),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: OutlinedButton.icon(
-                onPressed:
-                    hasNext ? () => _goToChapter(_currentIndex + 1) : null,
-                icon: const Icon(Icons.chevron_right),
-                label: const Text('Next'),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 }
 
 class _StyledRange {
