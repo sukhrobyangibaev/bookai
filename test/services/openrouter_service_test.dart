@@ -14,6 +14,8 @@ void main() {
           'https://openrouter.ai/api/v1/models',
         );
         expect(request.headers['accept'], 'application/json');
+        expect(request.headers['http-referer'], 'https://bookai.app');
+        expect(request.headers['x-title'], 'BookAI');
         expect(request.headers['authorization'], 'Bearer test-key');
 
         return http.Response(
@@ -156,6 +158,8 @@ void main() {
         expect(request.method, 'POST');
         expect(request.headers['authorization'], 'Bearer test-key');
         expect(request.headers['content-type'], 'application/json');
+        expect(request.headers['http-referer'], 'https://bookai.app');
+        expect(request.headers['x-title'], 'BookAI');
 
         final body = jsonDecode(request.body) as Map<String, dynamic>;
         expect(body['model'], 'openai/gpt-4.1-mini');
@@ -229,6 +233,34 @@ void main() {
             'message',
             contains('429'),
           ),
+        ),
+      );
+    });
+
+    test('generateText includes OpenRouter error details on non-2xx status',
+        () async {
+      final client = MockClient((_) async {
+        return http.Response(
+          jsonEncode({
+            'error': {
+              'message': 'This model is not available for your account.',
+            },
+          }),
+          403,
+        );
+      });
+      final service = OpenRouterService(client: client);
+
+      await expectLater(
+        service.generateText(apiKey: 'k', modelId: 'm', prompt: 'p'),
+        throwsA(
+          isA<OpenRouterException>()
+              .having((e) => e.message, 'message', contains('403'))
+              .having(
+                (e) => e.message,
+                'message',
+                contains('not available for your account'),
+              ),
         ),
       );
     });

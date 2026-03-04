@@ -19,6 +19,8 @@ class OpenRouterService {
       Uri.parse('https://openrouter.ai/api/v1/models');
   static final Uri _chatCompletionsUri =
       Uri.parse('https://openrouter.ai/api/v1/chat/completions');
+  static const String _appReferer = 'https://bookai.app';
+  static const String _appTitle = 'BookAI';
 
   final http.Client _client;
   final DateTime Function() _clock;
@@ -51,14 +53,12 @@ class OpenRouterService {
       return _cachedModels!;
     }
 
-    final headers = <String, String>{'Accept': 'application/json'};
-    if (normalizedApiKey.isNotEmpty) {
-      headers['Authorization'] = 'Bearer $normalizedApiKey';
-    }
-
     final http.Response response;
     try {
-      response = await _client.get(_modelsUri, headers: headers);
+      response = await _client.get(
+        _modelsUri,
+        headers: _buildHeaders(apiKey: normalizedApiKey),
+      );
     } catch (error) {
       throw OpenRouterException(
         'Failed to connect to OpenRouter.',
@@ -68,7 +68,11 @@ class OpenRouterService {
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw OpenRouterException(
-        'OpenRouter returned ${response.statusCode} while loading models.',
+        _buildStatusErrorMessage(
+          statusCode: response.statusCode,
+          action: 'loading models',
+          responseBody: response.body,
+        ),
       );
     }
 
@@ -143,11 +147,10 @@ class OpenRouterService {
     try {
       response = await _client.post(
         _chatCompletionsUri,
-        headers: <String, String>{
-          'Accept': 'application/json',
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $normalizedApiKey',
-        },
+        headers: _buildHeaders(
+          apiKey: normalizedApiKey,
+          includeJsonContentType: true,
+        ),
         body: jsonEncode(payload),
       );
     } catch (error) {
@@ -159,7 +162,11 @@ class OpenRouterService {
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw OpenRouterException(
-        'OpenRouter returned ${response.statusCode} while generating text.',
+        _buildStatusErrorMessage(
+          statusCode: response.statusCode,
+          action: 'generating text',
+          responseBody: response.body,
+        ),
       );
     }
 
@@ -238,5 +245,96 @@ class OpenRouterService {
     }
 
     return '';
+  }
+
+  Map<String, String> _buildHeaders({
+    String? apiKey,
+    bool includeJsonContentType = false,
+  }) {
+    final headers = <String, String>{
+      'Accept': 'application/json',
+      'HTTP-Referer': _appReferer,
+      'X-Title': _appTitle,
+    };
+
+    final normalizedApiKey = apiKey?.trim() ?? '';
+    if (normalizedApiKey.isNotEmpty) {
+      headers['Authorization'] = 'Bearer $normalizedApiKey';
+    }
+
+    if (includeJsonContentType) {
+      headers['Content-Type'] = 'application/json';
+    }
+
+    return headers;
+  }
+
+  String _buildStatusErrorMessage({
+    required int statusCode,
+    required String action,
+    required String responseBody,
+  }) {
+    final detail = _extractErrorDetail(responseBody);
+    if (detail.isEmpty) {
+      return 'OpenRouter returned $statusCode while $action.';
+    }
+    return 'OpenRouter returned $statusCode while $action: $detail';
+  }
+
+  String _extractErrorDetail(String body) {
+    final trimmedBody = body.trim();
+    if (trimmedBody.isEmpty) return '';
+
+    dynamic decoded;
+    try {
+      decoded = jsonDecode(trimmedBody);
+    } catch (_) {
+      return _truncateErrorDetail(trimmedBody);
+    }
+
+    if (decoded is! Map) {
+      return _truncateErrorDetail(trimmedBody);
+    }
+
+    final payload = Map<String, dynamic>.from(decoded);
+    final candidates = <String>[
+      _extractString(payload['message']),
+      _extractString(payload['error_message']),
+      _extractString(payload['detail']),
+    ];
+
+    final rawError = payload['error'];
+    if (rawError is String) {
+      candidates.add(rawError);
+    } else if (rawError is Map) {
+      final errorMap = Map<String, dynamic>.from(rawError);
+      candidates.add(_extractString(errorMap['message']));
+      candidates.add(_extractString(errorMap['detail']));
+      candidates.add(_extractString(errorMap['code']));
+    }
+
+    for (final candidate in candidates) {
+      final normalized = _normalizeErrorDetail(candidate);
+      if (normalized.isNotEmpty) {
+        return _truncateErrorDetail(normalized);
+      }
+    }
+
+    return _truncateErrorDetail(trimmedBody);
+  }
+
+  String _extractString(Object? value) {
+    if (value == null) return '';
+    if (value is String) return value;
+    return value.toString();
+  }
+
+  String _normalizeErrorDetail(String value) {
+    return value.replaceAll(RegExp(r'\s+'), ' ').trim();
+  }
+
+  String _truncateErrorDetail(String value) {
+    if (value.length <= 240) return value;
+    return '${value.substring(0, 237)}...';
   }
 }

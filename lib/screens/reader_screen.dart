@@ -368,17 +368,18 @@ class _ReaderScreenState extends State<ReaderScreen> {
       prompt: prompt,
     );
     unawaited(
-      generationFuture.then((_) async {
+      () async {
         try {
+          await generationFuture;
           await _saveResumeMarker(
             selectedText: summarySelection.selectedText,
             selectionStart: summarySelection.selectionStart,
             selectionEnd: summarySelection.selectionEnd,
           );
         } catch (_) {
-          // Keep summary visible even if marker persistence fails.
+          // Ignore generation and marker errors in background persistence.
         }
-      }),
+      }(),
     );
 
     await _showSummaryResultSheet(generationFuture);
@@ -463,7 +464,15 @@ class _ReaderScreenState extends State<ReaderScreen> {
                     const SizedBox(height: 8),
                     Expanded(
                       child: SingleChildScrollView(
-                        child: SelectableText(summary),
+                        child: SelectableText(
+                          summary,
+                          contextMenuBuilder: (context, editableTextState) {
+                            return _buildDefaultSelectionToolbar(
+                              context,
+                              editableTextState,
+                            );
+                          },
+                        ),
                       ),
                     ),
                     const SizedBox(height: 12),
@@ -1122,11 +1131,33 @@ class _ReaderScreenState extends State<ReaderScreen> {
     return TextSpan(children: spans);
   }
 
+  List<ContextMenuButtonItem> _filteredSelectionItems(
+    BuildContext context,
+    EditableTextState editableTextState,
+  ) {
+    final isAndroid = Theme.of(context).platform == TargetPlatform.android;
+    return editableTextState.contextMenuButtonItems.where((item) {
+      if (!isAndroid) return true;
+      return item.type == ContextMenuButtonType.copy ||
+          item.type == ContextMenuButtonType.selectAll;
+    }).toList();
+  }
+
+  Widget _buildDefaultSelectionToolbar(
+    BuildContext context,
+    EditableTextState editableTextState,
+  ) {
+    return AdaptiveTextSelectionToolbar.buttonItems(
+      anchors: editableTextState.contextMenuAnchors,
+      buttonItems: _filteredSelectionItems(context, editableTextState),
+    );
+  }
+
   /// Custom context menu with reader actions.
   Widget _buildSelectionToolbar(
       BuildContext context, EditableTextState editableTextState) {
     final List<ContextMenuButtonItem> items = [
-      ...editableTextState.contextMenuButtonItems,
+      ..._filteredSelectionItems(context, editableTextState),
       ContextMenuButtonItem(
         label: 'Highlight',
         onPressed: () {
