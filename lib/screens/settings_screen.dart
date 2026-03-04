@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../app.dart';
+import '../models/ai_feature.dart';
+import '../models/ai_feature_config.dart';
 import '../models/openrouter_model.dart';
 import '../models/reader_settings.dart';
 import '../services/openrouter_service.dart';
@@ -59,10 +61,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Future<void> _showModelPicker(
-    BuildContext context,
-    SettingsController controller,
-  ) async {
+  Future<String?> _pickModelId({
+    required BuildContext context,
+    required String apiKey,
+    required String selectedModelId,
+  }) async {
+    String? pickedModelId;
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -72,16 +76,164 @@ class _SettingsScreenState extends State<SettingsScreen> {
           heightFactor: 0.92,
           child: _OpenRouterModelPickerSheet(
             service: _openRouterService,
-            apiKey: controller.openRouterApiKey,
-            selectedModelId: controller.openRouterModelId,
+            apiKey: apiKey,
+            selectedModelId: selectedModelId,
             onModelSelected: (modelId) {
-              controller.setOpenRouterModelId(modelId);
+              pickedModelId = modelId;
               Navigator.of(sheetContext).pop();
             },
           ),
         );
       },
     );
+    return pickedModelId;
+  }
+
+  Future<void> _showModelPicker(
+    BuildContext context,
+    SettingsController controller,
+  ) async {
+    final pickedModelId = await _pickModelId(
+      context: context,
+      apiKey: controller.openRouterApiKey,
+      selectedModelId: controller.openRouterModelId,
+    );
+    if (pickedModelId == null) return;
+    await controller.setOpenRouterModelId(pickedModelId);
+  }
+
+  Future<void> _showFeatureConfigSheet(
+    BuildContext context,
+    SettingsController controller,
+    AiFeatureDefinition feature,
+  ) async {
+    final initialConfig = controller.aiFeatureConfig(feature.id);
+    final promptController = TextEditingController(
+      text: initialConfig.promptTemplate,
+    );
+    bool useGlobalModel = initialConfig.modelIdOverride.trim().isEmpty;
+    String modelIdOverride = initialConfig.modelIdOverride;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        return StatefulBuilder(
+          builder: (sheetContext, setSheetState) {
+            final effectiveModelLabel = useGlobalModel
+                ? (controller.openRouterModelId.isEmpty
+                    ? 'No global default model selected'
+                    : controller.openRouterModelId)
+                : (modelIdOverride.isEmpty
+                    ? 'No model override selected'
+                    : modelIdOverride);
+
+            return SafeArea(
+              child: Padding(
+                padding: EdgeInsets.only(
+                  left: 16,
+                  right: 16,
+                  top: 12,
+                  bottom: MediaQuery.viewInsetsOf(sheetContext).bottom + 16,
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      feature.title,
+                      style: Theme.of(sheetContext).textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      feature.description,
+                      style: Theme.of(sheetContext).textTheme.bodySmall,
+                    ),
+                    const SizedBox(height: 12),
+                    SwitchListTile.adaptive(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Use global default model'),
+                      value: useGlobalModel,
+                      onChanged: (value) {
+                        setSheetState(() {
+                          useGlobalModel = value;
+                        });
+                      },
+                    ),
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Model'),
+                      subtitle: Text(
+                        effectiveModelLabel,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      trailing: const Icon(Icons.search),
+                      onTap: useGlobalModel
+                          ? null
+                          : () async {
+                              final selected = await _pickModelId(
+                                context: sheetContext,
+                                apiKey: controller.openRouterApiKey,
+                                selectedModelId: modelIdOverride,
+                              );
+                              if (selected == null) return;
+                              setSheetState(() {
+                                modelIdOverride = selected;
+                              });
+                            },
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: promptController,
+                      maxLines: 8,
+                      minLines: 6,
+                      decoration: InputDecoration(
+                        labelText: 'Prompt Template',
+                        border: const OutlineInputBorder(),
+                        helperText:
+                            'Supported placeholders: ${feature.placeholders.join(', ')}',
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        TextButton(
+                          onPressed: () {
+                            promptController.text =
+                                feature.defaultPromptTemplate;
+                          },
+                          child: const Text('Reset Prompt'),
+                        ),
+                        const Spacer(),
+                        FilledButton(
+                          onPressed: () async {
+                            await controller.setAiFeatureConfig(
+                              feature.id,
+                              AiFeatureConfig(
+                                modelIdOverride:
+                                    useGlobalModel ? '' : modelIdOverride,
+                                promptTemplate: promptController.text,
+                              ),
+                            );
+                            if (!sheetContext.mounted) return;
+                            Navigator.of(sheetContext).pop();
+                          },
+                          child: const Text('Save'),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    promptController.dispose();
   }
 
   @override
@@ -245,7 +397,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const SizedBox(height: 8),
           ListTile(
             contentPadding: EdgeInsets.zero,
-            title: const Text('Model'),
+            title: const Text('Default Model'),
             subtitle: Text(
               selectedModelLabel,
               maxLines: 2,
@@ -254,6 +406,41 @@ class _SettingsScreenState extends State<SettingsScreen> {
             trailing: const Icon(Icons.search),
             onTap: () => _showModelPicker(context, controller),
           ),
+          const SizedBox(height: 8),
+          Text(
+            'AI Features',
+            style: Theme.of(context).textTheme.titleSmall,
+          ),
+          const SizedBox(height: 4),
+          ...aiFeatures.map((feature) {
+            final config = controller.aiFeatureConfig(feature.id);
+            final usesGlobalModel = config.modelIdOverride.trim().isEmpty;
+            final modelLabel = usesGlobalModel
+                ? (selectedModelId.isEmpty
+                    ? 'Global default: Not set'
+                    : 'Global default: $selectedModelId')
+                : 'Model override: ${config.modelIdOverride}';
+            final promptPreview = config.promptTemplate
+                .replaceAll('\n', ' ')
+                .replaceAll(RegExp(r'\s+'), ' ')
+                .trim();
+
+            return ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: Text(feature.title),
+              subtitle: Text(
+                '$modelLabel\nPrompt: $promptPreview',
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+              ),
+              trailing: const Icon(Icons.tune),
+              onTap: () => _showFeatureConfigSheet(
+                context,
+                controller,
+                feature,
+              ),
+            );
+          }),
         ],
       ),
     );

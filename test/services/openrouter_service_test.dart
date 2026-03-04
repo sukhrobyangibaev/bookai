@@ -145,5 +145,110 @@ void main() {
 
       expect(requestCount, 2);
     });
+
+    test('generateText sends chat completion payload and parses content',
+        () async {
+      final client = MockClient((request) async {
+        expect(
+          request.url.toString(),
+          'https://openrouter.ai/api/v1/chat/completions',
+        );
+        expect(request.method, 'POST');
+        expect(request.headers['authorization'], 'Bearer test-key');
+        expect(request.headers['content-type'], 'application/json');
+
+        final body = jsonDecode(request.body) as Map<String, dynamic>;
+        expect(body['model'], 'openai/gpt-4.1-mini');
+        final messages = body['messages'] as List<dynamic>;
+        expect(messages, hasLength(1));
+        expect(messages.first['role'], 'user');
+        expect(messages.first['content'], 'Summarize this.');
+        expect(body['temperature'], 0.2);
+
+        return http.Response(
+          jsonEncode({
+            'choices': [
+              {
+                'message': {'content': 'Short summary'}
+              }
+            ],
+          }),
+          200,
+        );
+      });
+
+      final service = OpenRouterService(client: client);
+      final text = await service.generateText(
+        apiKey: 'test-key',
+        modelId: 'openai/gpt-4.1-mini',
+        prompt: 'Summarize this.',
+        temperature: 0.2,
+      );
+
+      expect(text, 'Short summary');
+    });
+
+    test('generateText supports list-style message content', () async {
+      final client = MockClient((_) async {
+        return http.Response(
+          jsonEncode({
+            'choices': [
+              {
+                'message': {
+                  'content': [
+                    {'type': 'text', 'text': 'Line 1'},
+                    {'type': 'text', 'text': 'Line 2'},
+                  ],
+                },
+              }
+            ],
+          }),
+          200,
+        );
+      });
+
+      final service = OpenRouterService(client: client);
+      final text = await service.generateText(
+        apiKey: 'k',
+        modelId: 'm',
+        prompt: 'p',
+      );
+
+      expect(text, 'Line 1\nLine 2');
+    });
+
+    test('generateText throws on non-2xx status', () async {
+      final client = MockClient((_) async => http.Response('fail', 429));
+      final service = OpenRouterService(client: client);
+
+      await expectLater(
+        service.generateText(apiKey: 'k', modelId: 'm', prompt: 'p'),
+        throwsA(
+          isA<OpenRouterException>().having(
+            (e) => e.message,
+            'message',
+            contains('429'),
+          ),
+        ),
+      );
+    });
+
+    test('generateText throws when choices list is missing', () async {
+      final client = MockClient(
+        (_) async => http.Response(jsonEncode({'id': 'abc'}), 200),
+      );
+      final service = OpenRouterService(client: client);
+
+      await expectLater(
+        service.generateText(apiKey: 'k', modelId: 'm', prompt: 'p'),
+        throwsA(
+          isA<OpenRouterException>().having(
+            (e) => e.message,
+            'message',
+            contains('choices'),
+          ),
+        ),
+      );
+    });
   });
 }

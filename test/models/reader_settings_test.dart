@@ -1,3 +1,5 @@
+import 'package:bookai/models/ai_feature.dart';
+import 'package:bookai/models/ai_feature_config.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:bookai/models/reader_settings.dart';
 
@@ -8,6 +10,12 @@ void main() {
       expect(ReaderSettings.defaults.themeMode, AppThemeMode.light);
       expect(ReaderSettings.defaults.openRouterApiKey, '');
       expect(ReaderSettings.defaults.openRouterModelId, '');
+      expect(
+        ReaderSettings.defaults.aiFeatureConfigs[AiFeatureIds.resumeSummary],
+        const AiFeatureConfig(
+          promptTemplate: defaultResumeSummaryPromptTemplate,
+        ),
+      );
     });
 
     test('toMap produces expected keys and values', () {
@@ -24,6 +32,10 @@ void main() {
       expect(map['themeMode'], 'dark');
       expect(map['openRouterApiKey'], 'test-key');
       expect(map['openRouterModelId'], 'openai/gpt-4o-mini');
+      expect(
+        map['aiFeatureConfigs'][AiFeatureIds.resumeSummary]['promptTemplate'],
+        defaultResumeSummaryPromptTemplate,
+      );
     });
 
     test('toMap serializes sepia theme mode', () {
@@ -43,6 +55,12 @@ void main() {
         'themeMode': 'dark',
         'openRouterApiKey': 'abc123',
         'openRouterModelId': 'anthropic/claude-3.5-sonnet',
+        'aiFeatureConfigs': {
+          AiFeatureIds.resumeSummary: {
+            'modelIdOverride': 'openai/gpt-4.1-mini',
+            'promptTemplate': 'Use {source_text}',
+          },
+        },
       };
 
       final settings = ReaderSettings.fromMap(map);
@@ -51,6 +69,13 @@ void main() {
       expect(settings.themeMode, AppThemeMode.dark);
       expect(settings.openRouterApiKey, 'abc123');
       expect(settings.openRouterModelId, 'anthropic/claude-3.5-sonnet');
+      expect(
+        settings.aiFeatureConfigs[AiFeatureIds.resumeSummary],
+        const AiFeatureConfig(
+          modelIdOverride: 'openai/gpt-4.1-mini',
+          promptTemplate: 'Use {source_text}',
+        ),
+      );
     });
 
     test('fromMap falls back to defaults for missing fontSize', () {
@@ -126,6 +151,12 @@ void main() {
       expect(settings.themeMode, AppThemeMode.light);
       expect(settings.openRouterApiKey, '');
       expect(settings.openRouterModelId, '');
+      expect(
+        settings.aiFeatureConfigs[AiFeatureIds.resumeSummary],
+        const AiFeatureConfig(
+          promptTemplate: defaultResumeSummaryPromptTemplate,
+        ),
+      );
     });
 
     test('roundtrip toMap -> fromMap preserves all fields', () {
@@ -155,6 +186,30 @@ void main() {
       expect(modified.fontSize, 18.0);
       expect(modified.openRouterApiKey, 'k1');
       expect(modified.openRouterModelId, 'm1');
+      expect(
+        modified.aiFeatureConfigs,
+        original.aiFeatureConfigs,
+      );
+    });
+
+    test('copyWith overrides aiFeatureConfigs', () {
+      const original = ReaderSettings(
+        fontSize: 18.0,
+        themeMode: AppThemeMode.light,
+      );
+
+      final modified = original.copyWith(
+        aiFeatureConfigs: const {
+          AiFeatureIds.resumeSummary: AiFeatureConfig(
+            promptTemplate: 'Custom {source_text}',
+          ),
+        },
+      );
+
+      expect(
+        modified.aiFeatureConfigs[AiFeatureIds.resumeSummary],
+        const AiFeatureConfig(promptTemplate: 'Custom {source_text}'),
+      );
     });
 
     test('equality works correctly', () {

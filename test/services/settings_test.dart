@@ -1,3 +1,5 @@
+import 'package:bookai/models/ai_feature.dart';
+import 'package:bookai/models/ai_feature_config.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:bookai/models/reader_settings.dart';
@@ -22,6 +24,12 @@ void main() {
         settings.openRouterModelId,
         ReaderSettings.defaults.openRouterModelId,
       );
+      expect(
+        settings.aiFeatureConfigs[AiFeatureIds.resumeSummary],
+        const AiFeatureConfig(
+          promptTemplate: defaultResumeSummaryPromptTemplate,
+        ),
+      );
     });
 
     test('load returns stored values', () async {
@@ -30,6 +38,8 @@ void main() {
         'reader_theme_mode': 'dark',
         'reader_openrouter_api_key': 'stored-key',
         'reader_openrouter_model_id': 'openai/gpt-4.1-mini',
+        'reader_ai_feature_configs':
+            '{"resume_summary":{"modelIdOverride":"openai/gpt-4o-mini","promptTemplate":"Use {source_text}"}}',
       });
 
       final service = SettingsService();
@@ -39,6 +49,13 @@ void main() {
       expect(settings.themeMode, AppThemeMode.dark);
       expect(settings.openRouterApiKey, 'stored-key');
       expect(settings.openRouterModelId, 'openai/gpt-4.1-mini');
+      expect(
+        settings.aiFeatureConfigs[AiFeatureIds.resumeSummary],
+        const AiFeatureConfig(
+          modelIdOverride: 'openai/gpt-4o-mini',
+          promptTemplate: 'Use {source_text}',
+        ),
+      );
     });
 
     test('load falls back to default for unknown theme mode string', () async {
@@ -77,6 +94,24 @@ void main() {
       );
     });
 
+    test('saveAiFeatureConfigs persists JSON', () async {
+      SharedPreferences.setMockInitialValues({});
+
+      final service = SettingsService();
+      await service.saveAiFeatureConfigs(const {
+        AiFeatureIds.resumeSummary: AiFeatureConfig(
+          modelIdOverride: 'openai/gpt-4o-mini',
+          promptTemplate: 'Summarize {source_text}',
+        ),
+      });
+
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString('reader_ai_feature_configs');
+      expect(raw, isNotNull);
+      expect(raw, contains('resume_summary'));
+      expect(raw, contains('openai/gpt-4o-mini'));
+    });
+
     test('saveFontSize persists value', () async {
       SharedPreferences.setMockInitialValues({});
 
@@ -105,6 +140,12 @@ void main() {
       await service.saveThemeMode(AppThemeMode.dark);
       await service.saveOpenRouterApiKey('key-roundtrip');
       await service.saveOpenRouterModelId('openai/gpt-4o-mini');
+      await service.saveAiFeatureConfigs(const {
+        AiFeatureIds.resumeSummary: AiFeatureConfig(
+          modelIdOverride: 'openai/gpt-4.1-mini',
+          promptTemplate: 'Roundtrip {source_text}',
+        ),
+      });
 
       final loaded = await service.load();
 
@@ -112,6 +153,13 @@ void main() {
       expect(loaded.themeMode, AppThemeMode.dark);
       expect(loaded.openRouterApiKey, 'key-roundtrip');
       expect(loaded.openRouterModelId, 'openai/gpt-4o-mini');
+      expect(
+        loaded.aiFeatureConfigs[AiFeatureIds.resumeSummary],
+        const AiFeatureConfig(
+          modelIdOverride: 'openai/gpt-4.1-mini',
+          promptTemplate: 'Roundtrip {source_text}',
+        ),
+      );
     });
   });
 
@@ -137,6 +185,8 @@ void main() {
         'reader_theme_mode': 'sepia',
         'reader_openrouter_api_key': 'abc',
         'reader_openrouter_model_id': 'openai/gpt-4.1',
+        'reader_ai_feature_configs':
+            '{"resume_summary":{"modelIdOverride":"openai/gpt-4.1-mini","promptTemplate":"Loaded {source_text}"}}',
       });
 
       final controller = SettingsController();
@@ -150,6 +200,13 @@ void main() {
       expect(controller.themeMode, AppThemeMode.sepia);
       expect(controller.openRouterApiKey, 'abc');
       expect(controller.openRouterModelId, 'openai/gpt-4.1');
+      expect(
+        controller.aiFeatureConfig(AiFeatureIds.resumeSummary),
+        const AiFeatureConfig(
+          modelIdOverride: 'openai/gpt-4.1-mini',
+          promptTemplate: 'Loaded {source_text}',
+        ),
+      );
       expect(notifyCount, 1);
     });
 
@@ -309,6 +366,82 @@ void main() {
       );
     });
 
+    test('setAiFeatureConfig updates value and persists it', () async {
+      SharedPreferences.setMockInitialValues({});
+
+      final controller = SettingsController();
+      await controller.setAiFeatureConfig(
+        AiFeatureIds.resumeSummary,
+        const AiFeatureConfig(
+          modelIdOverride: 'openai/gpt-4.1-mini',
+          promptTemplate: 'Custom {source_text}',
+        ),
+      );
+
+      expect(
+        controller.aiFeatureConfig(AiFeatureIds.resumeSummary),
+        const AiFeatureConfig(
+          modelIdOverride: 'openai/gpt-4.1-mini',
+          promptTemplate: 'Custom {source_text}',
+        ),
+      );
+
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString('reader_ai_feature_configs');
+      expect(raw, contains('openai/gpt-4.1-mini'));
+      expect(raw, contains('Custom {source_text}'));
+    });
+
+    test('effectiveModelIdForFeature falls back to global model', () async {
+      SharedPreferences.setMockInitialValues({});
+
+      final controller = SettingsController();
+      await controller.setOpenRouterModelId('openai/gpt-4o-mini');
+
+      expect(
+        controller.effectiveModelIdForFeature(AiFeatureIds.resumeSummary),
+        'openai/gpt-4o-mini',
+      );
+    });
+
+    test('effectiveModelIdForFeature prefers feature override', () async {
+      SharedPreferences.setMockInitialValues({});
+
+      final controller = SettingsController();
+      await controller.setOpenRouterModelId('openai/gpt-4o-mini');
+      await controller.setAiFeatureConfig(
+        AiFeatureIds.resumeSummary,
+        const AiFeatureConfig(
+          modelIdOverride: 'anthropic/claude-3.7-sonnet',
+          promptTemplate: 'Use {source_text}',
+        ),
+      );
+
+      expect(
+        controller.effectiveModelIdForFeature(AiFeatureIds.resumeSummary),
+        'anthropic/claude-3.7-sonnet',
+      );
+    });
+
+    test('resetAiFeaturePromptToDefault restores prompt template', () async {
+      SharedPreferences.setMockInitialValues({});
+
+      final controller = SettingsController();
+      await controller.setAiFeatureConfig(
+        AiFeatureIds.resumeSummary,
+        const AiFeatureConfig(promptTemplate: 'Temporary {source_text}'),
+      );
+
+      await controller.resetAiFeaturePromptToDefault(
+        AiFeatureIds.resumeSummary,
+      );
+
+      expect(
+        controller.aiFeatureConfig(AiFeatureIds.resumeSummary).promptTemplate,
+        defaultResumeSummaryPromptTemplate,
+      );
+    });
+
     test('settings getter returns current ReaderSettings', () async {
       SharedPreferences.setMockInitialValues({});
 
@@ -322,6 +455,12 @@ void main() {
       expect(controller.settings.themeMode, AppThemeMode.dark);
       expect(controller.settings.openRouterApiKey, 'getter-key');
       expect(controller.settings.openRouterModelId, 'openai/gpt-4o-mini');
+      expect(
+        controller.settings.aiFeatureConfigs[AiFeatureIds.resumeSummary],
+        const AiFeatureConfig(
+          promptTemplate: defaultResumeSummaryPromptTemplate,
+        ),
+      );
     });
   });
 }

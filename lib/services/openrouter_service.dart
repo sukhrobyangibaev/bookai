@@ -17,6 +17,8 @@ class OpenRouterException implements Exception {
 class OpenRouterService {
   static final Uri _modelsUri =
       Uri.parse('https://openrouter.ai/api/v1/models');
+  static final Uri _chatCompletionsUri =
+      Uri.parse('https://openrouter.ai/api/v1/chat/completions');
 
   final http.Client _client;
   final DateTime Function() _clock;
@@ -107,6 +109,64 @@ class OpenRouterService {
     _cachedForApiKey = null;
   }
 
+  Future<String> generateText({
+    required String apiKey,
+    required String modelId,
+    required String prompt,
+    double? temperature,
+  }) async {
+    final normalizedApiKey = apiKey.trim();
+    final normalizedModelId = modelId.trim();
+    final normalizedPrompt = prompt.trim();
+
+    if (normalizedApiKey.isEmpty) {
+      throw const OpenRouterException('OpenRouter API key is required.');
+    }
+    if (normalizedModelId.isEmpty) {
+      throw const OpenRouterException('OpenRouter model id is required.');
+    }
+    if (normalizedPrompt.isEmpty) {
+      throw const OpenRouterException('Prompt cannot be empty.');
+    }
+
+    final payload = <String, dynamic>{
+      'model': normalizedModelId,
+      'messages': <Map<String, String>>[
+        {'role': 'user', 'content': normalizedPrompt},
+      ],
+    };
+    if (temperature != null) {
+      payload['temperature'] = temperature;
+    }
+
+    final http.Response response;
+    try {
+      response = await _client.post(
+        _chatCompletionsUri,
+        headers: <String, String>{
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $normalizedApiKey',
+        },
+        body: jsonEncode(payload),
+      );
+    } catch (error) {
+      throw OpenRouterException(
+        'Failed to connect to OpenRouter.',
+        cause: error,
+      );
+    }
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw OpenRouterException(
+        'OpenRouter returned ${response.statusCode} while generating text.',
+      );
+    }
+
+    final decoded = _decodePayload(response.body);
+    return _extractGeneratedText(decoded);
+  }
+
   Map<String, dynamic> _decodePayload(String body) {
     final dynamic decoded;
     try {
@@ -125,5 +185,58 @@ class OpenRouterService {
     }
 
     return decoded;
+  }
+
+  String _extractGeneratedText(Map<String, dynamic> payload) {
+    final rawChoices = payload['choices'];
+    if (rawChoices is! List || rawChoices.isEmpty) {
+      throw const OpenRouterException(
+        'OpenRouter response is missing generated choices.',
+      );
+    }
+
+    final firstChoice = rawChoices.first;
+    if (firstChoice is! Map) {
+      throw const OpenRouterException(
+        'OpenRouter response contains an invalid generated choice.',
+      );
+    }
+
+    final choice = Map<String, dynamic>.from(firstChoice);
+    final rawMessage = choice['message'];
+    if (rawMessage is Map) {
+      final message = Map<String, dynamic>.from(rawMessage);
+      final extracted = _extractTextFromMessageContent(message['content']);
+      if (extracted.isNotEmpty) return extracted;
+    }
+
+    final fallbackText = choice['text'];
+    if (fallbackText is String && fallbackText.trim().isNotEmpty) {
+      return fallbackText.trim();
+    }
+
+    throw const OpenRouterException(
+      'OpenRouter response did not include generated text.',
+    );
+  }
+
+  String _extractTextFromMessageContent(dynamic content) {
+    if (content is String) {
+      return content.trim();
+    }
+
+    if (content is List) {
+      final parts = <String>[];
+      for (final item in content) {
+        if (item is! Map) continue;
+        final value = item['text'];
+        if (value is String && value.trim().isNotEmpty) {
+          parts.add(value.trim());
+        }
+      }
+      return parts.join('\n').trim();
+    }
+
+    return '';
   }
 }

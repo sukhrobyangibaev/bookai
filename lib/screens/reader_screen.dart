@@ -1,8 +1,10 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../app.dart';
+import '../models/ai_feature.dart';
 import '../models/book.dart';
 import '../models/chapter.dart';
 import '../models/highlight.dart';
@@ -10,6 +12,8 @@ import '../models/reading_progress.dart';
 import '../models/resume_marker.dart';
 import '../services/database_service.dart';
 import '../services/epub_service.dart';
+import '../services/openrouter_service.dart';
+import '../services/resume_summary_service.dart';
 
 /// Displays the content of a [Book] with chapter-by-chapter navigation.
 class ReaderScreen extends StatefulWidget {
@@ -24,6 +28,8 @@ class ReaderScreen extends StatefulWidget {
 class _ReaderScreenState extends State<ReaderScreen> {
   final _epub = EpubService.instance;
   final _db = DatabaseService.instance;
+  final _openRouter = OpenRouterService();
+  final _resumeSummaryService = const ResumeSummaryService();
   final _scrollController = ScrollController();
 
   List<Chapter>? _chapters;
@@ -281,6 +287,218 @@ class _ReaderScreenState extends State<ReaderScreen> {
         content: Text('Resume point saved'),
         duration: Duration(seconds: 2),
       ),
+    );
+  }
+
+  Future<void> _summarizeFromResumePoint(
+    EditableTextState editableTextState,
+  ) async {
+    final chapter = _currentChapter;
+    if (chapter == null) return;
+
+    final selection = editableTextState.textEditingValue.selection;
+    final text = editableTextState.textEditingValue.text;
+    final summarySelection = _buildResumeSummarySelection(
+      selection: selection,
+      chapterContent: text,
+      chapterTitle: chapter.title,
+    );
+    editableTextState.hideToolbar();
+
+    if (summarySelection == null) {
+      _showAutoDismissSnackBar(
+        const SnackBar(
+          content: Text(
+            'Unable to build a summary range for this selection.',
+          ),
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+
+    final settings = SettingsControllerScope.of(context);
+    final apiKey = settings.openRouterApiKey.trim();
+    if (apiKey.isEmpty) {
+      _showAutoDismissSnackBar(
+        const SnackBar(
+          content: Text('Add your OpenRouter API key in Settings first.'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+
+    final modelId =
+        settings.effectiveModelIdForFeature(AiFeatureIds.resumeSummary);
+    if (modelId.isEmpty) {
+      _showAutoDismissSnackBar(
+        const SnackBar(
+          content: Text('Select a default AI model in Settings first.'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+
+    final featureConfig = settings.aiFeatureConfig(AiFeatureIds.resumeSummary);
+    final promptTemplate = featureConfig.promptTemplate;
+    if (!_resumeSummaryService.hasRequiredPlaceholder(promptTemplate)) {
+      _showAutoDismissSnackBar(
+        const SnackBar(
+          content: Text(
+            'Summary prompt must include the {source_text} placeholder.',
+          ),
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+
+    final prompt = _resumeSummaryService.renderPromptTemplate(
+      promptTemplate: promptTemplate,
+      sourceText: summarySelection.sourceText,
+      bookTitle: widget.book.title,
+      chapterTitle: summarySelection.chapterTitle,
+    );
+
+    final generationFuture = _openRouter.generateText(
+      apiKey: apiKey,
+      modelId: modelId,
+      prompt: prompt,
+    );
+    unawaited(
+      generationFuture.then((_) async {
+        try {
+          await _saveResumeMarker(
+            selectedText: summarySelection.selectedText,
+            selectionStart: summarySelection.selectionStart,
+            selectionEnd: summarySelection.selectionEnd,
+          );
+        } catch (_) {
+          // Keep summary visible even if marker persistence fails.
+        }
+      }),
+    );
+
+    await _showSummaryResultSheet(generationFuture);
+  }
+
+  _ResumeSummarySelection? _buildResumeSummarySelection({
+    required TextSelection selection,
+    required String chapterContent,
+    required String chapterTitle,
+  }) {
+    if (!selection.isValid || selection.isCollapsed) return null;
+
+    final boundedStart = selection.start.clamp(0, chapterContent.length);
+    final boundedEnd = selection.end.clamp(0, chapterContent.length);
+    if (boundedEnd <= boundedStart) return null;
+
+    final selectedText = chapterContent.substring(boundedStart, boundedEnd);
+    if (selectedText.trim().isEmpty) return null;
+
+    final range = _resumeSummaryService.computeRange(
+      chapterContent: chapterContent,
+      currentChapterIndex: _currentIndex,
+      selectionStart: boundedStart,
+      selectionEnd: boundedEnd,
+      previousMarker: _resumeMarker,
+    );
+    if (range == null) return null;
+
+    return _ResumeSummarySelection(
+      sourceText: range.sourceText,
+      chapterTitle: chapterTitle,
+      selectedText: selectedText,
+      selectionStart: boundedStart,
+      selectionEnd: boundedEnd,
+    );
+  }
+
+  Future<void> _showSummaryResultSheet(Future<String> generationFuture) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        return FractionallySizedBox(
+          heightFactor: 0.7,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+            child: FutureBuilder<String>(
+              future: generationFuture,
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        CircularProgressIndicator(),
+                        SizedBox(height: 12),
+                        Text('Generating summary...'),
+                      ],
+                    ),
+                  );
+                }
+
+                if (snapshot.hasError) {
+                  return _SummaryError(message: snapshot.error.toString());
+                }
+
+                final summary = (snapshot.data ?? '').trim();
+                if (summary.isEmpty) {
+                  return const _SummaryError(
+                    message: 'Model returned an empty summary.',
+                  );
+                }
+
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Summary',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 8),
+                    Expanded(
+                      child: SingleChildScrollView(
+                        child: SelectableText(summary),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        OutlinedButton.icon(
+                          onPressed: () async {
+                            await Clipboard.setData(
+                              ClipboardData(text: summary),
+                            );
+                            if (!sheetContext.mounted) return;
+                            ScaffoldMessenger.of(sheetContext).showSnackBar(
+                              const SnackBar(
+                                content: Text('Summary copied'),
+                                duration: Duration(seconds: 2),
+                              ),
+                            );
+                          },
+                          icon: const Icon(Icons.copy_outlined),
+                          label: const Text('Copy'),
+                        ),
+                        const Spacer(),
+                        FilledButton(
+                          onPressed: () => Navigator.of(sheetContext).pop(),
+                          child: const Text('Close'),
+                        ),
+                      ],
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -904,7 +1122,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
     return TextSpan(children: spans);
   }
 
-  /// Custom context menu with "Highlight" and "Resume Here" actions.
+  /// Custom context menu with reader actions.
   Widget _buildSelectionToolbar(
       BuildContext context, EditableTextState editableTextState) {
     final List<ContextMenuButtonItem> items = [
@@ -937,6 +1155,12 @@ class _ReaderScreenState extends State<ReaderScreen> {
           editableTextState.hideToolbar();
         },
       ),
+      ContextMenuButtonItem(
+        label: 'Resume Here and Summarize',
+        onPressed: () {
+          _summarizeFromResumePoint(editableTextState);
+        },
+      ),
     ];
 
     return AdaptiveTextSelectionToolbar.buttonItems(
@@ -958,4 +1182,58 @@ class _StyledRange {
     required this.style,
     required this.priority,
   });
+}
+
+class _ResumeSummarySelection {
+  final String sourceText;
+  final String chapterTitle;
+  final String selectedText;
+  final int selectionStart;
+  final int selectionEnd;
+
+  const _ResumeSummarySelection({
+    required this.sourceText,
+    required this.chapterTitle,
+    required this.selectedText,
+    required this.selectionStart,
+    required this.selectionEnd,
+  });
+}
+
+class _SummaryError extends StatelessWidget {
+  final String message;
+
+  const _SummaryError({required this.message});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.error_outline,
+              size: 48,
+              color: Theme.of(context).colorScheme.error,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'Failed to generate summary',
+              style: Theme.of(context).textTheme.titleSmall,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.outline,
+                  ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
