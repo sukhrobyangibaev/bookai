@@ -16,12 +16,20 @@ void main() {
 
       expect(settings.fontSize, ReaderSettings.defaults.fontSize);
       expect(settings.themeMode, ReaderSettings.defaults.themeMode);
+      expect(
+          settings.openRouterApiKey, ReaderSettings.defaults.openRouterApiKey);
+      expect(
+        settings.openRouterModelId,
+        ReaderSettings.defaults.openRouterModelId,
+      );
     });
 
     test('load returns stored values', () async {
       SharedPreferences.setMockInitialValues({
         'reader_font_size': 24.0,
         'reader_theme_mode': 'dark',
+        'reader_openrouter_api_key': 'stored-key',
+        'reader_openrouter_model_id': 'openai/gpt-4.1-mini',
       });
 
       final service = SettingsService();
@@ -29,6 +37,8 @@ void main() {
 
       expect(settings.fontSize, 24.0);
       expect(settings.themeMode, AppThemeMode.dark);
+      expect(settings.openRouterApiKey, 'stored-key');
+      expect(settings.openRouterModelId, 'openai/gpt-4.1-mini');
     });
 
     test('load falls back to default for unknown theme mode string', () async {
@@ -42,6 +52,29 @@ void main() {
 
       expect(settings.fontSize, 20.0);
       expect(settings.themeMode, AppThemeMode.light);
+    });
+
+    test('saveOpenRouterApiKey persists value', () async {
+      SharedPreferences.setMockInitialValues({});
+
+      final service = SettingsService();
+      await service.saveOpenRouterApiKey('secret-key');
+
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getString('reader_openrouter_api_key'), 'secret-key');
+    });
+
+    test('saveOpenRouterModelId persists value', () async {
+      SharedPreferences.setMockInitialValues({});
+
+      final service = SettingsService();
+      await service.saveOpenRouterModelId('anthropic/claude-3.7-sonnet');
+
+      final prefs = await SharedPreferences.getInstance();
+      expect(
+        prefs.getString('reader_openrouter_model_id'),
+        'anthropic/claude-3.7-sonnet',
+      );
     });
 
     test('saveFontSize persists value', () async {
@@ -70,11 +103,15 @@ void main() {
       final service = SettingsService();
       await service.saveFontSize(14.0);
       await service.saveThemeMode(AppThemeMode.dark);
+      await service.saveOpenRouterApiKey('key-roundtrip');
+      await service.saveOpenRouterModelId('openai/gpt-4o-mini');
 
       final loaded = await service.load();
 
       expect(loaded.fontSize, 14.0);
       expect(loaded.themeMode, AppThemeMode.dark);
+      expect(loaded.openRouterApiKey, 'key-roundtrip');
+      expect(loaded.openRouterModelId, 'openai/gpt-4o-mini');
     });
   });
 
@@ -86,12 +123,20 @@ void main() {
 
       expect(controller.fontSize, ReaderSettings.defaults.fontSize);
       expect(controller.themeMode, ReaderSettings.defaults.themeMode);
+      expect(controller.openRouterApiKey,
+          ReaderSettings.defaults.openRouterApiKey);
+      expect(
+        controller.openRouterModelId,
+        ReaderSettings.defaults.openRouterModelId,
+      );
     });
 
     test('load() reads persisted settings and notifies', () async {
       SharedPreferences.setMockInitialValues({
         'reader_font_size': 26.0,
         'reader_theme_mode': 'sepia',
+        'reader_openrouter_api_key': 'abc',
+        'reader_openrouter_model_id': 'openai/gpt-4.1',
       });
 
       final controller = SettingsController();
@@ -103,6 +148,8 @@ void main() {
 
       expect(controller.fontSize, 26.0);
       expect(controller.themeMode, AppThemeMode.sepia);
+      expect(controller.openRouterApiKey, 'abc');
+      expect(controller.openRouterModelId, 'openai/gpt-4.1');
       expect(notifyCount, 1);
     });
 
@@ -160,6 +207,63 @@ void main() {
       expect(notifyCount, 0);
     });
 
+    test('setOpenRouterApiKey updates value and notifies', () async {
+      SharedPreferences.setMockInitialValues({});
+
+      final controller = SettingsController();
+
+      int notifyCount = 0;
+      controller.addListener(() => notifyCount++);
+
+      await controller.setOpenRouterApiKey('abc123');
+
+      expect(controller.openRouterApiKey, 'abc123');
+      expect(notifyCount, 1);
+    });
+
+    test('setOpenRouterApiKey trims and skips unchanged', () async {
+      SharedPreferences.setMockInitialValues({});
+
+      final controller = SettingsController();
+      await controller.setOpenRouterApiKey('trimmed');
+
+      int notifyCount = 0;
+      controller.addListener(() => notifyCount++);
+
+      await controller.setOpenRouterApiKey('  trimmed  ');
+
+      expect(controller.openRouterApiKey, 'trimmed');
+      expect(notifyCount, 0);
+    });
+
+    test('setOpenRouterModelId updates value and notifies', () async {
+      SharedPreferences.setMockInitialValues({});
+
+      final controller = SettingsController();
+
+      int notifyCount = 0;
+      controller.addListener(() => notifyCount++);
+
+      await controller.setOpenRouterModelId('openai/gpt-4.1-mini');
+
+      expect(controller.openRouterModelId, 'openai/gpt-4.1-mini');
+      expect(notifyCount, 1);
+    });
+
+    test('setOpenRouterModelId skips unchanged value', () async {
+      SharedPreferences.setMockInitialValues({});
+
+      final controller = SettingsController();
+      await controller.setOpenRouterModelId('openai/gpt-4.1-mini');
+
+      int notifyCount = 0;
+      controller.addListener(() => notifyCount++);
+
+      await controller.setOpenRouterModelId('openai/gpt-4.1-mini');
+
+      expect(notifyCount, 0);
+    });
+
     test('setFontSize persists value through service', () async {
       SharedPreferences.setMockInitialValues({});
 
@@ -181,15 +285,43 @@ void main() {
       expect(prefs.getString('reader_theme_mode'), 'sepia');
     });
 
+    test('setOpenRouterApiKey persists value through service', () async {
+      SharedPreferences.setMockInitialValues({});
+
+      final controller = SettingsController();
+      await controller.setOpenRouterApiKey('saved-key');
+
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getString('reader_openrouter_api_key'), 'saved-key');
+    });
+
+    test('setOpenRouterModelId persists value through service', () async {
+      SharedPreferences.setMockInitialValues({});
+
+      final controller = SettingsController();
+      await controller
+          .setOpenRouterModelId('meta-llama/llama-3.3-70b-instruct');
+
+      final prefs = await SharedPreferences.getInstance();
+      expect(
+        prefs.getString('reader_openrouter_model_id'),
+        'meta-llama/llama-3.3-70b-instruct',
+      );
+    });
+
     test('settings getter returns current ReaderSettings', () async {
       SharedPreferences.setMockInitialValues({});
 
       final controller = SettingsController();
       await controller.setFontSize(22.0);
       await controller.setThemeMode(AppThemeMode.dark);
+      await controller.setOpenRouterApiKey('getter-key');
+      await controller.setOpenRouterModelId('openai/gpt-4o-mini');
 
       expect(controller.settings.fontSize, 22.0);
       expect(controller.settings.themeMode, AppThemeMode.dark);
+      expect(controller.settings.openRouterApiKey, 'getter-key');
+      expect(controller.settings.openRouterModelId, 'openai/gpt-4o-mini');
     });
   });
 }

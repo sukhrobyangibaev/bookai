@@ -11,6 +11,8 @@ class SettingsController extends ChangeNotifier {
   ReaderSettings get settings => _settings;
   double get fontSize => _settings.fontSize;
   AppThemeMode get themeMode => _settings.themeMode;
+  String get openRouterApiKey => _settings.openRouterApiKey;
+  String get openRouterModelId => _settings.openRouterModelId;
 
   SettingsController({SettingsService? service})
       : _service = service ?? SettingsService();
@@ -32,5 +34,21 @@ class SettingsController extends ChangeNotifier {
     _settings = _settings.copyWith(themeMode: themeMode);
     notifyListeners();
     await _service.saveThemeMode(themeMode);
+  }
+
+  Future<void> setOpenRouterApiKey(String apiKey) async {
+    final normalized = apiKey.trim();
+    if (_settings.openRouterApiKey == normalized) return;
+    _settings = _settings.copyWith(openRouterApiKey: normalized);
+    notifyListeners();
+    await _service.saveOpenRouterApiKey(normalized);
+  }
+
+  Future<void> setOpenRouterModelId(String modelId) async {
+    final normalized = modelId.trim();
+    if (_settings.openRouterModelId == normalized) return;
+    _settings = _settings.copyWith(openRouterModelId: normalized);
+    notifyListeners();
+    await _service.saveOpenRouterModelId(normalized);
   }
 }

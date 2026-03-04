@@ -6,18 +6,24 @@ void main() {
     test('defaults has expected values', () {
       expect(ReaderSettings.defaults.fontSize, 18.0);
       expect(ReaderSettings.defaults.themeMode, AppThemeMode.light);
+      expect(ReaderSettings.defaults.openRouterApiKey, '');
+      expect(ReaderSettings.defaults.openRouterModelId, '');
     });
 
     test('toMap produces expected keys and values', () {
       const settings = ReaderSettings(
         fontSize: 22.0,
         themeMode: AppThemeMode.dark,
+        openRouterApiKey: 'test-key',
+        openRouterModelId: 'openai/gpt-4o-mini',
       );
 
       final map = settings.toMap();
 
       expect(map['fontSize'], 22.0);
       expect(map['themeMode'], 'dark');
+      expect(map['openRouterApiKey'], 'test-key');
+      expect(map['openRouterModelId'], 'openai/gpt-4o-mini');
     });
 
     test('toMap serializes sepia theme mode', () {
@@ -35,12 +41,16 @@ void main() {
       final map = {
         'fontSize': 24.0,
         'themeMode': 'dark',
+        'openRouterApiKey': 'abc123',
+        'openRouterModelId': 'anthropic/claude-3.5-sonnet',
       };
 
       final settings = ReaderSettings.fromMap(map);
 
       expect(settings.fontSize, 24.0);
       expect(settings.themeMode, AppThemeMode.dark);
+      expect(settings.openRouterApiKey, 'abc123');
+      expect(settings.openRouterModelId, 'anthropic/claude-3.5-sonnet');
     });
 
     test('fromMap falls back to defaults for missing fontSize', () {
@@ -114,12 +124,16 @@ void main() {
 
       expect(settings.fontSize, 18.0);
       expect(settings.themeMode, AppThemeMode.light);
+      expect(settings.openRouterApiKey, '');
+      expect(settings.openRouterModelId, '');
     });
 
     test('roundtrip toMap -> fromMap preserves all fields', () {
       const original = ReaderSettings(
         fontSize: 14.0,
         themeMode: AppThemeMode.sepia,
+        openRouterApiKey: 'my-key',
+        openRouterModelId: 'openai/gpt-4.1-mini',
       );
 
       final restored = ReaderSettings.fromMap(original.toMap());
@@ -131,18 +145,37 @@ void main() {
       const original = ReaderSettings(
         fontSize: 18.0,
         themeMode: AppThemeMode.light,
+        openRouterApiKey: 'k1',
+        openRouterModelId: 'm1',
       );
 
       final modified = original.copyWith(themeMode: AppThemeMode.dark);
 
       expect(modified.themeMode, AppThemeMode.dark);
       expect(modified.fontSize, 18.0);
+      expect(modified.openRouterApiKey, 'k1');
+      expect(modified.openRouterModelId, 'm1');
     });
 
     test('equality works correctly', () {
-      const a = ReaderSettings(fontSize: 18.0, themeMode: AppThemeMode.light);
-      const b = ReaderSettings(fontSize: 18.0, themeMode: AppThemeMode.light);
-      const c = ReaderSettings(fontSize: 20.0, themeMode: AppThemeMode.light);
+      const a = ReaderSettings(
+        fontSize: 18.0,
+        themeMode: AppThemeMode.light,
+        openRouterApiKey: 'key',
+        openRouterModelId: 'model',
+      );
+      const b = ReaderSettings(
+        fontSize: 18.0,
+        themeMode: AppThemeMode.light,
+        openRouterApiKey: 'key',
+        openRouterModelId: 'model',
+      );
+      const c = ReaderSettings(
+        fontSize: 20.0,
+        themeMode: AppThemeMode.light,
+        openRouterApiKey: 'key',
+        openRouterModelId: 'model',
+      );
 
       expect(a, equals(b));
       expect(a, isNot(equals(c)));
