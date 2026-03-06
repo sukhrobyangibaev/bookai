@@ -96,23 +96,26 @@ class ReaderSelectionToolbar extends StatelessWidget {
           constraints: BoxConstraints(maxWidth: maxWidth),
           child: _ReaderSelectionToolbarContainer(
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
               child: Wrap(
                 alignment: WrapAlignment.center,
+                spacing: 6,
+                runSpacing: 6,
                 crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
-                  for (final buttonItem in buttonItems)
-                    TextSelectionToolbarTextButton(
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                      onPressed: buttonItem.onPressed,
-                      alignment: Alignment.center,
-                      child: Text(
-                        AdaptiveTextSelectionToolbar.getButtonLabel(
-                          context,
-                          buttonItem,
-                        ),
+                  for (final buttonItem in buttonItems) ...[
+                    _ReaderSelectionToolbarButton(
+                      label: AdaptiveTextSelectionToolbar.getButtonLabel(
+                        context,
+                        buttonItem,
                       ),
+                      actionStyle: _ToolbarActionStyle.resolve(
+                        theme: Theme.of(context),
+                        item: buttonItem,
+                      ),
+                      onPressed: buttonItem.onPressed,
                     ),
+                  ],
                 ],
               ),
             ),
@@ -128,6 +131,9 @@ class _ReaderSelectionToolbarContainer extends StatelessWidget {
     required this.child,
   });
 
+  static const ValueKey<String> toolbarKey = ValueKey<String>(
+    'reader-selection-toolbar-container',
+  );
   static const Color _defaultColorLight = Color(0xffffffff);
   static const Color _defaultColorDark = Color(0xff424242);
 
@@ -156,9 +162,16 @@ class _ReaderSelectionToolbarContainer extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final borderColor = theme.colorScheme.outline.withOpacity(
+      theme.brightness == Brightness.dark ? 0.45 : 0.28,
+    );
     return Material(
-      borderRadius: const BorderRadius.all(
-        Radius.circular(ReaderSelectionToolbar._kToolbarBorderRadius),
+      key: toolbarKey,
+      shape: RoundedRectangleBorder(
+        borderRadius: const BorderRadius.all(
+          Radius.circular(ReaderSelectionToolbar._kToolbarBorderRadius),
+        ),
+        side: BorderSide(color: borderColor),
       ),
       clipBehavior: Clip.antiAlias,
       color: _getColor(theme.colorScheme),
@@ -166,5 +179,160 @@ class _ReaderSelectionToolbarContainer extends StatelessWidget {
       type: MaterialType.card,
       child: child,
     );
+  }
+}
+
+class _ReaderSelectionToolbarButton extends StatelessWidget {
+  const _ReaderSelectionToolbarButton({
+    required this.label,
+    required this.actionStyle,
+    required this.onPressed,
+  });
+
+  final String label;
+  final _ToolbarActionStyle actionStyle;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final textStyle = Theme.of(context).textTheme.labelLarge?.copyWith(
+          color: actionStyle.foregroundColor,
+          fontWeight:
+              actionStyle.isAiAction ? FontWeight.w600 : FontWeight.w500,
+        );
+
+    return Semantics(
+      button: true,
+      child: Material(
+        key: ValueKey<String>('reader-selection-button-${actionStyle.id}'),
+        color: actionStyle.backgroundColor,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(999),
+          side: BorderSide(
+            color: actionStyle.borderColor,
+            width: actionStyle.isAiAction ? 1.2 : 1.0,
+          ),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onPressed,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: Text(label, style: textStyle),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ToolbarActionStyle {
+  const _ToolbarActionStyle({
+    required this.id,
+    required this.backgroundColor,
+    required this.borderColor,
+    required this.foregroundColor,
+    required this.isAiAction,
+  });
+
+  final String id;
+  final Color backgroundColor;
+  final Color borderColor;
+  final Color foregroundColor;
+  final bool isAiAction;
+
+  static const String _copyId = 'copy';
+  static const String _highlightId = 'highlight';
+  static const String _defineAndTranslateId = 'define_and_translate';
+  static const String _simplifyTextId = 'simplify_text';
+  static const String _resumeHereId = 'resume_here';
+  static const String _catchMeUpId = 'catch_me_up';
+
+  static _ToolbarActionStyle resolve({
+    required ThemeData theme,
+    required ContextMenuButtonItem item,
+  }) {
+    final colorScheme = theme.colorScheme;
+    final actionId = _actionIdForItem(item);
+    final toolbarColor = _ReaderSelectionToolbarContainer._getColor(
+      colorScheme,
+    );
+    final neutralBorderColor = colorScheme.outline.withOpacity(
+      theme.brightness == Brightness.dark ? 0.3 : 0.22,
+    );
+    final neutralForegroundColor = colorScheme.onSurface.withOpacity(0.92);
+    final neutralBackgroundColor = Color.alphaBlend(
+      colorScheme.onSurface.withOpacity(
+        theme.brightness == Brightness.dark ? 0.06 : 0.03,
+      ),
+      toolbarColor,
+    );
+
+    return switch (actionId) {
+      _defineAndTranslateId => _accent(
+          id: actionId,
+          toolbarColor: toolbarColor,
+          accentColor: colorScheme.primary,
+        ),
+      _simplifyTextId => _accent(
+          id: actionId,
+          toolbarColor: toolbarColor,
+          accentColor: colorScheme.secondary,
+        ),
+      _catchMeUpId => _accent(
+          id: actionId,
+          toolbarColor: toolbarColor,
+          accentColor: Color.lerp(
+                colorScheme.primary,
+                colorScheme.secondary,
+                0.55,
+              ) ??
+              colorScheme.primary,
+        ),
+      _ => _ToolbarActionStyle(
+          id: actionId,
+          backgroundColor: neutralBackgroundColor,
+          borderColor: neutralBorderColor,
+          foregroundColor: neutralForegroundColor,
+          isAiAction: false,
+        ),
+    };
+  }
+
+  static _ToolbarActionStyle _accent({
+    required String id,
+    required Color toolbarColor,
+    required Color accentColor,
+  }) {
+    return _ToolbarActionStyle(
+      id: id,
+      backgroundColor: Color.alphaBlend(
+        accentColor.withOpacity(0.12),
+        toolbarColor,
+      ),
+      borderColor: accentColor.withOpacity(0.48),
+      foregroundColor: accentColor,
+      isAiAction: true,
+    );
+  }
+
+  static String _actionIdForItem(ContextMenuButtonItem item) {
+    if (item.type == ContextMenuButtonType.copy) {
+      return _copyId;
+    }
+
+    return switch (item.label) {
+      'Highlight' => _highlightId,
+      'Define & Translate' => _defineAndTranslateId,
+      'Simplify Text' => _simplifyTextId,
+      'Resume Here' => _resumeHereId,
+      'Catch Me Up' => _catchMeUpId,
+      final String label => label
+          .toLowerCase()
+          .replaceAll('&', 'and')
+          .replaceAll(RegExp(r'[^a-z0-9]+'), '_')
+          .replaceAll(RegExp(r'^_+|_+$'), ''),
+      null => 'custom_action',
+    };
   }
 }
