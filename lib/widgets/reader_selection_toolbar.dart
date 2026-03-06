@@ -247,6 +247,12 @@ class _ToolbarActionStyle {
   static const String _simplifyTextId = 'simplify_text';
   static const String _resumeHereId = 'resume_here';
   static const String _catchMeUpId = 'catch_me_up';
+  static const Color _defineAndTranslateLight = Color(0xFF0B57D0);
+  static const Color _defineAndTranslateDark = Color(0xFF8AB4F8);
+  static const Color _simplifyTextLight = Color(0xFF2E7D32);
+  static const Color _simplifyTextDark = Color(0xFF81C995);
+  static const Color _catchMeUpLight = Color(0xFFEF6C00);
+  static const Color _catchMeUpDark = Color(0xFFFFB74D);
 
   static _ToolbarActionStyle resolve({
     required ThemeData theme,
@@ -272,22 +278,23 @@ class _ToolbarActionStyle {
       _defineAndTranslateId => _accent(
           id: actionId,
           toolbarColor: toolbarColor,
-          accentColor: colorScheme.primary,
+          accentColor: theme.brightness == Brightness.dark
+              ? _defineAndTranslateDark
+              : _defineAndTranslateLight,
         ),
       _simplifyTextId => _accent(
           id: actionId,
           toolbarColor: toolbarColor,
-          accentColor: colorScheme.secondary,
+          accentColor: theme.brightness == Brightness.dark
+              ? _simplifyTextDark
+              : _simplifyTextLight,
         ),
       _catchMeUpId => _accent(
           id: actionId,
           toolbarColor: toolbarColor,
-          accentColor: Color.lerp(
-                colorScheme.primary,
-                colorScheme.secondary,
-                0.55,
-              ) ??
-              colorScheme.primary,
+          accentColor: theme.brightness == Brightness.dark
+              ? _catchMeUpDark
+              : _catchMeUpLight,
         ),
       _ => _ToolbarActionStyle(
           id: actionId,
@@ -307,10 +314,10 @@ class _ToolbarActionStyle {
     return _ToolbarActionStyle(
       id: id,
       backgroundColor: Color.alphaBlend(
-        accentColor.withOpacity(0.12),
+        accentColor.withOpacity(0.2),
         toolbarColor,
       ),
-      borderColor: accentColor.withOpacity(0.48),
+      borderColor: accentColor.withOpacity(0.78),
       foregroundColor: accentColor,
       isAiAction: true,
     );
