@@ -93,13 +93,17 @@ void main() {
     test('renderPromptTemplate replaces placeholders', () {
       final prompt = service.renderPromptTemplate(
         promptTemplate:
-            'Book {book_title}\nChapter {chapter_title}\n{source_text}',
+            'Book {book_title}\nAuthor {book_author}\nChapter {chapter_title}\n{source_text}',
         sourceText: 'Hello',
         bookTitle: 'Book A',
+        bookAuthor: 'Author A',
         chapterTitle: 'Chapter 1',
       );
 
-      expect(prompt, 'Book Book A\nChapter Chapter 1\nHello');
+      expect(
+        prompt,
+        'Book Book A\nAuthor Author A\nChapter Chapter 1\nHello',
+      );
     });
 
     test('hasRequiredPlaceholder checks source placeholder', () {

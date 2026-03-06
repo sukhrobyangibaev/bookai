@@ -31,6 +31,12 @@ void main() {
           promptTemplate: defaultResumeSummaryPromptTemplate,
         ),
       );
+      expect(
+        settings.aiFeatureConfigs[AiFeatureIds.defineAndTranslate],
+        const AiFeatureConfig(
+          promptTemplate: defaultDefineAndTranslatePromptTemplate,
+        ),
+      );
     });
 
     test('load returns stored values', () async {
@@ -57,6 +63,12 @@ void main() {
         const AiFeatureConfig(
           modelIdOverride: 'openai/gpt-4o-mini',
           promptTemplate: 'Use {source_text}',
+        ),
+      );
+      expect(
+        settings.aiFeatureConfigs[AiFeatureIds.defineAndTranslate],
+        const AiFeatureConfig(
+          promptTemplate: defaultDefineAndTranslatePromptTemplate,
         ),
       );
     });
@@ -117,12 +129,16 @@ void main() {
           modelIdOverride: 'openai/gpt-4o-mini',
           promptTemplate: 'Summarize {source_text}',
         ),
+        AiFeatureIds.defineAndTranslate: AiFeatureConfig(
+          promptTemplate: 'Define {source_text} and translate it into Spanish.',
+        ),
       });
 
       final prefs = await SharedPreferences.getInstance();
       final raw = prefs.getString('reader_ai_feature_configs');
       expect(raw, isNotNull);
       expect(raw, contains('resume_summary'));
+      expect(raw, contains('define_and_translate'));
       expect(raw, contains('openai/gpt-4o-mini'));
     });
 
@@ -189,6 +205,12 @@ void main() {
           promptTemplate: 'Roundtrip {source_text}',
         ),
       );
+      expect(
+        loaded.aiFeatureConfigs[AiFeatureIds.defineAndTranslate],
+        const AiFeatureConfig(
+          promptTemplate: defaultDefineAndTranslatePromptTemplate,
+        ),
+      );
     });
   });
 
@@ -237,6 +259,12 @@ void main() {
         const AiFeatureConfig(
           modelIdOverride: 'openai/gpt-4.1-mini',
           promptTemplate: 'Loaded {source_text}',
+        ),
+      );
+      expect(
+        controller.aiFeatureConfig(AiFeatureIds.defineAndTranslate),
+        const AiFeatureConfig(
+          promptTemplate: defaultDefineAndTranslatePromptTemplate,
         ),
       );
       expect(notifyCount, 1);
@@ -460,6 +488,27 @@ void main() {
       expect(raw, contains('Custom {source_text}'));
     });
 
+    test('setAiFeatureConfig supports define and translate feature', () async {
+      SharedPreferences.setMockInitialValues({});
+
+      final controller = SettingsController();
+      await controller.setAiFeatureConfig(
+        AiFeatureIds.defineAndTranslate,
+        const AiFeatureConfig(
+          modelIdOverride: 'openai/gpt-4o-mini',
+          promptTemplate: 'Explain {source_text} and translate it into German.',
+        ),
+      );
+
+      expect(
+        controller.aiFeatureConfig(AiFeatureIds.defineAndTranslate),
+        const AiFeatureConfig(
+          modelIdOverride: 'openai/gpt-4o-mini',
+          promptTemplate: 'Explain {source_text} and translate it into German.',
+        ),
+      );
+    });
+
     test('effectiveModelIdForFeature falls back to global model', () async {
       SharedPreferences.setMockInitialValues({});
 
@@ -529,6 +578,12 @@ void main() {
         controller.settings.aiFeatureConfigs[AiFeatureIds.resumeSummary],
         const AiFeatureConfig(
           promptTemplate: defaultResumeSummaryPromptTemplate,
+        ),
+      );
+      expect(
+        controller.settings.aiFeatureConfigs[AiFeatureIds.defineAndTranslate],
+        const AiFeatureConfig(
+          promptTemplate: defaultDefineAndTranslatePromptTemplate,
         ),
       );
     });

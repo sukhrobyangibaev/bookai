@@ -73,6 +73,8 @@ void main() {
       expect(find.text('AI'), findsOneWidget);
       expect(find.text('OpenRouter API Key'), findsOneWidget);
       expect(find.text('openai/gpt-4o-mini'), findsOneWidget);
+      expect(find.text('Resume Here and Catch Me Up'), findsOneWidget);
+      expect(find.text('Define & Translate'), findsOneWidget);
     });
 
     testWidgets('editing API key updates controller value', (tester) async {

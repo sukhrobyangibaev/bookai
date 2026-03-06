@@ -17,6 +17,13 @@ void main() {
           promptTemplate: defaultResumeSummaryPromptTemplate,
         ),
       );
+      expect(
+        ReaderSettings
+            .defaults.aiFeatureConfigs[AiFeatureIds.defineAndTranslate],
+        const AiFeatureConfig(
+          promptTemplate: defaultDefineAndTranslatePromptTemplate,
+        ),
+      );
     });
 
     test('toMap produces expected keys and values', () {
@@ -37,6 +44,11 @@ void main() {
       expect(
         map['aiFeatureConfigs'][AiFeatureIds.resumeSummary]['promptTemplate'],
         defaultResumeSummaryPromptTemplate,
+      );
+      expect(
+        map['aiFeatureConfigs'][AiFeatureIds.defineAndTranslate]
+            ['promptTemplate'],
+        defaultDefineAndTranslatePromptTemplate,
       );
     });
 
@@ -78,6 +90,12 @@ void main() {
         const AiFeatureConfig(
           modelIdOverride: 'openai/gpt-4.1-mini',
           promptTemplate: 'Use {source_text}',
+        ),
+      );
+      expect(
+        settings.aiFeatureConfigs[AiFeatureIds.defineAndTranslate],
+        const AiFeatureConfig(
+          promptTemplate: defaultDefineAndTranslatePromptTemplate,
         ),
       );
     });
@@ -174,6 +192,12 @@ void main() {
           promptTemplate: defaultResumeSummaryPromptTemplate,
         ),
       );
+      expect(
+        settings.aiFeatureConfigs[AiFeatureIds.defineAndTranslate],
+        const AiFeatureConfig(
+          promptTemplate: defaultDefineAndTranslatePromptTemplate,
+        ),
+      );
     });
 
     test('roundtrip toMap -> fromMap preserves all fields', () {
@@ -238,12 +262,21 @@ void main() {
           AiFeatureIds.resumeSummary: AiFeatureConfig(
             promptTemplate: 'Custom {source_text}',
           ),
+          AiFeatureIds.defineAndTranslate: AiFeatureConfig(
+            promptTemplate: 'Define {source_text} and translate it.',
+          ),
         },
       );
 
       expect(
         modified.aiFeatureConfigs[AiFeatureIds.resumeSummary],
         const AiFeatureConfig(promptTemplate: 'Custom {source_text}'),
+      );
+      expect(
+        modified.aiFeatureConfigs[AiFeatureIds.defineAndTranslate],
+        const AiFeatureConfig(
+          promptTemplate: 'Define {source_text} and translate it.',
+        ),
       );
     });
 

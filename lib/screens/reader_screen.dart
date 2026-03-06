@@ -361,6 +361,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
       promptTemplate: promptTemplate,
       sourceText: summarySelection.sourceText,
       bookTitle: widget.book.title,
+      bookAuthor: widget.book.author,
       chapterTitle: summarySelection.chapterTitle,
     );
 
@@ -384,7 +385,92 @@ class _ReaderScreenState extends State<ReaderScreen> {
       }(),
     );
 
-    await _showSummaryResultSheet(generationFuture);
+    await _showAiResultSheet(
+      generationFuture: generationFuture,
+      title: 'Summary',
+      loadingText: 'Generating summary...',
+      emptyMessage: 'Model returned an empty summary.',
+      copiedMessage: 'Summary copied',
+    );
+  }
+
+  Future<void> _defineAndTranslateSelection(
+    EditableTextState editableTextState,
+  ) async {
+    final selection = editableTextState.textEditingValue.selection;
+    final text = editableTextState.textEditingValue.text;
+    editableTextState.hideToolbar();
+
+    if (!selection.isValid || selection.isCollapsed) return;
+
+    final boundedStart = selection.start.clamp(0, text.length);
+    final boundedEnd = selection.end.clamp(0, text.length);
+    if (boundedEnd <= boundedStart) return;
+
+    final selectedText = text.substring(boundedStart, boundedEnd).trim();
+    if (selectedText.isEmpty) return;
+
+    final settings = SettingsControllerScope.of(context);
+    final apiKey = settings.openRouterApiKey.trim();
+    if (apiKey.isEmpty) {
+      _showAutoDismissSnackBar(
+        const SnackBar(
+          content: Text('Add your OpenRouter API key in Settings first.'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+
+    final modelId = settings.effectiveModelIdForFeature(
+      AiFeatureIds.defineAndTranslate,
+    );
+    if (modelId.isEmpty) {
+      _showAutoDismissSnackBar(
+        const SnackBar(
+          content: Text('Select a default AI model in Settings first.'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+
+    final featureConfig = settings.aiFeatureConfig(
+      AiFeatureIds.defineAndTranslate,
+    );
+    final promptTemplate = featureConfig.promptTemplate;
+    if (!_resumeSummaryService.hasRequiredPlaceholder(promptTemplate)) {
+      _showAutoDismissSnackBar(
+        const SnackBar(
+          content: Text(
+            'Define & Translate prompt must include the {source_text} placeholder.',
+          ),
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+
+    final prompt = _resumeSummaryService.renderPromptTemplate(
+      promptTemplate: promptTemplate,
+      sourceText: selectedText,
+      bookTitle: widget.book.title,
+      bookAuthor: widget.book.author,
+      chapterTitle: '',
+    );
+    final generationFuture = _openRouter.generateText(
+      apiKey: apiKey,
+      modelId: modelId,
+      prompt: prompt,
+    );
+
+    await _showAiResultSheet(
+      generationFuture: generationFuture,
+      title: defineAndTranslateFeature.title,
+      loadingText: 'Generating definition and translation...',
+      emptyMessage: 'Model returned an empty definition or translation.',
+      copiedMessage: 'Result copied',
+    );
   }
 
   _ResumeSummarySelection? _buildResumeSummarySelection({
@@ -419,7 +505,13 @@ class _ReaderScreenState extends State<ReaderScreen> {
     );
   }
 
-  Future<void> _showSummaryResultSheet(Future<String> generationFuture) async {
+  Future<void> _showAiResultSheet({
+    required Future<String> generationFuture,
+    required String title,
+    required String loadingText,
+    required String emptyMessage,
+    required String copiedMessage,
+  }) async {
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -433,26 +525,26 @@ class _ReaderScreenState extends State<ReaderScreen> {
               future: generationFuture,
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(
+                  return Center(
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        CircularProgressIndicator(),
-                        SizedBox(height: 12),
-                        Text('Generating summary...'),
+                        const CircularProgressIndicator(),
+                        const SizedBox(height: 12),
+                        Text(loadingText),
                       ],
                     ),
                   );
                 }
 
                 if (snapshot.hasError) {
-                  return _SummaryError(message: snapshot.error.toString());
+                  return _AiResultError(message: snapshot.error.toString());
                 }
 
-                final summary = (snapshot.data ?? '').trim();
-                if (summary.isEmpty) {
-                  return const _SummaryError(
-                    message: 'Model returned an empty summary.',
+                final result = (snapshot.data ?? '').trim();
+                if (result.isEmpty) {
+                  return _AiResultError(
+                    message: emptyMessage,
                   );
                 }
 
@@ -460,14 +552,14 @@ class _ReaderScreenState extends State<ReaderScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Summary',
+                      title,
                       style: Theme.of(context).textTheme.titleMedium,
                     ),
                     const SizedBox(height: 8),
                     Expanded(
                       child: SingleChildScrollView(
                         child: SelectableText(
-                          summary,
+                          result,
                           contextMenuBuilder: (context, editableTextState) {
                             return _buildDefaultSelectionToolbar(
                               context,
@@ -483,13 +575,13 @@ class _ReaderScreenState extends State<ReaderScreen> {
                         OutlinedButton.icon(
                           onPressed: () async {
                             await Clipboard.setData(
-                              ClipboardData(text: summary),
+                              ClipboardData(text: result),
                             );
                             if (!sheetContext.mounted) return;
                             ScaffoldMessenger.of(sheetContext).showSnackBar(
-                              const SnackBar(
-                                content: Text('Summary copied'),
-                                duration: Duration(seconds: 2),
+                              SnackBar(
+                                content: Text(copiedMessage),
+                                duration: const Duration(seconds: 2),
                               ),
                             );
                           },
@@ -1180,6 +1272,9 @@ class _ReaderScreenState extends State<ReaderScreen> {
         }
         editableTextState.hideToolbar();
       },
+      onDefineAndTranslate: () {
+        _defineAndTranslateSelection(editableTextState);
+      },
       onResumeHere: () {
         final selection = editableTextState.textEditingValue.selection;
         final text = editableTextState.textEditingValue.text;
@@ -1235,10 +1330,10 @@ class _ResumeSummarySelection {
   });
 }
 
-class _SummaryError extends StatelessWidget {
+class _AiResultError extends StatelessWidget {
   final String message;
 
-  const _SummaryError({required this.message});
+  const _AiResultError({required this.message});
 
   @override
   Widget build(BuildContext context) {

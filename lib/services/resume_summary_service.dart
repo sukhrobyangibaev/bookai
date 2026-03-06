@@ -2,6 +2,7 @@ import '../models/resume_marker.dart';
 
 const String sourceTextPlaceholder = '{source_text}';
 const String bookTitlePlaceholder = '{book_title}';
+const String bookAuthorPlaceholder = '{book_author}';
 const String chapterTitlePlaceholder = '{chapter_title}';
 
 class ResumeSummaryRange {
@@ -60,11 +61,13 @@ class ResumeSummaryService {
     required String promptTemplate,
     required String sourceText,
     required String bookTitle,
+    String bookAuthor = '',
     required String chapterTitle,
   }) {
     return promptTemplate
         .replaceAll(sourceTextPlaceholder, sourceText)
         .replaceAll(bookTitlePlaceholder, bookTitle)
+        .replaceAll(bookAuthorPlaceholder, bookAuthor)
         .replaceAll(chapterTitlePlaceholder, chapterTitle);
   }
 }

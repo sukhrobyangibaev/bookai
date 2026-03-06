@@ -6,6 +6,7 @@ List<ContextMenuButtonItem> buildReaderSelectionButtonItems({
   required List<ContextMenuButtonItem> platformItems,
   required VoidCallback onCopy,
   required VoidCallback onHighlight,
+  required VoidCallback onDefineAndTranslate,
   required VoidCallback onResumeHere,
   required VoidCallback onCatchMeUp,
 }) {
@@ -26,6 +27,10 @@ List<ContextMenuButtonItem> buildReaderSelectionButtonItems({
     ContextMenuButtonItem(
       label: 'Highlight',
       onPressed: onHighlight,
+    ),
+    ContextMenuButtonItem(
+      label: 'Define & Translate',
+      onPressed: onDefineAndTranslate,
     ),
     ContextMenuButtonItem(
       label: 'Resume Here',

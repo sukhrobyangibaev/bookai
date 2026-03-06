@@ -18,6 +18,7 @@ class AiFeatureDefinition {
 
 class AiFeatureIds {
   static const resumeSummary = 'resume_summary';
+  static const defineAndTranslate = 'define_and_translate';
 }
 
 const String defaultResumeSummaryPromptTemplate = '''
@@ -48,14 +49,47 @@ const AiFeatureDefinition resumeSummaryFeature = AiFeatureDefinition(
   ],
 );
 
+const String defaultDefineAndTranslatePromptTemplate = '''
+You will be given a selected word or phrase from a book.
+
+Book: {book_title}
+Author: {book_author}
+
+Selected text:
+{source_text}
+
+Respond briefly in exactly two parts:
+1. Definition: give a short, plain explanation of the selected text in English. If it is a phrase, explain the phrase naturally instead of treating each word separately.
+2. Translation: translate the selected text into Russian.
+
+Keep the answer concise and useful for a reader.
+''';
+
+const AiFeatureDefinition defineAndTranslateFeature = AiFeatureDefinition(
+  id: AiFeatureIds.defineAndTranslate,
+  title: 'Define & Translate',
+  description:
+      'Explain the selected word or phrase and translate it using the prompt language.',
+  defaultPromptTemplate: defaultDefineAndTranslatePromptTemplate,
+  placeholders: <String>[
+    '{book_title}',
+    '{book_author}',
+    '{source_text}',
+  ],
+);
+
 const List<AiFeatureDefinition> aiFeatures = <AiFeatureDefinition>[
   resumeSummaryFeature,
+  defineAndTranslateFeature,
 ];
 
 const Map<String, AiFeatureConfig> defaultAiFeatureConfigs =
     <String, AiFeatureConfig>{
   AiFeatureIds.resumeSummary: AiFeatureConfig(
     promptTemplate: defaultResumeSummaryPromptTemplate,
+  ),
+  AiFeatureIds.defineAndTranslate: AiFeatureConfig(
+    promptTemplate: defaultDefineAndTranslatePromptTemplate,
   ),
 };
 

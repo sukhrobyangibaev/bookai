@@ -20,11 +20,12 @@ void main() {
         ],
         onCopy: () {},
         onHighlight: () {},
+        onDefineAndTranslate: () {},
         onResumeHere: () {},
         onCatchMeUp: () {},
       );
 
-      expect(items, hasLength(4));
+      expect(items, hasLength(5));
       expect(items.first.type, ContextMenuButtonType.copy);
       expect(
         items.where((item) => item.type == ContextMenuButtonType.selectAll),
@@ -33,6 +34,7 @@ void main() {
       expect(items.map((item) => item.label).toList(), [
         'Copy',
         'Highlight',
+        'Define & Translate',
         'Resume Here',
         'Catch Me Up',
       ]);
@@ -65,6 +67,7 @@ void main() {
                 ],
                 onCopy: () {},
                 onHighlight: () {},
+                onDefineAndTranslate: () {},
                 onResumeHere: () {},
                 onCatchMeUp: () {},
               ),
@@ -75,6 +78,7 @@ void main() {
 
       expect(find.text('Copy'), findsOneWidget);
       expect(find.text('Highlight'), findsOneWidget);
+      expect(find.text('Define & Translate'), findsOneWidget);
       expect(find.text('Resume Here'), findsOneWidget);
       expect(find.text('Catch Me Up'), findsOneWidget);
       expect(find.text('Select All'), findsNothing);
@@ -82,7 +86,7 @@ void main() {
     });
 
     testWidgets('invokes reader action callbacks', (tester) async {
-      var resumePressed = false;
+      var definePressed = false;
 
       await tester.pumpWidget(
         MaterialApp(
@@ -102,8 +106,11 @@ void main() {
                 ],
                 onCopy: () {},
                 onHighlight: () {},
+                onDefineAndTranslate: () {
+                  definePressed = true;
+                },
                 onResumeHere: () {
-                  resumePressed = true;
+                  fail('Resume Here should not be tapped in this test.');
                 },
                 onCatchMeUp: () {},
               ),
@@ -112,10 +119,10 @@ void main() {
         ),
       );
 
-      await tester.tap(find.text('Resume Here'));
+      await tester.tap(find.text('Define & Translate'));
       await tester.pump();
 
-      expect(resumePressed, isTrue);
+      expect(definePressed, isTrue);
     });
   });
 }
