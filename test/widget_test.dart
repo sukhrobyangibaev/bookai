@@ -1,6 +1,9 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -10,6 +13,8 @@ import 'package:bookai/services/settings_controller.dart';
 
 void main() {
   GoogleFonts.config.allowRuntimeFetching = false;
+  late Directory tempDir;
+  late String databasePath;
 
   // Initialize FFI-based SQLite for desktop/test environment.
   setUpAll(() {
@@ -17,14 +22,19 @@ void main() {
     databaseFactory = databaseFactoryFfi;
   });
 
+  tearDown(() async {
+    await DatabaseService.instance.resetForTesting();
+    if (await tempDir.exists()) {
+      await tempDir.delete(recursive: true);
+    }
+  });
+
   group('LibraryScreen', () {
     setUp(() async {
-      // Ensure test isolation: library empty-state expectations require no books.
-      final db = await DatabaseService.instance.database;
-      await db.delete('resume_markers');
-      await db.delete('progress');
-      await db.delete('highlights');
-      await db.delete('books');
+      tempDir = await Directory.systemTemp.createTemp('bookai_widget_test_');
+      databasePath = p.join(tempDir.path, 'bookai_test.db');
+      await DatabaseService.instance
+          .resetForTesting(databasePath: databasePath);
     });
 
     testWidgets('empty state shows correct elements and import buttons',

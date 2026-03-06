@@ -1,6 +1,5 @@
 import 'dart:io';
 
-import 'package:epubx/epubx.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:path/path.dart' as p;
 
@@ -92,15 +91,24 @@ class LibraryService {
       return ImportError('Failed to copy file: $e');
     }
 
-    // 4. Parse metadata
-    final (title, author) = await _parseMetadata(destFile);
+    // 4. Parse metadata + chapters in one pass so newly imported books open
+    // quickly without reparsing the epub on first read.
+    ParsedEpub? parsed;
+    try {
+      parsed = await EpubService.instance.parseBookFile(destFile.path);
+    } catch (_) {
+      parsed = null;
+    }
+
+    final title = _resolveTitle(parsed?.title, destFile.path);
+    final author = _resolveAuthor(parsed?.author);
 
     // 5. Persist book record
     final draft = Book(
       title: title,
       author: author,
       filePath: destFile.path,
-      totalChapters: 0, // updated by EpubService later
+      totalChapters: parsed?.chapters.length ?? 0,
       createdAt: DateTime.now(),
     );
 
@@ -118,6 +126,17 @@ class LibraryService {
       final dup = await _db.getBookByFilePath(destFile.path);
       if (dup != null) return ImportDuplicate(dup);
       return ImportError('Duplicate book entry detected.');
+    }
+
+    if (saved.id != null && parsed != null && parsed.chapters.isNotEmpty) {
+      try {
+        await _db.replaceChaptersForBook(saved.id!, parsed.chapters);
+      } catch (e) {
+        await _db.deleteBook(saved.id!);
+        await _storage.deleteBookFile(destFile.path);
+        EpubService.instance.evict(destFile.path);
+        return ImportError('Failed to store chapters: $e');
+      }
     }
 
     return ImportSuccess(saved);
@@ -146,25 +165,14 @@ class LibraryService {
 
   // ── Helpers ────────────────────────────────────────────────────────────────
 
-  /// Reads the epub file and extracts title + author.
-  /// Falls back to the filename (without extension) and "Unknown Author".
-  Future<(String title, String author)> _parseMetadata(File file) async {
-    try {
-      final bytes = await file.readAsBytes();
-      final epub = await EpubReader.readBook(bytes);
+  String _resolveTitle(String? title, String filePath) {
+    final normalized = (title ?? '').trim();
+    return normalized.isNotEmpty ? normalized : _titleFromPath(filePath);
+  }
 
-      final title = (epub.Title ?? '').trim();
-      final author = (epub.Author ?? '').trim();
-
-      final resolvedTitle =
-          title.isNotEmpty ? title : _titleFromPath(file.path);
-      final resolvedAuthor = author.isNotEmpty ? author : 'Unknown Author';
-
-      return (resolvedTitle, resolvedAuthor);
-    } catch (_) {
-      // If epubx cannot parse the file, fall back gracefully.
-      return (_titleFromPath(file.path), 'Unknown Author');
-    }
+  String _resolveAuthor(String? author) {
+    final normalized = (author ?? '').trim();
+    return normalized.isNotEmpty ? normalized : 'Unknown Author';
   }
 
   String _titleFromPath(String filePath) {

@@ -4,6 +4,18 @@ import 'package:epubx/epubx.dart';
 
 import '../models/chapter.dart';
 
+class ParsedEpub {
+  const ParsedEpub({
+    required this.title,
+    required this.author,
+    required this.chapters,
+  });
+
+  final String title;
+  final String author;
+  final List<Chapter> chapters;
+}
+
 /// Parses epub files into ordered [Chapter] lists.
 ///
 /// Maintains a simple in-memory cache keyed by file path so that repeated
@@ -29,7 +41,25 @@ class EpubService {
       throw FileSystemException('Epub file not found', filePath);
     }
 
+    final parsed = await parseBookFile(filePath);
+    return parsed.chapters;
+  }
+
+  /// Parses the epub at [filePath], returning metadata and extracted chapters.
+  Future<ParsedEpub> parseBookFile(String filePath) async {
+    final file = File(filePath);
+    if (!await file.exists()) {
+      throw FileSystemException('Epub file not found', filePath);
+    }
+
     final bytes = await file.readAsBytes();
+    final parsed = await parseBookBytes(bytes);
+    cacheChapters(filePath, parsed.chapters);
+    return parsed;
+  }
+
+  /// Parses already-loaded epub [bytes], returning metadata and chapters.
+  Future<ParsedEpub> parseBookBytes(List<int> bytes) async {
     final epub = await EpubReader.readBook(bytes);
 
     final chapters = <Chapter>[];
@@ -45,8 +75,16 @@ class EpubService {
       _extractFromContent(epub, chapters);
     }
 
-    _cache[filePath] = chapters;
-    return chapters;
+    return ParsedEpub(
+      title: (epub.Title ?? '').trim(),
+      author: (epub.Author ?? '').trim(),
+      chapters: List<Chapter>.unmodifiable(chapters),
+    );
+  }
+
+  /// Seeds the in-memory cache for [filePath].
+  void cacheChapters(String filePath, List<Chapter> chapters) {
+    _cache[filePath] = List<Chapter>.unmodifiable(chapters);
   }
 
   /// Removes the cached chapters for [filePath], if any.

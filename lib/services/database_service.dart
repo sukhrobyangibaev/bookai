@@ -2,8 +2,9 @@ import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 
 import '../models/book.dart';
-import '../models/reading_progress.dart';
+import '../models/chapter.dart';
 import '../models/highlight.dart';
+import '../models/reading_progress.dart';
 import '../models/resume_marker.dart';
 
 class DatabaseService {
@@ -11,6 +12,7 @@ class DatabaseService {
   static final DatabaseService instance = DatabaseService._();
 
   static Database? _db;
+  String? _databasePathOverride;
 
   Future<Database> get database async {
     _db ??= await _initDb();
@@ -18,15 +20,41 @@ class DatabaseService {
   }
 
   Future<Database> _initDb() async {
-    final dbPath = await getDatabasesPath();
-    final path = join(dbPath, 'bookai.db');
+    final path =
+        _databasePathOverride ?? join(await getDatabasesPath(), 'bookai.db');
 
+    return openDatabaseAt(path);
+  }
+
+  /// Opens the app database at an explicit [path].
+  ///
+  /// Used by the app for the default database and by tests for migration
+  /// coverage without disturbing the shared singleton connection.
+  Future<Database> openDatabaseAt(String path) {
     return openDatabase(
       path,
-      version: 3,
+      version: 4,
+      onConfigure: _onConfigure,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
+  }
+
+  Future<void> close() async {
+    final db = _db;
+    _db = null;
+    if (db != null) {
+      await db.close();
+    }
+  }
+
+  Future<void> resetForTesting({String? databasePath}) async {
+    await close();
+    _databasePathOverride = databasePath;
+  }
+
+  Future<void> _onConfigure(Database db) async {
+    await db.execute('PRAGMA foreign_keys = ON');
   }
 
   Future<void> _onCreate(Database db, int version) async {
@@ -68,6 +96,7 @@ class DatabaseService {
         .execute('CREATE INDEX idx_highlights_bookId ON highlights(bookId)');
 
     await _createResumeMarkersTable(db);
+    await _createChaptersTable(db);
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -77,6 +106,9 @@ class DatabaseService {
     if (oldVersion < 3) {
       await db.execute('DROP INDEX IF EXISTS idx_bookmarks_bookId');
       await db.execute('DROP TABLE IF EXISTS bookmarks');
+    }
+    if (oldVersion < 4) {
+      await _createChaptersTable(db);
     }
   }
 
@@ -90,6 +122,19 @@ class DatabaseService {
         selectionEnd   INTEGER NOT NULL,
         scrollOffset   REAL    NOT NULL DEFAULT 0.0,
         createdAt      TEXT    NOT NULL,
+        FOREIGN KEY (bookId) REFERENCES books(id) ON DELETE CASCADE
+      )
+    ''');
+  }
+
+  Future<void> _createChaptersTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS chapters (
+        bookId         INTEGER NOT NULL,
+        chapterIndex   INTEGER NOT NULL,
+        title          TEXT    NOT NULL,
+        content        TEXT    NOT NULL,
+        PRIMARY KEY (bookId, chapterIndex),
         FOREIGN KEY (bookId) REFERENCES books(id) ON DELETE CASCADE
       )
     ''');
@@ -138,6 +183,49 @@ class DatabaseService {
       where: 'id = ?',
       whereArgs: [bookId],
     );
+  }
+
+  Future<void> replaceChaptersForBook(
+      int bookId, List<Chapter> chapters) async {
+    final db = await database;
+    await db.transaction((txn) async {
+      await txn.delete('chapters', where: 'bookId = ?', whereArgs: [bookId]);
+
+      if (chapters.isEmpty) {
+        return;
+      }
+
+      final batch = txn.batch();
+      for (final chapter in chapters) {
+        batch.insert('chapters', {
+          'bookId': bookId,
+          'chapterIndex': chapter.index,
+          'title': chapter.title,
+          'content': chapter.content,
+        });
+      }
+      await batch.commit(noResult: true);
+    });
+  }
+
+  Future<List<Chapter>> getChaptersByBookId(int bookId) async {
+    final db = await database;
+    final rows = await db.query(
+      'chapters',
+      where: 'bookId = ?',
+      whereArgs: [bookId],
+      orderBy: 'chapterIndex ASC',
+    );
+    return rows
+        .map(
+          (row) => Chapter(
+            bookId: bookId,
+            index: row['chapterIndex'] as int,
+            title: row['title'] as String,
+            content: row['content'] as String,
+          ),
+        )
+        .toList();
   }
 
   // ── Reading Progress ──────────────────────────────────────────────────────

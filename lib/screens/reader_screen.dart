@@ -10,8 +10,8 @@ import '../models/chapter.dart';
 import '../models/highlight.dart';
 import '../models/reading_progress.dart';
 import '../models/resume_marker.dart';
+import '../services/chapter_loader_service.dart';
 import '../services/database_service.dart';
-import '../services/epub_service.dart';
 import '../services/openrouter_service.dart';
 import '../services/resume_summary_service.dart';
 import '../theme/reader_typography.dart';
@@ -28,7 +28,7 @@ class ReaderScreen extends StatefulWidget {
 }
 
 class _ReaderScreenState extends State<ReaderScreen> {
-  final _epub = EpubService.instance;
+  final _chapterLoader = ChapterLoaderService.instance;
   final _db = DatabaseService.instance;
   final _openRouter = OpenRouterService();
   final _resumeSummaryService = const ResumeSummaryService();
@@ -96,25 +96,23 @@ class _ReaderScreenState extends State<ReaderScreen> {
     });
 
     try {
-      final chapters = await _epub.parseChapters(widget.book.filePath);
+      final bookId = widget.book.id;
+      final chaptersFuture = _chapterLoader.loadChapters(widget.book);
+      final savedStateFuture = bookId == null
+          ? Future<_SavedReaderState>.value(const _SavedReaderState())
+          : _loadSavedState(bookId);
+
+      final chapters = await chaptersFuture;
+      final savedState = await savedStateFuture;
+
       if (!mounted) return;
 
-      // Restore saved progress and manual resume marker if available.
-      final bookId = widget.book.id;
-      ReadingProgress? savedProgress;
-      ResumeMarker? savedMarker;
-      if (bookId != null) {
-        // Persist the actual chapter count so the library card can show progress.
-        if (chapters.length != widget.book.totalChapters) {
-          await _db.updateBookTotalChapters(bookId, chapters.length);
-        }
-
-        savedProgress = await _db.getProgressByBookId(bookId);
-        savedMarker = await _db.getResumeMarkerByBookId(bookId);
-        // Load highlights for this book.
-        _highlights = await _db.getHighlightsByBookId(bookId);
+      if (bookId != null && chapters.length != widget.book.totalChapters) {
+        unawaited(_db.updateBookTotalChapters(bookId, chapters.length));
       }
 
+      final savedProgress = savedState.progress;
+      final savedMarker = savedState.marker;
       final markerChapterIndex = savedMarker?.chapterIndex ?? -1;
       final markerChapterIsValid =
           markerChapterIndex >= 0 && markerChapterIndex < chapters.length;
@@ -133,6 +131,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
       if (mounted) {
         setState(() {
           _chapters = chapters;
+          _highlights = savedState.highlights;
           _resumeMarker = savedMarker;
           _currentIndex = initialChapterIndex;
           _loading = false;
@@ -168,6 +167,18 @@ class _ReaderScreenState extends State<ReaderScreen> {
         });
       }
     }
+  }
+
+  Future<_SavedReaderState> _loadSavedState(int bookId) async {
+    final progressFuture = _db.getProgressByBookId(bookId);
+    final markerFuture = _db.getResumeMarkerByBookId(bookId);
+    final highlightsFuture = _db.getHighlightsByBookId(bookId);
+
+    return _SavedReaderState(
+      progress: await progressFuture,
+      marker: await markerFuture,
+      highlights: await highlightsFuture,
+    );
   }
 
   // ── Chapter navigation ───────────────────────────────────────────────────
@@ -1342,6 +1353,18 @@ class _ReaderScreenState extends State<ReaderScreen> {
       buttonItems: items,
     );
   }
+}
+
+class _SavedReaderState {
+  const _SavedReaderState({
+    this.progress,
+    this.marker,
+    this.highlights = const [],
+  });
+
+  final ReadingProgress? progress;
+  final ResumeMarker? marker;
+  final List<Highlight> highlights;
 }
 
 class _StyledRange {
