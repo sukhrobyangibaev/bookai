@@ -347,7 +347,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
       _showAutoDismissSnackBar(
         const SnackBar(
           content: Text(
-            'Summary prompt must include the {source_text} placeholder.',
+            'Catch-up prompt must include the {source_text} placeholder.',
           ),
           duration: Duration(seconds: 2),
         ),
@@ -1187,7 +1187,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
         },
       ),
       ContextMenuButtonItem(
-        label: 'Resume Here and Summarize',
+        label: 'Resume Here and Catch Me Up',
         onPressed: () {
           _summarizeFromResumePoint(editableTextState);
         },
