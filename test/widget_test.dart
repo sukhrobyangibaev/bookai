@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -8,6 +9,8 @@ import 'package:bookai/services/database_service.dart';
 import 'package:bookai/services/settings_controller.dart';
 
 void main() {
+  GoogleFonts.config.allowRuntimeFetching = false;
+
   // Initialize FFI-based SQLite for desktop/test environment.
   setUpAll(() {
     sqfliteFfiInit();

@@ -8,6 +8,7 @@ import '../models/reader_settings.dart';
 class SettingsService {
   static const _keyFontSize = 'reader_font_size';
   static const _keyThemeMode = 'reader_theme_mode';
+  static const _keyFontFamily = 'reader_font_family';
   static const _keyOpenRouterApiKey = 'reader_openrouter_api_key';
   static const _keyOpenRouterModelId = 'reader_openrouter_model_id';
   static const _keyAiFeatureConfigs = 'reader_ai_feature_configs';
@@ -25,6 +26,13 @@ class SettingsService {
             orElse: () => ReaderSettings.defaults.themeMode,
           )
         : ReaderSettings.defaults.themeMode;
+    final fontFamilyStr = prefs.getString(_keyFontFamily);
+    final fontFamily = fontFamilyStr != null
+        ? ReaderFontFamily.values.firstWhere(
+            (e) => e.name == fontFamilyStr,
+            orElse: () => ReaderSettings.defaults.fontFamily,
+          )
+        : ReaderSettings.defaults.fontFamily;
 
     final openRouterApiKey = prefs.getString(_keyOpenRouterApiKey) ??
         ReaderSettings.defaults.openRouterApiKey;
@@ -37,6 +45,7 @@ class SettingsService {
     return ReaderSettings.fromMap({
       'fontSize': fontSize,
       'themeMode': themeMode.name,
+      'fontFamily': fontFamily.name,
       'openRouterApiKey': openRouterApiKey,
       'openRouterModelId': openRouterModelId,
       'aiFeatureConfigs': aiFeatureConfigs,
@@ -51,6 +60,11 @@ class SettingsService {
   Future<void> saveThemeMode(AppThemeMode themeMode) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_keyThemeMode, themeMode.name);
+  }
+
+  Future<void> saveFontFamily(ReaderFontFamily fontFamily) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_keyFontFamily, fontFamily.name);
   }
 
   Future<void> saveOpenRouterApiKey(String apiKey) async {

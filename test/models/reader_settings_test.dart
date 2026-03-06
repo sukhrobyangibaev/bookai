@@ -8,6 +8,7 @@ void main() {
     test('defaults has expected values', () {
       expect(ReaderSettings.defaults.fontSize, 18.0);
       expect(ReaderSettings.defaults.themeMode, AppThemeMode.light);
+      expect(ReaderSettings.defaults.fontFamily, ReaderFontFamily.system);
       expect(ReaderSettings.defaults.openRouterApiKey, '');
       expect(ReaderSettings.defaults.openRouterModelId, '');
       expect(
@@ -30,6 +31,7 @@ void main() {
 
       expect(map['fontSize'], 22.0);
       expect(map['themeMode'], 'dark');
+      expect(map['fontFamily'], 'system');
       expect(map['openRouterApiKey'], 'test-key');
       expect(map['openRouterModelId'], 'openai/gpt-4o-mini');
       expect(
@@ -53,6 +55,7 @@ void main() {
       final map = {
         'fontSize': 24.0,
         'themeMode': 'dark',
+        'fontFamily': 'bitter',
         'openRouterApiKey': 'abc123',
         'openRouterModelId': 'anthropic/claude-3.5-sonnet',
         'aiFeatureConfigs': {
@@ -67,6 +70,7 @@ void main() {
 
       expect(settings.fontSize, 24.0);
       expect(settings.themeMode, AppThemeMode.dark);
+      expect(settings.fontFamily, ReaderFontFamily.bitter);
       expect(settings.openRouterApiKey, 'abc123');
       expect(settings.openRouterModelId, 'anthropic/claude-3.5-sonnet');
       expect(
@@ -87,6 +91,7 @@ void main() {
 
       expect(settings.fontSize, 18.0);
       expect(settings.themeMode, AppThemeMode.sepia);
+      expect(settings.fontFamily, ReaderFontFamily.system);
     });
 
     test('fromMap falls back to defaults for null fontSize', () {
@@ -108,6 +113,17 @@ void main() {
       final settings = ReaderSettings.fromMap(map);
 
       expect(settings.themeMode, AppThemeMode.light);
+    });
+
+    test('fromMap falls back to system for unknown fontFamily string', () {
+      final map = <String, dynamic>{
+        'fontSize': 20.0,
+        'fontFamily': 'unknown_font',
+      };
+
+      final settings = ReaderSettings.fromMap(map);
+
+      expect(settings.fontFamily, ReaderFontFamily.system);
     });
 
     test('fromMap falls back to light for null themeMode', () {
@@ -149,6 +165,7 @@ void main() {
 
       expect(settings.fontSize, 18.0);
       expect(settings.themeMode, AppThemeMode.light);
+      expect(settings.fontFamily, ReaderFontFamily.system);
       expect(settings.openRouterApiKey, '');
       expect(settings.openRouterModelId, '');
       expect(
@@ -163,6 +180,7 @@ void main() {
       const original = ReaderSettings(
         fontSize: 14.0,
         themeMode: AppThemeMode.sepia,
+        fontFamily: ReaderFontFamily.literata,
         openRouterApiKey: 'my-key',
         openRouterModelId: 'openai/gpt-4.1-mini',
       );
@@ -184,11 +202,28 @@ void main() {
 
       expect(modified.themeMode, AppThemeMode.dark);
       expect(modified.fontSize, 18.0);
+      expect(modified.fontFamily, ReaderFontFamily.system);
       expect(modified.openRouterApiKey, 'k1');
       expect(modified.openRouterModelId, 'm1');
       expect(
         modified.aiFeatureConfigs,
         original.aiFeatureConfigs,
+      );
+    });
+
+    test('copyWith overrides fontFamily', () {
+      const original = ReaderSettings(
+        fontSize: 18.0,
+        themeMode: AppThemeMode.light,
+      );
+
+      final modified = original.copyWith(
+        fontFamily: ReaderFontFamily.atkinsonHyperlegible,
+      );
+
+      expect(
+        modified.fontFamily,
+        ReaderFontFamily.atkinsonHyperlegible,
       );
     });
 
@@ -246,6 +281,22 @@ void main() {
       expect(AppThemeMode.light.name, 'light');
       expect(AppThemeMode.dark.name, 'dark');
       expect(AppThemeMode.sepia.name, 'sepia');
+    });
+  });
+
+  group('ReaderFontFamily', () {
+    test('has exactly four values', () {
+      expect(ReaderFontFamily.values.length, 4);
+    });
+
+    test('label returns expected strings', () {
+      expect(ReaderFontFamily.system.label, 'Default');
+      expect(ReaderFontFamily.literata.label, 'Literata');
+      expect(ReaderFontFamily.bitter.label, 'Bitter');
+      expect(
+        ReaderFontFamily.atkinsonHyperlegible.label,
+        'Atkinson Hyperlegible',
+      );
     });
   });
 }

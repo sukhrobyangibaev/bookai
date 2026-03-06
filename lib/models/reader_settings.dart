@@ -3,9 +3,27 @@ import 'ai_feature_config.dart';
 
 enum AppThemeMode { light, dark, sepia }
 
+enum ReaderFontFamily { system, literata, bitter, atkinsonHyperlegible }
+
+extension ReaderFontFamilyX on ReaderFontFamily {
+  String get label {
+    switch (this) {
+      case ReaderFontFamily.system:
+        return 'Default';
+      case ReaderFontFamily.literata:
+        return 'Literata';
+      case ReaderFontFamily.bitter:
+        return 'Bitter';
+      case ReaderFontFamily.atkinsonHyperlegible:
+        return 'Atkinson Hyperlegible';
+    }
+  }
+}
+
 class ReaderSettings {
   final double fontSize;
   final AppThemeMode themeMode;
+  final ReaderFontFamily fontFamily;
   final String openRouterApiKey;
   final String openRouterModelId;
   final Map<String, AiFeatureConfig> aiFeatureConfigs;
@@ -13,6 +31,7 @@ class ReaderSettings {
   const ReaderSettings({
     required this.fontSize,
     required this.themeMode,
+    this.fontFamily = ReaderFontFamily.system,
     this.openRouterApiKey = '',
     this.openRouterModelId = '',
     this.aiFeatureConfigs = defaultAiFeatureConfigs,
@@ -21,6 +40,7 @@ class ReaderSettings {
   static const ReaderSettings defaults = ReaderSettings(
     fontSize: 18.0,
     themeMode: AppThemeMode.light,
+    fontFamily: ReaderFontFamily.system,
     openRouterApiKey: '',
     openRouterModelId: '',
   );
@@ -28,6 +48,7 @@ class ReaderSettings {
   ReaderSettings copyWith({
     double? fontSize,
     AppThemeMode? themeMode,
+    ReaderFontFamily? fontFamily,
     String? openRouterApiKey,
     String? openRouterModelId,
     Map<String, AiFeatureConfig>? aiFeatureConfigs,
@@ -35,6 +56,7 @@ class ReaderSettings {
     return ReaderSettings(
       fontSize: fontSize ?? this.fontSize,
       themeMode: themeMode ?? this.themeMode,
+      fontFamily: fontFamily ?? this.fontFamily,
       openRouterApiKey: openRouterApiKey ?? this.openRouterApiKey,
       openRouterModelId: openRouterModelId ?? this.openRouterModelId,
       aiFeatureConfigs: aiFeatureConfigs ?? this.aiFeatureConfigs,
@@ -45,6 +67,7 @@ class ReaderSettings {
     return {
       'fontSize': fontSize,
       'themeMode': themeMode.name,
+      'fontFamily': fontFamily.name,
       'openRouterApiKey': openRouterApiKey,
       'openRouterModelId': openRouterModelId,
       'aiFeatureConfigs':
@@ -58,9 +81,16 @@ class ReaderSettings {
       (e) => e.name == themeModeStr,
       orElse: () => AppThemeMode.light,
     );
+    final fontFamilyStr =
+        map['fontFamily'] as String? ?? ReaderFontFamily.system.name;
+    final fontFamily = ReaderFontFamily.values.firstWhere(
+      (e) => e.name == fontFamilyStr,
+      orElse: () => ReaderFontFamily.system,
+    );
     return ReaderSettings(
       fontSize: (map['fontSize'] as num?)?.toDouble() ?? 18.0,
       themeMode: themeMode,
+      fontFamily: fontFamily,
       openRouterApiKey: map['openRouterApiKey'] as String? ?? '',
       openRouterModelId: map['openRouterModelId'] as String? ?? '',
       aiFeatureConfigs: _parseAiFeatureConfigs(map['aiFeatureConfigs']),
@@ -105,6 +135,7 @@ class ReaderSettings {
   @override
   String toString() {
     return 'ReaderSettings(fontSize: $fontSize, themeMode: $themeMode, '
+        'fontFamily: $fontFamily, '
         'openRouterApiKey: ${openRouterApiKey.isEmpty ? '<empty>' : '<redacted>'}, '
         'openRouterModelId: $openRouterModelId, '
         'aiFeatureConfigs: ${aiFeatureConfigs.length})';
@@ -116,6 +147,7 @@ class ReaderSettings {
     return other is ReaderSettings &&
         other.fontSize == fontSize &&
         other.themeMode == themeMode &&
+        other.fontFamily == fontFamily &&
         other.openRouterApiKey == openRouterApiKey &&
         other.openRouterModelId == openRouterModelId &&
         _configsEqual(other.aiFeatureConfigs, aiFeatureConfigs);
@@ -125,6 +157,7 @@ class ReaderSettings {
   int get hashCode => Object.hash(
         fontSize,
         themeMode,
+        fontFamily,
         openRouterApiKey,
         openRouterModelId,
         Object.hashAllUnordered(

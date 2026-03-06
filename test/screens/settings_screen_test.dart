@@ -1,14 +1,58 @@
 import 'package:bookai/app.dart';
+import 'package:bookai/models/reader_settings.dart';
 import 'package:bookai/screens/settings_screen.dart';
 import 'package:bookai/services/settings_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  GoogleFonts.config.allowRuntimeFetching = false;
 
-  group('SettingsScreen AI section', () {
+  group('SettingsScreen', () {
+    testWidgets('shows reader font options', (tester) async {
+      SharedPreferences.setMockInitialValues({});
+
+      final controller = SettingsController();
+      await tester.runAsync(() => controller.load());
+
+      await tester.pumpWidget(
+        SettingsControllerScope(
+          controller: controller,
+          child: const MaterialApp(home: SettingsScreen()),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Font'), findsOneWidget);
+      expect(find.text('Default'), findsOneWidget);
+      expect(find.text('Literata'), findsOneWidget);
+      expect(find.text('Bitter'), findsOneWidget);
+      expect(find.text('Atkinson Hyperlegible'), findsOneWidget);
+    });
+
+    testWidgets('selecting font updates controller value', (tester) async {
+      SharedPreferences.setMockInitialValues({});
+
+      final controller = SettingsController();
+      await tester.runAsync(() => controller.load());
+
+      await tester.pumpWidget(
+        SettingsControllerScope(
+          controller: controller,
+          child: const MaterialApp(home: SettingsScreen()),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Bitter'));
+      await tester.pumpAndSettle();
+
+      expect(controller.fontFamily, ReaderFontFamily.bitter);
+    });
+
     testWidgets('shows persisted OpenRouter model id', (tester) async {
       SharedPreferences.setMockInitialValues({
         'reader_openrouter_api_key': 'stored-key',

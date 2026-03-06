@@ -13,6 +13,7 @@ class SettingsController extends ChangeNotifier {
   ReaderSettings get settings => _settings;
   double get fontSize => _settings.fontSize;
   AppThemeMode get themeMode => _settings.themeMode;
+  ReaderFontFamily get fontFamily => _settings.fontFamily;
   String get openRouterApiKey => _settings.openRouterApiKey;
   String get openRouterModelId => _settings.openRouterModelId;
   Map<String, AiFeatureConfig> get aiFeatureConfigs =>
@@ -38,6 +39,13 @@ class SettingsController extends ChangeNotifier {
     _settings = _settings.copyWith(themeMode: themeMode);
     notifyListeners();
     await _service.saveThemeMode(themeMode);
+  }
+
+  Future<void> setFontFamily(ReaderFontFamily fontFamily) async {
+    if (_settings.fontFamily == fontFamily) return;
+    _settings = _settings.copyWith(fontFamily: fontFamily);
+    notifyListeners();
+    await _service.saveFontFamily(fontFamily);
   }
 
   Future<void> setOpenRouterApiKey(String apiKey) async {

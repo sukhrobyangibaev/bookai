@@ -14,6 +14,7 @@ import '../services/database_service.dart';
 import '../services/epub_service.dart';
 import '../services/openrouter_service.dart';
 import '../services/resume_summary_service.dart';
+import '../theme/reader_typography.dart';
 
 /// Displays the content of a [Book] with chapter-by-chapter navigation.
 class ReaderScreen extends StatefulWidget {
@@ -988,7 +989,9 @@ class _ReaderScreenState extends State<ReaderScreen> {
 
   Widget _buildContent() {
     final chapter = _currentChapter!;
-    final settingsFontSize = SettingsControllerScope.of(context).fontSize;
+    final settings = SettingsControllerScope.of(context);
+    final settingsFontSize = settings.fontSize;
+    final settingsFontFamily = settings.fontFamily;
 
     // Collect highlight texts for the current chapter to display inline
     // highlighting. Build a set for quick lookups.
@@ -1026,10 +1029,17 @@ class _ReaderScreenState extends State<ReaderScreen> {
               contextMenuBuilder: (context, editableTextState) {
                 return _buildSelectionToolbar(context, editableTextState);
               },
-              style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                    fontSize: settingsFontSize,
-                    height: 1.6,
-                  ),
+              style: applyReaderFont(
+                baseStyle: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                          fontSize: settingsFontSize,
+                          height: 1.6,
+                        ) ??
+                    TextStyle(
+                      fontSize: settingsFontSize,
+                      height: 1.6,
+                    ),
+                fontFamily: settingsFontFamily,
+              ),
             ),
           ],
         ),

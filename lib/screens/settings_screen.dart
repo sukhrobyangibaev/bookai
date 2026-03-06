@@ -7,6 +7,7 @@ import '../models/openrouter_model.dart';
 import '../models/reader_settings.dart';
 import '../services/openrouter_service.dart';
 import '../services/settings_controller.dart';
+import '../theme/reader_typography.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -250,6 +251,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           return ListView(
             padding: const EdgeInsets.symmetric(vertical: 16),
             children: [
+              _buildFontSection(context, controller),
+              const Divider(height: 32),
               _buildFontSizeSection(context, controller),
               const Divider(height: 32),
               _buildThemeSection(context, controller),
@@ -262,9 +265,57 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  Widget _buildFontSection(
+    BuildContext context,
+    SettingsController controller,
+  ) {
+    final currentFont = controller.fontFamily;
+    final labelStyle =
+        Theme.of(context).textTheme.bodyMedium ?? const TextStyle();
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Font',
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final fontFamily in ReaderFontFamily.values)
+                ChoiceChip(
+                  label: Text(
+                    fontFamily.label,
+                    style: applyReaderFont(
+                      baseStyle: labelStyle,
+                      fontFamily: fontFamily,
+                    ),
+                  ),
+                  selected: currentFont == fontFamily,
+                  onSelected: (selected) {
+                    if (!selected) return;
+                    controller.setFontFamily(fontFamily);
+                  },
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildFontSizeSection(
       BuildContext context, SettingsController controller) {
     final fontSize = controller.fontSize;
+    final previewStyle = applyReaderFont(
+      baseStyle: TextStyle(fontSize: fontSize, height: 1.6),
+      fontFamily: controller.fontFamily,
+    );
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -300,8 +351,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Text(
-                'Preview text at size ${fontSize.round()}',
-                style: TextStyle(fontSize: fontSize, height: 1.6),
+                'Preview text in ${controller.fontFamily.label} at size ${fontSize.round()}',
+                style: previewStyle,
               ),
             ),
           ),

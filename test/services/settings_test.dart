@@ -18,6 +18,7 @@ void main() {
 
       expect(settings.fontSize, ReaderSettings.defaults.fontSize);
       expect(settings.themeMode, ReaderSettings.defaults.themeMode);
+      expect(settings.fontFamily, ReaderSettings.defaults.fontFamily);
       expect(
           settings.openRouterApiKey, ReaderSettings.defaults.openRouterApiKey);
       expect(
@@ -36,6 +37,7 @@ void main() {
       SharedPreferences.setMockInitialValues({
         'reader_font_size': 24.0,
         'reader_theme_mode': 'dark',
+        'reader_font_family': 'literata',
         'reader_openrouter_api_key': 'stored-key',
         'reader_openrouter_model_id': 'openai/gpt-4.1-mini',
         'reader_ai_feature_configs':
@@ -47,6 +49,7 @@ void main() {
 
       expect(settings.fontSize, 24.0);
       expect(settings.themeMode, AppThemeMode.dark);
+      expect(settings.fontFamily, ReaderFontFamily.literata);
       expect(settings.openRouterApiKey, 'stored-key');
       expect(settings.openRouterModelId, 'openai/gpt-4.1-mini');
       expect(
@@ -69,6 +72,17 @@ void main() {
 
       expect(settings.fontSize, 20.0);
       expect(settings.themeMode, AppThemeMode.light);
+    });
+
+    test('load falls back to default for unknown font family string', () async {
+      SharedPreferences.setMockInitialValues({
+        'reader_font_family': 'invalid_font_family',
+      });
+
+      final service = SettingsService();
+      final settings = await service.load();
+
+      expect(settings.fontFamily, ReaderFontFamily.system);
     });
 
     test('saveOpenRouterApiKey persists value', () async {
@@ -132,12 +146,26 @@ void main() {
       expect(prefs.getString('reader_theme_mode'), 'sepia');
     });
 
+    test('saveFontFamily persists value', () async {
+      SharedPreferences.setMockInitialValues({});
+
+      final service = SettingsService();
+      await service.saveFontFamily(ReaderFontFamily.atkinsonHyperlegible);
+
+      final prefs = await SharedPreferences.getInstance();
+      expect(
+        prefs.getString('reader_font_family'),
+        'atkinsonHyperlegible',
+      );
+    });
+
     test('roundtrip save then load preserves values', () async {
       SharedPreferences.setMockInitialValues({});
 
       final service = SettingsService();
       await service.saveFontSize(14.0);
       await service.saveThemeMode(AppThemeMode.dark);
+      await service.saveFontFamily(ReaderFontFamily.bitter);
       await service.saveOpenRouterApiKey('key-roundtrip');
       await service.saveOpenRouterModelId('openai/gpt-4o-mini');
       await service.saveAiFeatureConfigs(const {
@@ -151,6 +179,7 @@ void main() {
 
       expect(loaded.fontSize, 14.0);
       expect(loaded.themeMode, AppThemeMode.dark);
+      expect(loaded.fontFamily, ReaderFontFamily.bitter);
       expect(loaded.openRouterApiKey, 'key-roundtrip');
       expect(loaded.openRouterModelId, 'openai/gpt-4o-mini');
       expect(
@@ -171,6 +200,7 @@ void main() {
 
       expect(controller.fontSize, ReaderSettings.defaults.fontSize);
       expect(controller.themeMode, ReaderSettings.defaults.themeMode);
+      expect(controller.fontFamily, ReaderSettings.defaults.fontFamily);
       expect(controller.openRouterApiKey,
           ReaderSettings.defaults.openRouterApiKey);
       expect(
@@ -183,6 +213,7 @@ void main() {
       SharedPreferences.setMockInitialValues({
         'reader_font_size': 26.0,
         'reader_theme_mode': 'sepia',
+        'reader_font_family': 'atkinsonHyperlegible',
         'reader_openrouter_api_key': 'abc',
         'reader_openrouter_model_id': 'openai/gpt-4.1',
         'reader_ai_feature_configs':
@@ -198,6 +229,7 @@ void main() {
 
       expect(controller.fontSize, 26.0);
       expect(controller.themeMode, AppThemeMode.sepia);
+      expect(controller.fontFamily, ReaderFontFamily.atkinsonHyperlegible);
       expect(controller.openRouterApiKey, 'abc');
       expect(controller.openRouterModelId, 'openai/gpt-4.1');
       expect(
@@ -249,6 +281,32 @@ void main() {
 
       expect(controller.themeMode, AppThemeMode.dark);
       expect(notifyCount, 1);
+    });
+
+    test('setFontFamily updates value and notifies', () async {
+      SharedPreferences.setMockInitialValues({});
+
+      final controller = SettingsController();
+
+      int notifyCount = 0;
+      controller.addListener(() => notifyCount++);
+
+      await controller.setFontFamily(ReaderFontFamily.literata);
+
+      expect(controller.fontFamily, ReaderFontFamily.literata);
+      expect(notifyCount, 1);
+    });
+
+    test('setFontFamily skips if value unchanged', () async {
+      SharedPreferences.setMockInitialValues({});
+
+      final controller = SettingsController();
+      int notifyCount = 0;
+      controller.addListener(() => notifyCount++);
+
+      await controller.setFontFamily(ReaderFontFamily.system);
+
+      expect(notifyCount, 0);
     });
 
     test('setThemeMode skips if value unchanged', () async {
@@ -340,6 +398,16 @@ void main() {
 
       final prefs = await SharedPreferences.getInstance();
       expect(prefs.getString('reader_theme_mode'), 'sepia');
+    });
+
+    test('setFontFamily persists value through service', () async {
+      SharedPreferences.setMockInitialValues({});
+
+      final controller = SettingsController();
+      await controller.setFontFamily(ReaderFontFamily.bitter);
+
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getString('reader_font_family'), 'bitter');
     });
 
     test('setOpenRouterApiKey persists value through service', () async {
@@ -448,11 +516,13 @@ void main() {
       final controller = SettingsController();
       await controller.setFontSize(22.0);
       await controller.setThemeMode(AppThemeMode.dark);
+      await controller.setFontFamily(ReaderFontFamily.literata);
       await controller.setOpenRouterApiKey('getter-key');
       await controller.setOpenRouterModelId('openai/gpt-4o-mini');
 
       expect(controller.settings.fontSize, 22.0);
       expect(controller.settings.themeMode, AppThemeMode.dark);
+      expect(controller.settings.fontFamily, ReaderFontFamily.literata);
       expect(controller.settings.openRouterApiKey, 'getter-key');
       expect(controller.settings.openRouterModelId, 'openai/gpt-4o-mini');
       expect(
