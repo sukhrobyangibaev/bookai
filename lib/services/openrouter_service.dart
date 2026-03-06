@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import '../models/openrouter_model.dart';
@@ -145,6 +146,10 @@ class OpenRouterService {
 
     final http.Response response;
     try {
+      if (kDebugMode) {
+        debugPrint('[OpenRouter] POST ${_chatCompletionsUri.path}');
+        debugPrint('[OpenRouter] Request payload: ${jsonEncode(payload)}');
+      }
       response = await _client.post(
         _chatCompletionsUri,
         headers: _buildHeaders(
