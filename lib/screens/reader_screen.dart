@@ -295,6 +295,46 @@ class _ReaderScreenState extends State<ReaderScreen> {
   Future<void> _summarizeFromResumePoint(
     EditableTextState editableTextState,
   ) async {
+    await _runAiResumeRangeFeature(
+      editableTextState: editableTextState,
+      featureId: AiFeatureIds.resumeSummary,
+      title: 'Summary',
+      loadingText: 'Generating summary...',
+      emptyMessage: 'Model returned an empty summary.',
+      copiedMessage: 'Summary copied',
+      invalidRangeMessage:
+          'Unable to build a summary range for this selection.',
+      invalidPromptMessage:
+          'Catch-up prompt must include the {source_text} placeholder.',
+    );
+  }
+
+  Future<void> _simplifyTextFromResumePoint(
+    EditableTextState editableTextState,
+  ) async {
+    await _runAiResumeRangeFeature(
+      editableTextState: editableTextState,
+      featureId: AiFeatureIds.simplifyText,
+      title: simplifyTextFeature.title,
+      loadingText: 'Rewriting text...',
+      emptyMessage: 'Model returned an empty rewrite.',
+      copiedMessage: 'Rewrite copied',
+      invalidRangeMessage: 'Unable to build a text range for this selection.',
+      invalidPromptMessage:
+          'Simplify Text prompt must include the {source_text} placeholder.',
+    );
+  }
+
+  Future<void> _runAiResumeRangeFeature({
+    required EditableTextState editableTextState,
+    required String featureId,
+    required String title,
+    required String loadingText,
+    required String emptyMessage,
+    required String copiedMessage,
+    required String invalidRangeMessage,
+    required String invalidPromptMessage,
+  }) async {
     final chapter = _currentChapter;
     if (chapter == null) return;
 
@@ -309,11 +349,11 @@ class _ReaderScreenState extends State<ReaderScreen> {
 
     if (summarySelection == null) {
       _showAutoDismissSnackBar(
-        const SnackBar(
+        SnackBar(
           content: Text(
-            'Unable to build a summary range for this selection.',
+            invalidRangeMessage,
           ),
-          duration: Duration(seconds: 2),
+          duration: const Duration(seconds: 2),
         ),
       );
       return;
@@ -331,8 +371,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
       return;
     }
 
-    final modelId =
-        settings.effectiveModelIdForFeature(AiFeatureIds.resumeSummary);
+    final modelId = settings.effectiveModelIdForFeature(featureId);
     if (modelId.isEmpty) {
       _showAutoDismissSnackBar(
         const SnackBar(
@@ -343,15 +382,15 @@ class _ReaderScreenState extends State<ReaderScreen> {
       return;
     }
 
-    final featureConfig = settings.aiFeatureConfig(AiFeatureIds.resumeSummary);
+    final featureConfig = settings.aiFeatureConfig(featureId);
     final promptTemplate = featureConfig.promptTemplate;
     if (!_resumeSummaryService.hasRequiredPlaceholder(promptTemplate)) {
       _showAutoDismissSnackBar(
-        const SnackBar(
+        SnackBar(
           content: Text(
-            'Catch-up prompt must include the {source_text} placeholder.',
+            invalidPromptMessage,
           ),
-          duration: Duration(seconds: 2),
+          duration: const Duration(seconds: 2),
         ),
       );
       return;
@@ -387,10 +426,10 @@ class _ReaderScreenState extends State<ReaderScreen> {
 
     await _showAiResultSheet(
       generationFuture: generationFuture,
-      title: 'Summary',
-      loadingText: 'Generating summary...',
-      emptyMessage: 'Model returned an empty summary.',
-      copiedMessage: 'Summary copied',
+      title: title,
+      loadingText: loadingText,
+      emptyMessage: emptyMessage,
+      copiedMessage: copiedMessage,
     );
   }
 
@@ -1274,6 +1313,9 @@ class _ReaderScreenState extends State<ReaderScreen> {
       },
       onDefineAndTranslate: () {
         _defineAndTranslateSelection(editableTextState);
+      },
+      onSimplifyText: () {
+        _simplifyTextFromResumePoint(editableTextState);
       },
       onResumeHere: () {
         final selection = editableTextState.textEditingValue.selection;

@@ -21,11 +21,12 @@ void main() {
         onCopy: () {},
         onHighlight: () {},
         onDefineAndTranslate: () {},
+        onSimplifyText: () {},
         onResumeHere: () {},
         onCatchMeUp: () {},
       );
 
-      expect(items, hasLength(5));
+      expect(items, hasLength(6));
       expect(items.first.type, ContextMenuButtonType.copy);
       expect(
         items.where((item) => item.type == ContextMenuButtonType.selectAll),
@@ -35,6 +36,7 @@ void main() {
         'Copy',
         'Highlight',
         'Define & Translate',
+        'Simplify Text',
         'Resume Here',
         'Catch Me Up',
       ]);
@@ -68,6 +70,7 @@ void main() {
                 onCopy: () {},
                 onHighlight: () {},
                 onDefineAndTranslate: () {},
+                onSimplifyText: () {},
                 onResumeHere: () {},
                 onCatchMeUp: () {},
               ),
@@ -79,6 +82,7 @@ void main() {
       expect(find.text('Copy'), findsOneWidget);
       expect(find.text('Highlight'), findsOneWidget);
       expect(find.text('Define & Translate'), findsOneWidget);
+      expect(find.text('Simplify Text'), findsOneWidget);
       expect(find.text('Resume Here'), findsOneWidget);
       expect(find.text('Catch Me Up'), findsOneWidget);
       expect(find.text('Select All'), findsNothing);
@@ -86,7 +90,7 @@ void main() {
     });
 
     testWidgets('invokes reader action callbacks', (tester) async {
-      var definePressed = false;
+      var simplifyPressed = false;
 
       await tester.pumpWidget(
         MaterialApp(
@@ -106,8 +110,9 @@ void main() {
                 ],
                 onCopy: () {},
                 onHighlight: () {},
-                onDefineAndTranslate: () {
-                  definePressed = true;
+                onDefineAndTranslate: () {},
+                onSimplifyText: () {
+                  simplifyPressed = true;
                 },
                 onResumeHere: () {
                   fail('Resume Here should not be tapped in this test.');
@@ -119,10 +124,10 @@ void main() {
         ),
       );
 
-      await tester.tap(find.text('Define & Translate'));
+      await tester.tap(find.text('Simplify Text'));
       await tester.pump();
 
-      expect(definePressed, isTrue);
+      expect(simplifyPressed, isTrue);
     });
   });
 }

@@ -74,6 +74,7 @@ void main() {
       expect(find.text('OpenRouter API Key'), findsOneWidget);
       expect(find.text('openai/gpt-4o-mini'), findsOneWidget);
       expect(find.text('Resume Here and Catch Me Up'), findsOneWidget);
+      expect(find.text('Simplify Text'), findsOneWidget);
       expect(find.text('Define & Translate'), findsOneWidget);
     });
 

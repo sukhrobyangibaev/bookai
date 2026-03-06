@@ -19,6 +19,7 @@ class AiFeatureDefinition {
 class AiFeatureIds {
   static const resumeSummary = 'resume_summary';
   static const defineAndTranslate = 'define_and_translate';
+  static const simplifyText = 'simplify_text';
 }
 
 const String defaultResumeSummaryPromptTemplate = '''
@@ -42,6 +43,34 @@ const AiFeatureDefinition resumeSummaryFeature = AiFeatureDefinition(
   title: 'Resume Here and Catch Me Up',
   description: 'Give a short catch-up from the previous resume point.',
   defaultPromptTemplate: defaultResumeSummaryPromptTemplate,
+  placeholders: <String>[
+    '{book_title}',
+    '{chapter_title}',
+    '{source_text}',
+  ],
+);
+
+const String defaultSimplifyTextPromptTemplate = '''
+Rewrite the passage below so it is easier to understand.
+
+Book: {book_title}
+Chapter: {chapter_title}
+
+Do not summarize, shorten, or omit important information.
+Keep the original meaning, events, and details.
+Use simpler words, clearer phrasing, and shorter sentences where helpful.
+Return only the rewritten passage.
+
+Passage:
+{source_text}
+''';
+
+const AiFeatureDefinition simplifyTextFeature = AiFeatureDefinition(
+  id: AiFeatureIds.simplifyText,
+  title: 'Simplify Text',
+  description:
+      'Rewrite the selected resume range with simpler words and clearer phrasing.',
+  defaultPromptTemplate: defaultSimplifyTextPromptTemplate,
   placeholders: <String>[
     '{book_title}',
     '{chapter_title}',
@@ -80,6 +109,7 @@ const AiFeatureDefinition defineAndTranslateFeature = AiFeatureDefinition(
 
 const List<AiFeatureDefinition> aiFeatures = <AiFeatureDefinition>[
   resumeSummaryFeature,
+  simplifyTextFeature,
   defineAndTranslateFeature,
 ];
 
@@ -87,6 +117,9 @@ const Map<String, AiFeatureConfig> defaultAiFeatureConfigs =
     <String, AiFeatureConfig>{
   AiFeatureIds.resumeSummary: AiFeatureConfig(
     promptTemplate: defaultResumeSummaryPromptTemplate,
+  ),
+  AiFeatureIds.simplifyText: AiFeatureConfig(
+    promptTemplate: defaultSimplifyTextPromptTemplate,
   ),
   AiFeatureIds.defineAndTranslate: AiFeatureConfig(
     promptTemplate: defaultDefineAndTranslatePromptTemplate,

@@ -37,6 +37,12 @@ void main() {
           promptTemplate: defaultDefineAndTranslatePromptTemplate,
         ),
       );
+      expect(
+        settings.aiFeatureConfigs[AiFeatureIds.simplifyText],
+        const AiFeatureConfig(
+          promptTemplate: defaultSimplifyTextPromptTemplate,
+        ),
+      );
     });
 
     test('load returns stored values', () async {
@@ -69,6 +75,12 @@ void main() {
         settings.aiFeatureConfigs[AiFeatureIds.defineAndTranslate],
         const AiFeatureConfig(
           promptTemplate: defaultDefineAndTranslatePromptTemplate,
+        ),
+      );
+      expect(
+        settings.aiFeatureConfigs[AiFeatureIds.simplifyText],
+        const AiFeatureConfig(
+          promptTemplate: defaultSimplifyTextPromptTemplate,
         ),
       );
     });
@@ -129,6 +141,9 @@ void main() {
           modelIdOverride: 'openai/gpt-4o-mini',
           promptTemplate: 'Summarize {source_text}',
         ),
+        AiFeatureIds.simplifyText: AiFeatureConfig(
+          promptTemplate: 'Rewrite {source_text} with simpler words.',
+        ),
         AiFeatureIds.defineAndTranslate: AiFeatureConfig(
           promptTemplate: 'Define {source_text} and translate it into Spanish.',
         ),
@@ -138,6 +153,7 @@ void main() {
       final raw = prefs.getString('reader_ai_feature_configs');
       expect(raw, isNotNull);
       expect(raw, contains('resume_summary'));
+      expect(raw, contains('simplify_text'));
       expect(raw, contains('define_and_translate'));
       expect(raw, contains('openai/gpt-4o-mini'));
     });
@@ -211,6 +227,12 @@ void main() {
           promptTemplate: defaultDefineAndTranslatePromptTemplate,
         ),
       );
+      expect(
+        loaded.aiFeatureConfigs[AiFeatureIds.simplifyText],
+        const AiFeatureConfig(
+          promptTemplate: defaultSimplifyTextPromptTemplate,
+        ),
+      );
     });
   });
 
@@ -265,6 +287,12 @@ void main() {
         controller.aiFeatureConfig(AiFeatureIds.defineAndTranslate),
         const AiFeatureConfig(
           promptTemplate: defaultDefineAndTranslatePromptTemplate,
+        ),
+      );
+      expect(
+        controller.aiFeatureConfig(AiFeatureIds.simplifyText),
+        const AiFeatureConfig(
+          promptTemplate: defaultSimplifyTextPromptTemplate,
         ),
       );
       expect(notifyCount, 1);
@@ -509,6 +537,29 @@ void main() {
       );
     });
 
+    test('setAiFeatureConfig supports simplify text feature', () async {
+      SharedPreferences.setMockInitialValues({});
+
+      final controller = SettingsController();
+      await controller.setAiFeatureConfig(
+        AiFeatureIds.simplifyText,
+        const AiFeatureConfig(
+          modelIdOverride: 'openai/gpt-4.1-mini',
+          promptTemplate:
+              'Rewrite {source_text} so it is easier to understand.',
+        ),
+      );
+
+      expect(
+        controller.aiFeatureConfig(AiFeatureIds.simplifyText),
+        const AiFeatureConfig(
+          modelIdOverride: 'openai/gpt-4.1-mini',
+          promptTemplate:
+              'Rewrite {source_text} so it is easier to understand.',
+        ),
+      );
+    });
+
     test('effectiveModelIdForFeature falls back to global model', () async {
       SharedPreferences.setMockInitialValues({});
 
@@ -584,6 +635,12 @@ void main() {
         controller.settings.aiFeatureConfigs[AiFeatureIds.defineAndTranslate],
         const AiFeatureConfig(
           promptTemplate: defaultDefineAndTranslatePromptTemplate,
+        ),
+      );
+      expect(
+        controller.settings.aiFeatureConfigs[AiFeatureIds.simplifyText],
+        const AiFeatureConfig(
+          promptTemplate: defaultSimplifyTextPromptTemplate,
         ),
       );
     });

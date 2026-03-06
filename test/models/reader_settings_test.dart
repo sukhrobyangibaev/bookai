@@ -24,6 +24,12 @@ void main() {
           promptTemplate: defaultDefineAndTranslatePromptTemplate,
         ),
       );
+      expect(
+        ReaderSettings.defaults.aiFeatureConfigs[AiFeatureIds.simplifyText],
+        const AiFeatureConfig(
+          promptTemplate: defaultSimplifyTextPromptTemplate,
+        ),
+      );
     });
 
     test('toMap produces expected keys and values', () {
@@ -49,6 +55,10 @@ void main() {
         map['aiFeatureConfigs'][AiFeatureIds.defineAndTranslate]
             ['promptTemplate'],
         defaultDefineAndTranslatePromptTemplate,
+      );
+      expect(
+        map['aiFeatureConfigs'][AiFeatureIds.simplifyText]['promptTemplate'],
+        defaultSimplifyTextPromptTemplate,
       );
     });
 
@@ -96,6 +106,12 @@ void main() {
         settings.aiFeatureConfigs[AiFeatureIds.defineAndTranslate],
         const AiFeatureConfig(
           promptTemplate: defaultDefineAndTranslatePromptTemplate,
+        ),
+      );
+      expect(
+        settings.aiFeatureConfigs[AiFeatureIds.simplifyText],
+        const AiFeatureConfig(
+          promptTemplate: defaultSimplifyTextPromptTemplate,
         ),
       );
     });
@@ -196,6 +212,12 @@ void main() {
         settings.aiFeatureConfigs[AiFeatureIds.defineAndTranslate],
         const AiFeatureConfig(
           promptTemplate: defaultDefineAndTranslatePromptTemplate,
+        ),
+      );
+      expect(
+        settings.aiFeatureConfigs[AiFeatureIds.simplifyText],
+        const AiFeatureConfig(
+          promptTemplate: defaultSimplifyTextPromptTemplate,
         ),
       );
     });
