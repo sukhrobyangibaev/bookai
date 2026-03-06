@@ -15,6 +15,7 @@ import '../services/epub_service.dart';
 import '../services/openrouter_service.dart';
 import '../services/resume_summary_service.dart';
 import '../theme/reader_typography.dart';
+import '../widgets/reader_selection_toolbar.dart';
 
 /// Displays the content of a [Book] with chapter-by-chapter navigation.
 class ReaderScreen extends StatefulWidget {
@@ -1027,7 +1028,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
               ),
               textAlign: TextAlign.justify,
               contextMenuBuilder: (context, editableTextState) {
-                return _buildSelectionToolbar(context, editableTextState);
+                return _buildSelectionToolbar(editableTextState);
               },
               style: applyReaderFont(
                 baseStyle: Theme.of(context).textTheme.bodyLarge?.copyWith(
@@ -1164,47 +1165,40 @@ class _ReaderScreenState extends State<ReaderScreen> {
   }
 
   /// Custom context menu with reader actions.
-  Widget _buildSelectionToolbar(
-      BuildContext context, EditableTextState editableTextState) {
-    final List<ContextMenuButtonItem> items = [
-      ..._filteredSelectionItems(context, editableTextState),
-      ContextMenuButtonItem(
-        label: 'Highlight',
-        onPressed: () {
-          final selection = editableTextState.textEditingValue.selection;
-          final text = editableTextState.textEditingValue.text;
-          if (selection.isValid && !selection.isCollapsed) {
-            final selected = text.substring(selection.start, selection.end);
-            _saveHighlight(selected);
-          }
-          editableTextState.hideToolbar();
-        },
-      ),
-      ContextMenuButtonItem(
-        label: 'Resume Here',
-        onPressed: () {
-          final selection = editableTextState.textEditingValue.selection;
-          final text = editableTextState.textEditingValue.text;
-          if (selection.isValid && !selection.isCollapsed) {
-            final selected = text.substring(selection.start, selection.end);
-            _saveResumeMarker(
-              selectedText: selected,
-              selectionStart: selection.start,
-              selectionEnd: selection.end,
-            );
-          }
-          editableTextState.hideToolbar();
-        },
-      ),
-      ContextMenuButtonItem(
-        label: 'Resume Here and Catch Me Up',
-        onPressed: () {
-          _summarizeFromResumePoint(editableTextState);
-        },
-      ),
-    ];
+  Widget _buildSelectionToolbar(EditableTextState editableTextState) {
+    final items = buildReaderSelectionButtonItems(
+      platformItems: editableTextState.contextMenuButtonItems,
+      onCopy: () {
+        editableTextState.copySelection(SelectionChangedCause.toolbar);
+      },
+      onHighlight: () {
+        final selection = editableTextState.textEditingValue.selection;
+        final text = editableTextState.textEditingValue.text;
+        if (selection.isValid && !selection.isCollapsed) {
+          final selected = text.substring(selection.start, selection.end);
+          _saveHighlight(selected);
+        }
+        editableTextState.hideToolbar();
+      },
+      onResumeHere: () {
+        final selection = editableTextState.textEditingValue.selection;
+        final text = editableTextState.textEditingValue.text;
+        if (selection.isValid && !selection.isCollapsed) {
+          final selected = text.substring(selection.start, selection.end);
+          _saveResumeMarker(
+            selectedText: selected,
+            selectionStart: selection.start,
+            selectionEnd: selection.end,
+          );
+        }
+        editableTextState.hideToolbar();
+      },
+      onCatchMeUp: () {
+        _summarizeFromResumePoint(editableTextState);
+      },
+    );
 
-    return AdaptiveTextSelectionToolbar.buttonItems(
+    return ReaderSelectionToolbar(
       anchors: editableTextState.contextMenuAnchors,
       buttonItems: items,
     );
