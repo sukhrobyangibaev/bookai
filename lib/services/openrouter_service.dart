@@ -147,8 +147,7 @@ class OpenRouterService {
     final http.Response response;
     try {
       if (kDebugMode) {
-        debugPrint('[OpenRouter] POST ${_chatCompletionsUri.path}');
-        debugPrint('[OpenRouter] Request payload: ${jsonEncode(payload)}');
+        _debugLog('Request payload: ${jsonEncode(payload)}');
       }
       response = await _client.post(
         _chatCompletionsUri,
@@ -250,6 +249,15 @@ class OpenRouterService {
     }
 
     return '';
+  }
+
+  void _debugLog(String message) {
+    const chunkSize = 800;
+    for (var i = 0; i < message.length; i += chunkSize) {
+      debugPrint(
+        '[OpenRouter] ${message.substring(i, i + chunkSize > message.length ? message.length : i + chunkSize)}',
+      );
+    }
   }
 
   Map<String, String> _buildHeaders({
