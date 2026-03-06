@@ -3,6 +3,8 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../models/reader_settings.dart';
 
+const double readerContentLineHeight = 1.6;
+
 TextStyle applyReaderFont({
   required TextStyle baseStyle,
   required ReaderFontFamily fontFamily,
@@ -17,4 +19,24 @@ TextStyle applyReaderFont({
     case ReaderFontFamily.atkinsonHyperlegible:
       return GoogleFonts.atkinsonHyperlegible(textStyle: baseStyle);
   }
+}
+
+TextStyle buildReaderContentTextStyle({
+  required BuildContext context,
+  required double fontSize,
+  required ReaderFontFamily fontFamily,
+}) {
+  final baseStyle = Theme.of(context).textTheme.bodyLarge?.copyWith(
+            fontSize: fontSize,
+            height: readerContentLineHeight,
+          ) ??
+      TextStyle(
+        fontSize: fontSize,
+        height: readerContentLineHeight,
+      );
+
+  return applyReaderFont(
+    baseStyle: baseStyle,
+    fontFamily: fontFamily,
+  );
 }

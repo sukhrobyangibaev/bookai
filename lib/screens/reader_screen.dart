@@ -551,6 +551,13 @@ class _ReaderScreenState extends State<ReaderScreen> {
     required String emptyMessage,
     required String copiedMessage,
   }) async {
+    final settings = SettingsControllerScope.of(context);
+    final resultTextStyle = buildReaderContentTextStyle(
+      context: context,
+      fontSize: settings.fontSize,
+      fontFamily: settings.fontFamily,
+    );
+
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -599,6 +606,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
                       child: SingleChildScrollView(
                         child: SelectableText(
                           result,
+                          style: resultTextStyle,
                           contextMenuBuilder: (context, editableTextState) {
                             return _buildDefaultSelectionToolbar(
                               context,
@@ -1158,20 +1166,14 @@ class _ReaderScreenState extends State<ReaderScreen> {
                 currentResumeMarker,
               ),
               textAlign: TextAlign.justify,
+              style: buildReaderContentTextStyle(
+                context: context,
+                fontSize: settingsFontSize,
+                fontFamily: settingsFontFamily,
+              ),
               contextMenuBuilder: (context, editableTextState) {
                 return _buildSelectionToolbar(editableTextState);
               },
-              style: applyReaderFont(
-                baseStyle: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                          fontSize: settingsFontSize,
-                          height: 1.6,
-                        ) ??
-                    TextStyle(
-                      fontSize: settingsFontSize,
-                      height: 1.6,
-                    ),
-                fontFamily: settingsFontFamily,
-              ),
             ),
           ],
         ),
