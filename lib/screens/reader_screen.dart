@@ -20,18 +20,29 @@ import '../widgets/reader_selection_toolbar.dart';
 /// Displays the content of a [Book] with chapter-by-chapter navigation.
 class ReaderScreen extends StatefulWidget {
   final Book book;
+  final ChapterLoaderService? chapterLoader;
+  final DatabaseService? databaseService;
+  final OpenRouterService? openRouterService;
+  final ResumeSummaryService? resumeSummaryService;
 
-  const ReaderScreen({super.key, required this.book});
+  const ReaderScreen({
+    super.key,
+    required this.book,
+    this.chapterLoader,
+    this.databaseService,
+    this.openRouterService,
+    this.resumeSummaryService,
+  });
 
   @override
   State<ReaderScreen> createState() => _ReaderScreenState();
 }
 
 class _ReaderScreenState extends State<ReaderScreen> {
-  final _chapterLoader = ChapterLoaderService.instance;
-  final _db = DatabaseService.instance;
-  final _openRouter = OpenRouterService();
-  final _resumeSummaryService = const ResumeSummaryService();
+  late final ChapterLoaderService _chapterLoader;
+  late final DatabaseService _db;
+  late final OpenRouterService _openRouter;
+  late final ResumeSummaryService _resumeSummaryService;
   final _scrollController = ScrollController();
 
   List<Chapter>? _chapters;
@@ -70,9 +81,21 @@ class _ReaderScreenState extends State<ReaderScreen> {
   /// Monotonic token used to avoid stale delayed snackbar dismissals.
   int _snackBarToken = 0;
 
+  /// Monotonic token used to ignore stale AI completions.
+  int _aiRequestToken = 0;
+
+  _ActiveAiRequest? _activeAiRequest;
+
+  static const double _aiLoadingSheetReservedSpace = 88.0;
+
   @override
   void initState() {
     super.initState();
+    _chapterLoader = widget.chapterLoader ?? ChapterLoaderService.instance;
+    _db = widget.databaseService ?? DatabaseService.instance;
+    _openRouter = widget.openRouterService ?? OpenRouterService();
+    _resumeSummaryService =
+        widget.resumeSummaryService ?? const ResumeSummaryService();
     _scrollController.addListener(_onScroll);
     _loadChapters();
   }
@@ -414,6 +437,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
       bookAuthor: widget.book.author,
       chapterTitle: summarySelection.chapterTitle,
     );
+    if (!_canStartAiRequest()) return;
 
     final generationFuture = _openRouter.generateText(
       apiKey: apiKey,
@@ -435,7 +459,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
       }(),
     );
 
-    await _showAiResultSheet(
+    await _startAiResultFlow(
       generationFuture: generationFuture,
       title: title,
       loadingText: loadingText,
@@ -508,13 +532,14 @@ class _ReaderScreenState extends State<ReaderScreen> {
       bookAuthor: widget.book.author,
       chapterTitle: '',
     );
+    if (!_canStartAiRequest()) return;
     final generationFuture = _openRouter.generateText(
       apiKey: apiKey,
       modelId: modelId,
       prompt: prompt,
     );
 
-    await _showAiResultSheet(
+    await _startAiResultFlow(
       generationFuture: generationFuture,
       title: defineAndTranslateFeature.title,
       loadingText: 'Generating definition and translation...',
@@ -555,12 +580,74 @@ class _ReaderScreenState extends State<ReaderScreen> {
     );
   }
 
-  Future<void> _showAiResultSheet({
+  Future<void> _startAiResultFlow({
     required Future<String> generationFuture,
     required String title,
     required String loadingText,
     required String emptyMessage,
     required String copiedMessage,
+  }) async {
+    if (!_canStartAiRequest()) return;
+
+    final request = _ActiveAiRequest(
+      token: ++_aiRequestToken,
+      generationFuture: generationFuture,
+      title: title,
+      loadingText: loadingText,
+      emptyMessage: emptyMessage,
+      copiedMessage: copiedMessage,
+    );
+
+    if (!mounted) return;
+    setState(() => _activeAiRequest = request);
+    unawaited(_completeAiResultFlow(request));
+  }
+
+  bool _canStartAiRequest() {
+    if (_activeAiRequest == null) return true;
+
+    _showAutoDismissSnackBar(
+      const SnackBar(
+        content: Text('An AI response is already loading.'),
+        duration: Duration(seconds: 2),
+      ),
+    );
+    return false;
+  }
+
+  Future<void> _completeAiResultFlow(_ActiveAiRequest request) async {
+    Object? error;
+    String? result;
+
+    try {
+      result = await request.generationFuture;
+    } catch (caughtError) {
+      error = caughtError;
+    }
+
+    if (!mounted || _activeAiRequest?.token != request.token) {
+      return;
+    }
+
+    setState(() => _activeAiRequest = null);
+
+    if (!mounted) return;
+
+    await _showAiCompletedResultSheet(
+      title: request.title,
+      emptyMessage: request.emptyMessage,
+      copiedMessage: request.copiedMessage,
+      result: result,
+      error: error,
+    );
+  }
+
+  Future<void> _showAiCompletedResultSheet({
+    required String title,
+    required String emptyMessage,
+    required String copiedMessage,
+    String? result,
+    Object? error,
   }) async {
     final settings = SettingsControllerScope.of(context);
     final resultTextStyle = buildReaderContentTextStyle(
@@ -578,88 +665,95 @@ class _ReaderScreenState extends State<ReaderScreen> {
           heightFactor: 0.7,
           child: Padding(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-            child: FutureBuilder<String>(
-              future: generationFuture,
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const CircularProgressIndicator(),
-                        const SizedBox(height: 12),
-                        Text(loadingText),
-                      ],
-                    ),
-                  );
-                }
-
-                if (snapshot.hasError) {
-                  return _AiResultError(message: snapshot.error.toString());
-                }
-
-                final result = (snapshot.data ?? '').trim();
-                if (result.isEmpty) {
-                  return _AiResultError(
-                    message: emptyMessage,
-                  );
-                }
-
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    const SizedBox(height: 8),
-                    Expanded(
-                      child: SingleChildScrollView(
-                        child: SelectableText(
-                          result,
-                          style: resultTextStyle,
-                          contextMenuBuilder: (context, editableTextState) {
-                            return _buildDefaultSelectionToolbar(
-                              context,
-                              editableTextState,
-                            );
-                          },
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        OutlinedButton.icon(
-                          onPressed: () async {
-                            await Clipboard.setData(
-                              ClipboardData(text: result),
-                            );
-                            if (!sheetContext.mounted) return;
-                            ScaffoldMessenger.of(sheetContext).showSnackBar(
-                              SnackBar(
-                                content: Text(copiedMessage),
-                                duration: const Duration(seconds: 2),
-                              ),
-                            );
-                          },
-                          icon: const Icon(Icons.copy_outlined),
-                          label: const Text('Copy'),
-                        ),
-                        const Spacer(),
-                        FilledButton(
-                          onPressed: () => Navigator.of(sheetContext).pop(),
-                          child: const Text('Close'),
-                        ),
-                      ],
-                    ),
-                  ],
-                );
-              },
+            child: _buildAiResultSheetBody(
+              sheetContext: sheetContext,
+              title: title,
+              emptyMessage: emptyMessage,
+              copiedMessage: copiedMessage,
+              resultTextStyle: resultTextStyle,
+              result: result,
+              error: error,
             ),
           ),
         );
       },
+    );
+  }
+
+  Widget _buildAiResultSheetBody({
+    required BuildContext sheetContext,
+    required String title,
+    required String emptyMessage,
+    required String copiedMessage,
+    required TextStyle resultTextStyle,
+    String? result,
+    Object? error,
+  }) {
+    final trimmedResult = (result ?? '').trim();
+
+    if (error != null) {
+      return _AiResultError(
+        title: title,
+        message: error.toString(),
+      );
+    }
+
+    if (trimmedResult.isEmpty) {
+      return _AiResultError(
+        title: title,
+        message: emptyMessage,
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: Theme.of(context).textTheme.titleMedium,
+        ),
+        const SizedBox(height: 8),
+        Expanded(
+          child: SingleChildScrollView(
+            child: SelectableText(
+              trimmedResult,
+              style: resultTextStyle,
+              contextMenuBuilder: (context, editableTextState) {
+                return _buildDefaultSelectionToolbar(
+                  context,
+                  editableTextState,
+                );
+              },
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            OutlinedButton.icon(
+              onPressed: () async {
+                await Clipboard.setData(
+                  ClipboardData(text: trimmedResult),
+                );
+                if (!sheetContext.mounted) return;
+                ScaffoldMessenger.of(sheetContext).showSnackBar(
+                  SnackBar(
+                    content: Text(copiedMessage),
+                    duration: const Duration(seconds: 2),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.copy_outlined),
+              label: const Text('Copy'),
+            ),
+            const Spacer(),
+            FilledButton(
+              onPressed: () => Navigator.of(sheetContext).pop(),
+              child: const Text('Close'),
+            ),
+          ],
+        ),
+      ],
     );
   }
 
@@ -1037,6 +1131,10 @@ class _ReaderScreenState extends State<ReaderScreen> {
       body: Stack(
         children: [
           Positioned.fill(child: _buildBody()),
+          if (_activeAiRequest != null)
+            _AiLoadingSheet(
+              loadingText: _activeAiRequest!.loadingText,
+            ),
           if (!_isNavbarVisible)
             SafeArea(
               child: Align(
@@ -1159,7 +1257,12 @@ class _ReaderScreenState extends State<ReaderScreen> {
       behavior: HitTestBehavior.translucent,
       child: SingleChildScrollView(
         controller: _scrollController,
-        padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+        padding: EdgeInsets.fromLTRB(
+          20,
+          16,
+          20,
+          32 + (_activeAiRequest == null ? 0 : _aiLoadingSheetReservedSpace),
+        ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -1397,10 +1500,84 @@ class _ResumeSummarySelection {
   });
 }
 
+class _ActiveAiRequest {
+  final int token;
+  final Future<String> generationFuture;
+  final String title;
+  final String loadingText;
+  final String emptyMessage;
+  final String copiedMessage;
+
+  const _ActiveAiRequest({
+    required this.token,
+    required this.generationFuture,
+    required this.title,
+    required this.loadingText,
+    required this.emptyMessage,
+    required this.copiedMessage,
+  });
+}
+
+class _AiLoadingSheet extends StatelessWidget {
+  static const ValueKey<String> containerKey =
+      ValueKey<String>('reader-ai-loading-sheet');
+  static const ValueKey<String> progressKey =
+      ValueKey<String>('reader-ai-loading-progress');
+
+  final String loadingText;
+
+  const _AiLoadingSheet({required this.loadingText});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return SafeArea(
+      child: Align(
+        alignment: Alignment.bottomCenter,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+          child: Material(
+            key: containerKey,
+            elevation: 6,
+            color: theme.colorScheme.surface,
+            shadowColor: Colors.black.withOpacity(0.12),
+            borderRadius: BorderRadius.circular(18),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    loadingText,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodyMedium,
+                  ),
+                  const SizedBox(height: 10),
+                  const LinearProgressIndicator(
+                    key: progressKey,
+                    minHeight: 3,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _AiResultError extends StatelessWidget {
+  final String title;
   final String message;
 
-  const _AiResultError({required this.message});
+  const _AiResultError({
+    required this.title,
+    required this.message,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1417,8 +1594,8 @@ class _AiResultError extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             Text(
-              'Failed to generate summary',
-              style: Theme.of(context).textTheme.titleSmall,
+              title,
+              style: Theme.of(context).textTheme.titleMedium,
             ),
             const SizedBox(height: 8),
             Text(
