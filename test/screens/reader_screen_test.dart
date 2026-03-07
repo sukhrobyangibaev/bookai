@@ -6,6 +6,7 @@ import 'package:bookai/models/chapter.dart';
 import 'package:bookai/screens/reader_screen.dart';
 import 'package:bookai/services/chapter_loader_service.dart';
 import 'package:bookai/services/openrouter_service.dart';
+import 'package:bookai/services/resume_summary_service.dart';
 import 'package:bookai/services/settings_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -157,12 +158,46 @@ void main() {
       await tester.pump();
       await tester.pumpAndSettle();
     });
+
+    testWidgets('includes the extracted context sentence in the prompt',
+        (tester) async {
+      final spyResumeSummaryService = _SpyResumeSummaryService();
+      final openRouter = _FakeOpenRouterService(
+        generateTextHandler: ({
+          required apiKey,
+          required modelId,
+          required prompt,
+          temperature,
+        }) async =>
+            'Definition: vague\nTranslation: neyasny',
+      );
+
+      await _pumpReaderScreen(
+        tester,
+        openRouterService: openRouter,
+        resumeSummaryService: spyResumeSummaryService,
+      );
+
+      await _startDefineAndTranslate(tester);
+      await tester.pumpAndSettle();
+
+      expect(
+        spyResumeSummaryService.lastContextSentence,
+        'The hero felt nebulous about the plan.',
+      );
+      expect(spyResumeSummaryService.lastSourceText, isNotEmpty);
+      expect(
+        openRouter.lastPrompt,
+        contains('Context sentence:\nThe hero felt nebulous about the plan.'),
+      );
+    });
   });
 }
 
 Future<void> _pumpReaderScreen(
   WidgetTester tester, {
   required OpenRouterService openRouterService,
+  ResumeSummaryService? resumeSummaryService,
 }) async {
   SharedPreferences.setMockInitialValues({
     'reader_openrouter_api_key': 'test-key',
@@ -200,6 +235,7 @@ Future<void> _pumpReaderScreen(
           ),
           chapterLoader: chapterLoader,
           openRouterService: openRouterService,
+          resumeSummaryService: resumeSummaryService,
         ),
       ),
     ),
@@ -226,6 +262,7 @@ typedef _GenerateTextHandler = Future<String> Function({
 class _FakeOpenRouterService extends OpenRouterService {
   final _GenerateTextHandler generateTextHandler;
   int generateTextCallCount = 0;
+  String? lastPrompt;
 
   _FakeOpenRouterService({
     required this.generateTextHandler,
@@ -239,11 +276,47 @@ class _FakeOpenRouterService extends OpenRouterService {
     double? temperature,
   }) {
     generateTextCallCount += 1;
+    lastPrompt = prompt;
     return generateTextHandler(
       apiKey: apiKey,
       modelId: modelId,
       prompt: prompt,
       temperature: temperature,
+    );
+  }
+}
+
+class _SpyResumeSummaryService extends ResumeSummaryService {
+  String? lastSourceText;
+  String? lastContextSentence;
+
+  @override
+  String extractContextSentence({
+    required String chapterContent,
+    required int selectionStart,
+    required int selectionEnd,
+  }) {
+    return 'The hero felt nebulous about the plan.';
+  }
+
+  @override
+  String renderPromptTemplate({
+    required String promptTemplate,
+    required String sourceText,
+    required String bookTitle,
+    String bookAuthor = '',
+    required String chapterTitle,
+    String contextSentence = '',
+  }) {
+    lastSourceText = sourceText;
+    lastContextSentence = contextSentence;
+    return super.renderPromptTemplate(
+      promptTemplate: promptTemplate,
+      sourceText: sourceText,
+      bookTitle: bookTitle,
+      bookAuthor: bookAuthor,
+      chapterTitle: chapterTitle,
+      contextSentence: contextSentence,
     );
   }
 }

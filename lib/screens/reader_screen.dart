@@ -483,6 +483,11 @@ class _ReaderScreenState extends State<ReaderScreen> {
 
     final selectedText = text.substring(boundedStart, boundedEnd).trim();
     if (selectedText.isEmpty) return;
+    final contextSentence = _resumeSummaryService.extractContextSentence(
+      chapterContent: text,
+      selectionStart: boundedStart,
+      selectionEnd: boundedEnd,
+    );
 
     final settings = SettingsControllerScope.of(context);
     final apiKey = settings.openRouterApiKey.trim();
@@ -531,6 +536,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
       bookTitle: widget.book.title,
       bookAuthor: widget.book.author,
       chapterTitle: '',
+      contextSentence: contextSentence,
     );
     if (!_canStartAiRequest()) return;
     final generationFuture = _openRouter.generateText(

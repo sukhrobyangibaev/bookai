@@ -22,5 +22,14 @@ void main() {
         ),
       );
     });
+
+    test('registers define and translate context placeholder', () {
+      final feature = aiFeatureById(AiFeatureIds.defineAndTranslate);
+
+      expect(feature, isNotNull);
+      expect(feature!.placeholders, contains('{source_text}'));
+      expect(feature.placeholders, contains('{context_sentence}'));
+      expect(feature.placeholders, contains('{book_author}'));
+    });
   });
 }

@@ -97,5 +97,37 @@ void main() {
 
       expect(controller.openRouterApiKey, 'test-key');
     });
+
+    testWidgets('shows context sentence placeholder for define and translate',
+        (tester) async {
+      SharedPreferences.setMockInitialValues({});
+
+      final controller = SettingsController();
+      await tester.runAsync(() => controller.load());
+
+      await tester.pumpWidget(
+        SettingsControllerScope(
+          controller: controller,
+          child: const MaterialApp(home: SettingsScreen()),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final defineAndTranslateTile = find.widgetWithText(
+        ListTile,
+        'Define & Translate',
+      );
+      await tester.drag(find.byType(ListView), const Offset(0, -500));
+      await tester.pumpAndSettle();
+      await tester.tap(defineAndTranslateTile);
+      await tester.pumpAndSettle();
+
+      expect(
+        find.textContaining(
+          'Supported placeholders: {book_title}, {book_author}, {context_sentence}, {source_text}',
+        ),
+        findsOneWidget,
+      );
+    });
   });
 }

@@ -87,10 +87,14 @@ Author: {book_author}
 Selected text:
 {source_text}
 
+Context sentence:
+{context_sentence}
+
 Respond briefly in exactly two parts:
 1. Definition: give a short, plain explanation of the selected text in English. If it is a phrase, explain the phrase naturally instead of treating each word separately.
 2. Translation: translate the selected text into Russian.
 
+Use the context sentence to disambiguate meaning when needed.
 Keep the answer concise and useful for a reader.
 ''';
 
@@ -103,6 +107,7 @@ const AiFeatureDefinition defineAndTranslateFeature = AiFeatureDefinition(
   placeholders: <String>[
     '{book_title}',
     '{book_author}',
+    '{context_sentence}',
     '{source_text}',
   ],
 );

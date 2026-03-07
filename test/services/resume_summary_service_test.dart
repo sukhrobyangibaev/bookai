@@ -93,22 +93,73 @@ void main() {
     test('renderPromptTemplate replaces placeholders', () {
       final prompt = service.renderPromptTemplate(
         promptTemplate:
-            'Book {book_title}\nAuthor {book_author}\nChapter {chapter_title}\n{source_text}',
+            'Book {book_title}\nAuthor {book_author}\nChapter {chapter_title}\nContext {context_sentence}\n{source_text}',
         sourceText: 'Hello',
         bookTitle: 'Book A',
         bookAuthor: 'Author A',
         chapterTitle: 'Chapter 1',
+        contextSentence: 'Hello there.',
       );
 
       expect(
         prompt,
-        'Book Book A\nAuthor Author A\nChapter Chapter 1\nHello',
+        'Book Book A\nAuthor Author A\nChapter Chapter 1\nContext Hello there.\nHello',
       );
     });
 
     test('hasRequiredPlaceholder checks source placeholder', () {
       expect(service.hasRequiredPlaceholder('Use {source_text}'), isTrue);
       expect(service.hasRequiredPlaceholder('No placeholder'), isFalse);
+    });
+
+    test('extractContextSentence returns the containing sentence', () {
+      const chapterContent = 'First line. Alpha beta gamma. Last line.';
+
+      final context = service.extractContextSentence(
+        chapterContent: chapterContent,
+        selectionStart: chapterContent.indexOf('beta'),
+        selectionEnd: chapterContent.indexOf('beta') + 'beta'.length,
+      );
+
+      expect(context, 'Alpha beta gamma.');
+    });
+
+    test('extractContextSentence keeps closing punctuation after terminators',
+        () {
+      const chapterContent = 'He whispered, "Alpha beta?" Then left.';
+
+      final context = service.extractContextSentence(
+        chapterContent: chapterContent,
+        selectionStart: chapterContent.indexOf('Alpha'),
+        selectionEnd: chapterContent.indexOf('beta') + 'beta'.length,
+      );
+
+      expect(context, 'He whispered, "Alpha beta?"');
+    });
+
+    test('extractContextSentence treats line breaks as sentence boundaries',
+        () {
+      const chapterContent = 'Alpha beta\nGamma delta\nOmega';
+
+      final context = service.extractContextSentence(
+        chapterContent: chapterContent,
+        selectionStart: chapterContent.indexOf('Gamma'),
+        selectionEnd: chapterContent.indexOf('delta') + 'delta'.length,
+      );
+
+      expect(context, 'Gamma delta');
+    });
+
+    test('extractContextSentence falls back to the selected text', () {
+      const chapterContent = 'Nebulous';
+
+      final context = service.extractContextSentence(
+        chapterContent: chapterContent,
+        selectionStart: 0,
+        selectionEnd: chapterContent.length,
+      );
+
+      expect(context, 'Nebulous');
     });
   });
 }
