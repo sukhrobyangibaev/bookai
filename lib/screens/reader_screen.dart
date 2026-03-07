@@ -822,6 +822,21 @@ class _ReaderScreenState extends State<ReaderScreen> {
     final request = _buildGenerateImagePromptRequest(selection);
     if (request == null) return;
 
+    final promptModel = await _lookupOpenRouterModelMetadata(
+      apiKey: request.apiKey,
+      modelId: request.promptModelId,
+      loadingText: 'Checking prompt model...',
+    );
+    if (!mounted) return;
+    if (promptModel != null && _modelCannotGenerateText(promptModel)) {
+      await _showAiBasicErrorSheet(
+        title: 'Generate Image',
+        message:
+            'The selected prompt model does not support text output. Choose a text-capable model for Generate Image in Settings.',
+      );
+      return;
+    }
+
     String generatedPrompt;
     try {
       final result = await _runAiLoadingTask<String>(
@@ -866,11 +881,22 @@ class _ReaderScreenState extends State<ReaderScreen> {
       return;
     }
 
-    final imageModel = await _lookupImageModelMetadata(
+    final imageModel = await _lookupOpenRouterModelMetadata(
       apiKey: request.apiKey,
       modelId: request.imageModelId,
+      loadingText: 'Checking image model...',
     );
     if (!mounted) return;
+    if (imageModel != null &&
+        imageModel.hasOutputModalityMetadata &&
+        !imageModel.supportsImageOutput) {
+      await _showAiBasicErrorSheet(
+        title: 'Generate Image',
+        message:
+            'The selected image model does not support image output. Choose another Image Model in Settings.',
+      );
+      return;
+    }
 
     OpenRouterImageGenerationResult imageResult;
     try {
@@ -930,13 +956,14 @@ class _ReaderScreenState extends State<ReaderScreen> {
     );
   }
 
-  Future<OpenRouterModel?> _lookupImageModelMetadata({
+  Future<OpenRouterModel?> _lookupOpenRouterModelMetadata({
     required String apiKey,
     required String modelId,
+    required String loadingText,
   }) async {
     try {
       final models = await _runAiLoadingTask<List<OpenRouterModel>>(
-        loadingText: 'Checking image model...',
+        loadingText: loadingText,
         task: () => _openRouter.fetchModels(apiKey: apiKey),
       );
       if (models == null) return null;
@@ -955,26 +982,38 @@ class _ReaderScreenState extends State<ReaderScreen> {
     return null;
   }
 
-  Future<OpenRouterImageGenerationResult?> _generateImageWithBestEffortModalities({
+  bool _modelCannotGenerateText(OpenRouterModel model) {
+    if (model.hasOutputModalityMetadata) {
+      return !model.supportsTextOutput;
+    }
+
+    return _looksLikeImageOnlyModelId(model.id);
+  }
+
+  Future<OpenRouterImageGenerationResult?>
+      _generateImageWithBestEffortModalities({
     required String apiKey,
     required String modelId,
     required String prompt,
     OpenRouterModel? imageModel,
   }) async {
-    final attempts = <List<String>>[
-      _preferredImageModalities(
-        modelId: modelId,
-        imageModel: imageModel,
-      ),
-    ];
-    const imageOnlyModalities = <String>['image'];
-    const imageAndTextModalities = <String>['image', 'text'];
+    final attempts = <List<String>>[];
+    final preferred = _preferredImageModalities(
+      modelId: modelId,
+      imageModel: imageModel,
+    );
+    attempts.add(preferred);
 
-    if (!_modalitiesEqual(attempts.first, imageOnlyModalities)) {
-      attempts.add(imageOnlyModalities);
-    }
-    if (!_modalitiesEqual(attempts.first, imageAndTextModalities)) {
-      attempts.add(imageAndTextModalities);
+    if (imageModel == null || !imageModel.hasOutputModalityMetadata) {
+      const imageOnlyModalities = <String>['image'];
+      const imageAndTextModalities = <String>['image', 'text'];
+
+      if (!_modalitiesEqual(preferred, imageOnlyModalities)) {
+        attempts.add(imageOnlyModalities);
+      }
+      if (!_modalitiesEqual(preferred, imageAndTextModalities)) {
+        attempts.add(imageAndTextModalities);
+      }
     }
 
     Object? lastError;
@@ -1003,7 +1042,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
     required String modelId,
     OpenRouterModel? imageModel,
   }) {
-    if (imageModel != null && imageModel.supportsImageOutput) {
+    if (imageModel != null && imageModel.hasOutputModalityMetadata) {
       return imageModel.supportsTextOutput
           ? const <String>['image', 'text']
           : const <String>['image'];

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:bookai/app.dart';
 import 'package:bookai/models/book.dart';
@@ -473,6 +474,117 @@ void main() {
     });
 
     testWidgets(
+        'generate image respects image-only metadata modalities',
+        (tester) async {
+      final openRouter = _FakeOpenRouterService(
+        generateTextHandler: ({
+          required apiKey,
+          required modelId,
+          required prompt,
+          temperature,
+        }) async =>
+            'A moody charcoal sketch of the scene.',
+        fetchModelsHandler: ({
+          required apiKey,
+          required forceRefresh,
+        }) async =>
+            const [
+              OpenRouterModel(
+                id: 'example/image-only-model',
+                name: 'Image Only Model',
+                outputModalities: ['image'],
+              ),
+            ],
+        generateImageHandler: ({
+          required apiKey,
+          required modelId,
+          required prompt,
+          required modalities,
+          temperature,
+        }) async =>
+            const OpenRouterImageGenerationResult(
+              assistantText: '',
+              imageUrls: [
+                'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO6V1xQAAAAASUVORK5CYII='
+              ],
+            ),
+      );
+
+      await _pumpReaderScreen(
+        tester,
+        openRouterService: openRouter,
+        imageModelId: 'example/image-only-model',
+      );
+
+      await _startGenerateImage(tester);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Selected Text'));
+      await tester.pump();
+      for (var i = 0; i < 6; i++) {
+        await tester.pump(const Duration(milliseconds: 150));
+      }
+
+      await tester.tap(find.text('Generate'));
+      await tester.pump();
+      for (var i = 0; i < 8; i++) {
+        await tester.pump(const Duration(milliseconds: 150));
+      }
+
+      expect(openRouter.generateImageCallCount, 1);
+      expect(openRouter.generateImageCalls.single.modalities, ['image']);
+    });
+
+    testWidgets(
+        'generate image blocks prompt-model overrides that cannot return text',
+        (tester) async {
+      final openRouter = _FakeOpenRouterService(
+        generateTextHandler: ({
+          required apiKey,
+          required modelId,
+          required prompt,
+          temperature,
+        }) async =>
+            'This should never be called.',
+        fetchModelsHandler: ({
+          required apiKey,
+          required forceRefresh,
+        }) async =>
+            const [
+              OpenRouterModel(
+                id: 'example/image-only-prompt-model',
+                name: 'Image Only Prompt Model',
+                outputModalities: ['image'],
+              ),
+              OpenRouterModel(
+                id: 'openai/gpt-image-1',
+                name: 'GPT Image 1',
+                outputModalities: ['image', 'text'],
+              ),
+            ],
+      );
+
+      await _pumpReaderScreen(
+        tester,
+        openRouterService: openRouter,
+        generateImagePromptModelIdOverride: 'example/image-only-prompt-model',
+      );
+
+      await _startGenerateImage(tester);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Selected Text'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text(
+          'The selected prompt model does not support text output. Choose a text-capable model for Generate Image in Settings.',
+        ),
+        findsOneWidget,
+      );
+      expect(openRouter.generateTextCallCount, 0);
+      expect(openRouter.generateImageCallCount, 0);
+    });
+
+    testWidgets(
         'regenerate with fallback reruns define and translate with same prompt',
         (tester) async {
       final firstResult = Completer<String>();
@@ -709,6 +821,7 @@ Future<void> _pumpReaderScreen(
   ResumeSummaryService? resumeSummaryService,
   String fallbackModelId = 'anthropic/claude-3.7-sonnet',
   String imageModelId = 'openai/gpt-image-1',
+  String? generateImagePromptModelIdOverride,
   Book? savedBook,
   DatabaseService? databaseService,
   StorageService? storageService,
@@ -718,6 +831,13 @@ Future<void> _pumpReaderScreen(
     'reader_openrouter_model_id': 'openai/gpt-4o-mini',
     'reader_openrouter_fallback_model_id': fallbackModelId,
     'reader_openrouter_image_model_id': imageModelId,
+    if (generateImagePromptModelIdOverride != null)
+      'reader_ai_feature_configs': jsonEncode({
+        AiFeatureIds.generateImage: {
+          'modelIdOverride': generateImagePromptModelIdOverride,
+          'promptTemplate': defaultGenerateImagePromptTemplate,
+        },
+      }),
   });
 
   final controller = SettingsController();
