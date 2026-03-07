@@ -1,5 +1,4 @@
 import 'dart:async';
-
 import 'package:bookai/app.dart';
 import 'package:bookai/models/book.dart';
 import 'package:bookai/models/ai_feature.dart';

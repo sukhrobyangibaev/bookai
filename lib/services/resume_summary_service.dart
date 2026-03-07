@@ -10,11 +10,13 @@ class ResumeSummaryRange {
   final int startOffset;
   final int endOffset;
   final String sourceText;
+  final bool shouldUpdateResumeMarker;
 
   const ResumeSummaryRange({
     required this.startOffset,
     required this.endOffset,
     required this.sourceText,
+    required this.shouldUpdateResumeMarker,
   });
 }
 
@@ -36,21 +38,42 @@ class ResumeSummaryService {
     if (boundedSelectionEnd <= boundedSelectionStart) return null;
 
     int startOffset = 0;
+    int endOffset = boundedSelectionEnd;
+    bool shouldUpdateResumeMarker = true;
+
     if (previousMarker != null &&
         previousMarker.chapterIndex == currentChapterIndex) {
-      startOffset = previousMarker.selectionEnd.clamp(0, chapterContent.length);
+      final markerStart =
+          previousMarker.selectionStart.clamp(0, chapterContent.length);
+      final markerEnd =
+          previousMarker.selectionEnd.clamp(0, chapterContent.length);
+
+      if (markerEnd <= markerStart) {
+        return null;
+      }
+
+      if (boundedSelectionEnd > markerEnd) {
+        startOffset = markerEnd;
+        endOffset = boundedSelectionEnd;
+      } else if (boundedSelectionStart < markerStart) {
+        startOffset = boundedSelectionStart;
+        endOffset = markerStart;
+        shouldUpdateResumeMarker = false;
+      } else {
+        return null;
+      }
     }
 
-    if (startOffset >= boundedSelectionEnd) return null;
+    if (endOffset <= startOffset) return null;
 
-    final sourceText =
-        chapterContent.substring(startOffset, boundedSelectionEnd).trim();
+    final sourceText = chapterContent.substring(startOffset, endOffset).trim();
     if (sourceText.isEmpty) return null;
 
     return ResumeSummaryRange(
       startOffset: startOffset,
-      endOffset: boundedSelectionEnd,
+      endOffset: endOffset,
       sourceText: sourceText,
+      shouldUpdateResumeMarker: shouldUpdateResumeMarker,
     );
   }
 

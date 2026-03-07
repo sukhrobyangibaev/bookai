@@ -474,11 +474,13 @@ class _ReaderScreenState extends State<ReaderScreen> {
       loadingText: featureSpec.loadingText,
       emptyMessage: featureSpec.emptyMessage,
       copiedMessage: featureSpec.copiedMessage,
-      onSuccess: () => _saveResumeMarker(
-        selectedText: summarySelection.selectedText,
-        selectionStart: summarySelection.selectionStart,
-        selectionEnd: summarySelection.selectionEnd,
-      ),
+      onSuccess: summarySelection.shouldUpdateResumeMarker
+          ? () => _saveResumeMarker(
+                selectedText: summarySelection.selectedText,
+                selectionStart: summarySelection.selectionStart,
+                selectionEnd: summarySelection.selectionEnd,
+              )
+          : null,
       featureId: featureSpec.featureId,
       resumeRangeSelection: summarySelection,
     );
@@ -643,6 +645,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
       selectedText: selectedText,
       selectionStart: boundedStart,
       selectionEnd: boundedEnd,
+      shouldUpdateResumeMarker: range.shouldUpdateResumeMarker,
     );
   }
 
@@ -1629,6 +1632,7 @@ class _ResumeSummarySelection {
   final String selectedText;
   final int selectionStart;
   final int selectionEnd;
+  final bool shouldUpdateResumeMarker;
 
   const _ResumeSummarySelection({
     required this.sourceText,
@@ -1636,6 +1640,7 @@ class _ResumeSummarySelection {
     required this.selectedText,
     required this.selectionStart,
     required this.selectionEnd,
+    required this.shouldUpdateResumeMarker,
   });
 }
 
