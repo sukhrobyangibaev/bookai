@@ -89,8 +89,11 @@ void main() {
       );
       expect(find.text('Define & Translate'), findsOneWidget);
       expect(find.text('Definition: vague\nTranslation: neyasny'), findsOne);
-      expect(find.text('Copy'), findsOneWidget);
-      expect(find.text('Regenerate with Fallback'), findsOneWidget);
+      expect(find.byTooltip('Copy'), findsOneWidget);
+      expect(find.byTooltip('Regenerate with Fallback'), findsOneWidget);
+      expect(find.text('Copy'), findsNothing);
+      expect(find.text('Regenerate with Fallback'), findsNothing);
+      expect(find.text('Close'), findsNothing);
       expect(find.byType(ModalBarrier), findsWidgets);
     });
 
@@ -126,6 +129,7 @@ void main() {
       expect(find.text('Network failed.'), findsOneWidget);
       expect(find.text('Regenerate with Fallback'), findsOneWidget);
       expect(find.text('Copy'), findsNothing);
+      expect(find.text('Close'), findsOneWidget);
     });
 
     testWidgets('blocks starting another AI request while one is loading',
@@ -226,7 +230,7 @@ void main() {
       await tester.pumpAndSettle();
 
       final firstCall = openRouter.generateTextCalls.single;
-      await tester.tap(find.text('Regenerate with Fallback'));
+      await tester.tap(find.byTooltip('Regenerate with Fallback'));
       await tester.pump();
 
       expect(openRouter.generateTextCallCount, 2);
@@ -273,7 +277,7 @@ void main() {
       await tester.pumpAndSettle();
 
       final firstCall = openRouter.generateTextCalls.single;
-      await tester.tap(find.text('Regenerate with Fallback'));
+      await tester.tap(find.byTooltip('Regenerate with Fallback'));
       await tester.pump();
 
       expect(openRouter.generateTextCallCount, 2);
@@ -310,7 +314,7 @@ void main() {
       await _startDefineAndTranslate(tester);
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('Regenerate with Fallback'));
+      await tester.tap(find.byTooltip('Regenerate with Fallback'));
       await tester.pump();
 
       expect(openRouter.generateTextCallCount, 1);

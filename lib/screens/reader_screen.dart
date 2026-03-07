@@ -789,12 +789,10 @@ class _ReaderScreenState extends State<ReaderScreen> {
         const SizedBox(height: 12),
         Align(
           alignment: Alignment.centerRight,
-          child: Wrap(
-            spacing: 12,
-            runSpacing: 8,
-            alignment: WrapAlignment.end,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              OutlinedButton.icon(
+              IconButton(
                 onPressed: () async {
                   await Clipboard.setData(
                     ClipboardData(text: trimmedResult),
@@ -807,17 +805,13 @@ class _ReaderScreenState extends State<ReaderScreen> {
                     ),
                   );
                 },
+                tooltip: 'Copy',
                 icon: const Icon(Icons.copy_outlined),
-                label: const Text('Copy'),
               ),
-              OutlinedButton.icon(
+              IconButton(
                 onPressed: onRegenerateWithFallback,
+                tooltip: 'Regenerate with Fallback',
                 icon: const Icon(Icons.refresh),
-                label: const Text('Regenerate with Fallback'),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.of(sheetContext).pop(),
-                child: const Text('Close'),
               ),
             ],
           ),
