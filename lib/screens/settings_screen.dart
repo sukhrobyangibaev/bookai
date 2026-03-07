@@ -11,7 +11,12 @@ import '../theme/reader_typography.dart';
 import '../widgets/mobile_scrollbar.dart';
 
 class SettingsScreen extends StatefulWidget {
-  const SettingsScreen({super.key});
+  final OpenRouterService? openRouterService;
+
+  const SettingsScreen({
+    super.key,
+    this.openRouterService,
+  });
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -19,8 +24,8 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   late final TextEditingController _apiKeyController;
+  late final OpenRouterService _openRouterService;
   final ScrollController _scrollController = ScrollController();
-  final OpenRouterService _openRouterService = OpenRouterService();
   bool _obscureApiKey = true;
   SettingsController? _controllerForSync;
 
@@ -28,6 +33,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void initState() {
     super.initState();
     _apiKeyController = TextEditingController();
+    _openRouterService = widget.openRouterService ?? OpenRouterService();
   }
 
   @override
@@ -623,25 +629,32 @@ class _OpenRouterModelPickerSheetState
   }
 
   List<OpenRouterModel> _filterModels(List<OpenRouterModel> models) {
+    final requiredOutputModality =
+        widget.requiredOutputModality?.trim().toLowerCase();
     final normalizedQuery = _query.trim().toLowerCase();
+    final filteredByOutput =
+        requiredOutputModality == null || requiredOutputModality.isEmpty
+            ? List<OpenRouterModel>.from(models)
+            : models
+                .where(
+                  (model) =>
+                      model.outputModalities.contains(requiredOutputModality),
+                )
+                .toList(growable: false);
     final filteredByQuery = normalizedQuery.isEmpty
-        ? List<OpenRouterModel>.from(models)
-        : models.where((model) {
+        ? filteredByOutput
+        : filteredByOutput.where((model) {
             final description = model.description?.toLowerCase() ?? '';
             return model.id.toLowerCase().contains(normalizedQuery) ||
                 model.displayName.toLowerCase().contains(normalizedQuery) ||
                 description.contains(normalizedQuery);
           }).toList(growable: false);
 
-    if (widget.requiredOutputModality != 'image') {
+    if (requiredOutputModality != 'image') {
       return filteredByQuery;
     }
 
-    final filtered = normalizedQuery.isEmpty
-        ? filteredByQuery
-            .where((model) => model.isLikelyImageModel)
-            .toList(growable: false)
-        : filteredByQuery;
+    final filtered = List<OpenRouterModel>.from(filteredByQuery);
 
     filtered.sort((a, b) {
       final byRelevance = _imageModelRelevance(a).compareTo(
@@ -650,8 +663,8 @@ class _OpenRouterModelPickerSheetState
       if (byRelevance != 0) return byRelevance;
 
       final byName = a.displayName.toLowerCase().compareTo(
-        b.displayName.toLowerCase(),
-      );
+            b.displayName.toLowerCase(),
+          );
       if (byName != 0) return byName;
       return a.id.toLowerCase().compareTo(b.id.toLowerCase());
     });
@@ -738,7 +751,7 @@ class _OpenRouterModelPickerSheetState
                             ? _NoModelsFound(
                                 message: widget.requiredOutputModality == null
                                     ? 'No models match your search.'
-                                    : 'No likely image models match your search.',
+                                    : 'No image-generating models match your search.',
                               )
                             : MobileScrollbar(
                                 controller: _scrollController,

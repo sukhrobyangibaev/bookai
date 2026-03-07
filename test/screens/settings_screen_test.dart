@@ -1,6 +1,8 @@
 import 'package:bookai/app.dart';
+import 'package:bookai/models/openrouter_model.dart';
 import 'package:bookai/models/reader_settings.dart';
 import 'package:bookai/screens/settings_screen.dart';
+import 'package:bookai/services/openrouter_service.dart';
 import 'package:bookai/services/settings_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -163,5 +165,82 @@ void main() {
         findsOneWidget,
       );
     });
+
+    testWidgets('image model picker only shows image-generating models',
+        (tester) async {
+      SharedPreferences.setMockInitialValues({
+        'reader_openrouter_api_key': 'stored-key',
+      });
+
+      final controller = SettingsController();
+      await tester.runAsync(() => controller.load());
+      final openRouterService = _FakeOpenRouterService(
+        models: const [
+          OpenRouterModel(
+            id: 'openai/gpt-image-1',
+            name: 'GPT Image 1',
+            outputModalities: ['image', 'text'],
+          ),
+          OpenRouterModel(
+            id: 'openai/gpt-4o-mini',
+            name: 'GPT-4o Mini',
+            outputModalities: ['text'],
+          ),
+          OpenRouterModel(
+            id: 'black-forest-labs/flux-1.1-pro',
+            name: 'FLUX 1.1 Pro',
+            outputModalities: ['image'],
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(
+        SettingsControllerScope(
+          controller: controller,
+          child: MaterialApp(
+            home: SettingsScreen(openRouterService: openRouterService),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final imageModelText = find.text('Image Model');
+      await tester.ensureVisible(imageModelText);
+      await tester.pumpAndSettle();
+      await tester.tap(imageModelText);
+      await tester.pumpAndSettle();
+
+      expect(find.text('GPT Image 1'), findsOneWidget);
+      expect(find.text('FLUX 1.1 Pro'), findsOneWidget);
+      expect(find.text('GPT-4o Mini'), findsNothing);
+
+      await tester.enterText(
+        find.byWidgetPredicate(
+          (widget) =>
+              widget is TextField &&
+              widget.decoration?.hintText == 'Search by model name or id',
+        ),
+        'gpt',
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('GPT Image 1'), findsOneWidget);
+      expect(find.text('FLUX 1.1 Pro'), findsNothing);
+      expect(find.text('GPT-4o Mini'), findsNothing);
+    });
   });
+}
+
+class _FakeOpenRouterService extends OpenRouterService {
+  final List<OpenRouterModel> models;
+
+  _FakeOpenRouterService({required this.models});
+
+  @override
+  Future<List<OpenRouterModel>> fetchModels({
+    String? apiKey,
+    bool forceRefresh = false,
+  }) async {
+    return models;
+  }
 }
