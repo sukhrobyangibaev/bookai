@@ -1,5 +1,8 @@
+import 'dart:convert';
 import 'dart:io';
 
+import 'package:bookai/models/book.dart';
+import 'package:bookai/models/generated_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -134,5 +137,124 @@ void main() {
       );
       expect(find.byType(FloatingActionButton), findsNothing);
     });
+
+    testWidgets('library image detail shows file size and opens zoom viewer',
+        (WidgetTester tester) async {
+      SharedPreferences.setMockInitialValues({});
+
+      await tester.runAsync(() async {
+        final imageFile = File(p.join(tempDir.path, 'generated.png'));
+        await imageFile.writeAsBytes(base64Decode(_transparentPngBase64));
+
+        final book = await DatabaseService.instance.insertBook(
+          Book(
+            title: 'Image Test Book',
+            author: 'Test Author',
+            filePath: p.join(tempDir.path, 'image_test.epub'),
+            totalChapters: 1,
+            createdAt: DateTime(2024, 1, 1),
+          ),
+        );
+
+        await DatabaseService.instance.addGeneratedImage(
+          GeneratedImage(
+            bookId: book.id!,
+            chapterIndex: 0,
+            featureMode: 'selected_text',
+            sourceText: 'A moonlit scene.',
+            promptText: 'Generated scene prompt',
+            filePath: imageFile.path,
+            createdAt: DateTime(2024, 1, 1, 12),
+          ),
+        );
+      });
+
+      final controller = SettingsController();
+      await tester.runAsync(() => controller.load());
+
+      await tester.pumpWidget(BookAiApp(settingsController: controller));
+
+      for (int i = 0; i < 10; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 50)),
+        );
+        await tester.pump();
+      }
+
+      await tester.tap(find.text('Images'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Generated scene prompt'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      expect(find.textContaining('File size:'), findsOneWidget);
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('library-generated-image-preview')),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      expect(
+        find.byKey(const ValueKey<String>('generated-image-viewer')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('library image detail hides file size for missing files',
+        (WidgetTester tester) async {
+      SharedPreferences.setMockInitialValues({});
+
+      await tester.runAsync(() async {
+        final book = await DatabaseService.instance.insertBook(
+          Book(
+            title: 'Missing File Book',
+            author: 'Test Author',
+            filePath: p.join(tempDir.path, 'missing_file.epub'),
+            totalChapters: 1,
+            createdAt: DateTime(2024, 1, 1),
+          ),
+        );
+
+        await DatabaseService.instance.addGeneratedImage(
+          GeneratedImage(
+            bookId: book.id!,
+            chapterIndex: 0,
+            featureMode: 'selected_text',
+            sourceText: 'A missing file scene.',
+            promptText: 'Missing image prompt',
+            filePath: p.join(tempDir.path, 'does_not_exist.png'),
+            createdAt: DateTime(2024, 1, 1, 12),
+          ),
+        );
+      });
+
+      final controller = SettingsController();
+      await tester.runAsync(() => controller.load());
+
+      await tester.pumpWidget(BookAiApp(settingsController: controller));
+
+      for (int i = 0; i < 10; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 50)),
+        );
+        await tester.pump();
+      }
+
+      await tester.tap(find.text('Images'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Missing image prompt'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      expect(find.textContaining('File size:'), findsNothing);
+      expect(
+        find.byKey(const ValueKey<String>('library-generated-image-preview')),
+        findsOneWidget,
+      );
+    });
   });
 }
+
+const _transparentPngBase64 =
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO6V1xQAAAAASUVORK5CYII=';

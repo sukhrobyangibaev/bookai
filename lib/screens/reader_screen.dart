@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -19,6 +18,7 @@ import '../services/openrouter_service.dart';
 import '../services/resume_summary_service.dart';
 import '../services/storage_service.dart';
 import '../theme/reader_typography.dart';
+import '../widgets/generated_image_viewer.dart';
 import '../widgets/mobile_scrollbar.dart';
 import '../widgets/reader_selection_toolbar.dart';
 
@@ -934,7 +934,8 @@ class _ReaderScreenState extends State<ReaderScreen> {
       if (persisted == null) {
         await _showAiBasicErrorSheet(
           title: 'Generate Image',
-          message: 'This book must be saved in the library before images can be stored.',
+          message:
+              'This book must be saved in the library before images can be stored.',
         );
         return;
       }
@@ -1232,6 +1233,14 @@ class _ReaderScreenState extends State<ReaderScreen> {
                   'Generated Image',
                   style: Theme.of(sheetContext).textTheme.titleMedium,
                 ),
+                const SizedBox(height: 4),
+                GeneratedImageFileSizeText(
+                  filePath: generatedImage.filePath,
+                  style: Theme.of(sheetContext).textTheme.bodySmall?.copyWith(
+                        color:
+                            Theme.of(sheetContext).colorScheme.onSurfaceVariant,
+                      ),
+                ),
                 const SizedBox(height: 8),
                 Expanded(
                   child: MobileScrollbar(
@@ -1239,35 +1248,36 @@ class _ReaderScreenState extends State<ReaderScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(18),
-                            child: Image.file(
-                              File(generatedImage.filePath),
-                              key: const ValueKey<String>(
-                                'generated-image-result',
-                              ),
-                              fit: BoxFit.contain,
-                              errorBuilder: (context, error, stackTrace) {
-                                return Container(
-                                  height: 280,
-                                  width: double.infinity,
-                                  color: Theme.of(context)
-                                      .colorScheme
-                                      .surfaceContainerHighest,
-                                  alignment: Alignment.center,
-                                  child: const Icon(
-                                    Icons.broken_image_outlined,
-                                    size: 40,
-                                  ),
-                                );
-                              },
+                          ZoomableGeneratedImagePreview(
+                            key: const ValueKey<String>(
+                              'reader-generated-image-preview',
                             ),
+                            filePath: generatedImage.filePath,
+                            fit: BoxFit.contain,
+                            height: 320,
+                            borderRadius: BorderRadius.circular(18),
+                            imageKey: const ValueKey<String>(
+                              'generated-image-result',
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Tap image to zoom',
+                            style: Theme.of(sheetContext)
+                                .textTheme
+                                .bodySmall
+                                ?.copyWith(
+                                  color: Theme.of(sheetContext)
+                                      .colorScheme
+                                      .onSurfaceVariant,
+                                ),
                           ),
                           if (assistantText.trim().isNotEmpty) ...[
                             const SizedBox(height: 16),
                             Text(
                               'Notes',
-                              style: Theme.of(sheetContext).textTheme.titleSmall,
+                              style:
+                                  Theme.of(sheetContext).textTheme.titleSmall,
                             ),
                             const SizedBox(height: 6),
                             SelectableText(assistantText.trim()),

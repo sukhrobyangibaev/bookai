@@ -7,6 +7,7 @@ import '../models/generated_image.dart';
 import '../models/reading_progress.dart';
 import '../services/database_service.dart';
 import '../services/library_service.dart';
+import '../widgets/generated_image_viewer.dart';
 import '../widgets/mobile_scrollbar.dart';
 import 'reader_screen.dart';
 import 'settings_screen.dart';
@@ -239,17 +240,39 @@ class _LibraryScreenState extends State<LibraryScreen>
                             Theme.of(sheetContext).colorScheme.onSurfaceVariant,
                       ),
                 ),
+                const SizedBox(height: 4),
+                GeneratedImageFileSizeText(
+                  filePath: generatedImage.filePath,
+                  style: Theme.of(sheetContext).textTheme.bodySmall?.copyWith(
+                        color:
+                            Theme.of(sheetContext).colorScheme.onSurfaceVariant,
+                      ),
+                ),
                 const SizedBox(height: 12),
                 Expanded(
                   child: ListView(
                     children: [
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(20),
-                        child: _GeneratedImageThumbnail(
-                          filePath: generatedImage.filePath,
-                          fit: BoxFit.contain,
-                          height: 320,
+                      ZoomableGeneratedImagePreview(
+                        key: const ValueKey<String>(
+                          'library-generated-image-preview',
                         ),
+                        filePath: generatedImage.filePath,
+                        viewerTitle: book?.title ?? 'Generated Image',
+                        fit: BoxFit.contain,
+                        height: 320,
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Tap image to zoom',
+                        style: Theme.of(sheetContext)
+                            .textTheme
+                            .bodySmall
+                            ?.copyWith(
+                              color: Theme.of(sheetContext)
+                                  .colorScheme
+                                  .onSurfaceVariant,
+                            ),
                       ),
                       const SizedBox(height: 16),
                       Text(
@@ -769,13 +792,11 @@ class _GeneratedImageThumbnail extends StatelessWidget {
     required this.filePath,
     this.width,
     this.height,
-    this.fit = BoxFit.cover,
   });
 
   final String filePath;
   final double? width;
   final double? height;
-  final BoxFit fit;
 
   @override
   Widget build(BuildContext context) {
@@ -787,7 +808,7 @@ class _GeneratedImageThumbnail extends StatelessWidget {
       color: theme.colorScheme.surfaceContainerHighest,
       child: Image.file(
         File(filePath),
-        fit: fit,
+        fit: BoxFit.cover,
         errorBuilder: (context, error, stackTrace) {
           return Center(
             child: Icon(
