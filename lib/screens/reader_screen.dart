@@ -437,34 +437,21 @@ class _ReaderScreenState extends State<ReaderScreen> {
       bookAuthor: widget.book.author,
       chapterTitle: summarySelection.chapterTitle,
     );
-    if (!_canStartAiRequest()) return;
-
-    final generationFuture = _openRouter.generateText(
-      apiKey: apiKey,
-      modelId: modelId,
-      prompt: prompt,
-    );
-    unawaited(
-      () async {
-        try {
-          await generationFuture;
-          await _saveResumeMarker(
-            selectedText: summarySelection.selectedText,
-            selectionStart: summarySelection.selectionStart,
-            selectionEnd: summarySelection.selectionEnd,
-          );
-        } catch (_) {
-          // Ignore generation and marker errors in background persistence.
-        }
-      }(),
-    );
-
-    await _startAiResultFlow(
-      generationFuture: generationFuture,
-      title: title,
-      loadingText: loadingText,
-      emptyMessage: emptyMessage,
-      copiedMessage: copiedMessage,
+    await _startAiFeatureRequest(
+      _AiRequestSpec(
+        apiKey: apiKey,
+        modelId: modelId,
+        prompt: prompt,
+        title: title,
+        loadingText: loadingText,
+        emptyMessage: emptyMessage,
+        copiedMessage: copiedMessage,
+        onSuccess: () => _saveResumeMarker(
+          selectedText: summarySelection.selectedText,
+          selectionStart: summarySelection.selectionStart,
+          selectionEnd: summarySelection.selectionEnd,
+        ),
+      ),
     );
   }
 
@@ -538,19 +525,63 @@ class _ReaderScreenState extends State<ReaderScreen> {
       chapterTitle: '',
       contextSentence: contextSentence,
     );
-    if (!_canStartAiRequest()) return;
-    final generationFuture = _openRouter.generateText(
-      apiKey: apiKey,
-      modelId: modelId,
-      prompt: prompt,
+    await _startAiFeatureRequest(
+      _AiRequestSpec(
+        apiKey: apiKey,
+        modelId: modelId,
+        prompt: prompt,
+        title: defineAndTranslateFeature.title,
+        loadingText: 'Generating definition and translation...',
+        emptyMessage: 'Model returned an empty definition or translation.',
+        copiedMessage: 'Result copied',
+      ),
     );
+  }
+
+  Future<void> _startAiFeatureRequest(_AiRequestSpec requestSpec) async {
+    if (!_canStartAiRequest()) return;
+
+    final generationFuture = _openRouter.generateText(
+      apiKey: requestSpec.apiKey,
+      modelId: requestSpec.modelId,
+      prompt: requestSpec.prompt,
+    );
+    final onSuccess = requestSpec.onSuccess;
+    if (onSuccess != null) {
+      unawaited(
+        () async {
+          try {
+            await generationFuture;
+            await onSuccess();
+          } catch (_) {
+            // Ignore generation and follow-up errors in background persistence.
+          }
+        }(),
+      );
+    }
 
     await _startAiResultFlow(
       generationFuture: generationFuture,
-      title: defineAndTranslateFeature.title,
-      loadingText: 'Generating definition and translation...',
-      emptyMessage: 'Model returned an empty definition or translation.',
-      copiedMessage: 'Result copied',
+      requestSpec: requestSpec,
+    );
+  }
+
+  Future<void> _regenerateAiRequestWithFallback(
+      _AiRequestSpec requestSpec) async {
+    final settings = SettingsControllerScope.of(context);
+    final fallbackModelId = settings.openRouterFallbackModelId.trim();
+    if (fallbackModelId.isEmpty) {
+      _showAutoDismissSnackBar(
+        const SnackBar(
+          content: Text('Select a fallback AI model in Settings first.'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+
+    await _startAiFeatureRequest(
+      requestSpec.copyWith(modelId: fallbackModelId),
     );
   }
 
@@ -588,20 +619,14 @@ class _ReaderScreenState extends State<ReaderScreen> {
 
   Future<void> _startAiResultFlow({
     required Future<String> generationFuture,
-    required String title,
-    required String loadingText,
-    required String emptyMessage,
-    required String copiedMessage,
+    required _AiRequestSpec requestSpec,
   }) async {
     if (!_canStartAiRequest()) return;
 
     final request = _ActiveAiRequest(
       token: ++_aiRequestToken,
       generationFuture: generationFuture,
-      title: title,
-      loadingText: loadingText,
-      emptyMessage: emptyMessage,
-      copiedMessage: copiedMessage,
+      requestSpec: requestSpec,
     );
 
     if (!mounted) return;
@@ -639,16 +664,20 @@ class _ReaderScreenState extends State<ReaderScreen> {
 
     if (!mounted) return;
 
-    await _showAiCompletedResultSheet(
-      title: request.title,
-      emptyMessage: request.emptyMessage,
-      copiedMessage: request.copiedMessage,
+    final action = await _showAiCompletedResultSheet(
+      title: request.requestSpec.title,
+      emptyMessage: request.requestSpec.emptyMessage,
+      copiedMessage: request.requestSpec.copiedMessage,
       result: result,
       error: error,
     );
+    if (!mounted) return;
+    if (action == _AiResultSheetAction.regenerateWithFallback) {
+      await _regenerateAiRequestWithFallback(request.requestSpec);
+    }
   }
 
-  Future<void> _showAiCompletedResultSheet({
+  Future<_AiResultSheetAction?> _showAiCompletedResultSheet({
     required String title,
     required String emptyMessage,
     required String copiedMessage,
@@ -662,11 +691,29 @@ class _ReaderScreenState extends State<ReaderScreen> {
       fontFamily: settings.fontFamily,
     );
 
-    await showModalBottomSheet<void>(
+    return showModalBottomSheet<_AiResultSheetAction>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
       builder: (sheetContext) {
+        void regenerateWithFallback() {
+          final fallbackModelId =
+              SettingsControllerScope.of(context).openRouterFallbackModelId;
+          if (fallbackModelId.trim().isEmpty) {
+            _showAutoDismissSnackBar(
+              const SnackBar(
+                content: Text('Select a fallback AI model in Settings first.'),
+                duration: Duration(seconds: 2),
+              ),
+            );
+            return;
+          }
+
+          Navigator.of(sheetContext).pop(
+            _AiResultSheetAction.regenerateWithFallback,
+          );
+        }
+
         return FractionallySizedBox(
           heightFactor: 0.7,
           child: Padding(
@@ -677,6 +724,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
               emptyMessage: emptyMessage,
               copiedMessage: copiedMessage,
               resultTextStyle: resultTextStyle,
+              onRegenerateWithFallback: regenerateWithFallback,
               result: result,
               error: error,
             ),
@@ -692,6 +740,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
     required String emptyMessage,
     required String copiedMessage,
     required TextStyle resultTextStyle,
+    required VoidCallback onRegenerateWithFallback,
     String? result,
     Object? error,
   }) {
@@ -701,6 +750,8 @@ class _ReaderScreenState extends State<ReaderScreen> {
       return _AiResultError(
         title: title,
         message: error.toString(),
+        onClose: () => Navigator.of(sheetContext).pop(),
+        onRegenerateWithFallback: onRegenerateWithFallback,
       );
     }
 
@@ -708,6 +759,8 @@ class _ReaderScreenState extends State<ReaderScreen> {
       return _AiResultError(
         title: title,
         message: emptyMessage,
+        onClose: () => Navigator.of(sheetContext).pop(),
+        onRegenerateWithFallback: onRegenerateWithFallback,
       );
     }
 
@@ -734,30 +787,40 @@ class _ReaderScreenState extends State<ReaderScreen> {
           ),
         ),
         const SizedBox(height: 12),
-        Row(
-          children: [
-            OutlinedButton.icon(
-              onPressed: () async {
-                await Clipboard.setData(
-                  ClipboardData(text: trimmedResult),
-                );
-                if (!sheetContext.mounted) return;
-                ScaffoldMessenger.of(sheetContext).showSnackBar(
-                  SnackBar(
-                    content: Text(copiedMessage),
-                    duration: const Duration(seconds: 2),
-                  ),
-                );
-              },
-              icon: const Icon(Icons.copy_outlined),
-              label: const Text('Copy'),
-            ),
-            const Spacer(),
-            FilledButton(
-              onPressed: () => Navigator.of(sheetContext).pop(),
-              child: const Text('Close'),
-            ),
-          ],
+        Align(
+          alignment: Alignment.centerRight,
+          child: Wrap(
+            spacing: 12,
+            runSpacing: 8,
+            alignment: WrapAlignment.end,
+            children: [
+              OutlinedButton.icon(
+                onPressed: () async {
+                  await Clipboard.setData(
+                    ClipboardData(text: trimmedResult),
+                  );
+                  if (!sheetContext.mounted) return;
+                  ScaffoldMessenger.of(sheetContext).showSnackBar(
+                    SnackBar(
+                      content: Text(copiedMessage),
+                      duration: const Duration(seconds: 2),
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.copy_outlined),
+                label: const Text('Copy'),
+              ),
+              OutlinedButton.icon(
+                onPressed: onRegenerateWithFallback,
+                icon: const Icon(Icons.refresh),
+                label: const Text('Regenerate with Fallback'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(sheetContext).pop(),
+                child: const Text('Close'),
+              ),
+            ],
+          ),
         ),
       ],
     );
@@ -1139,7 +1202,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
           Positioned.fill(child: _buildBody()),
           if (_activeAiRequest != null)
             _AiLoadingSheet(
-              loadingText: _activeAiRequest!.loadingText,
+              loadingText: _activeAiRequest!.requestSpec.loadingText,
             ),
           if (!_isNavbarVisible)
             SafeArea(
@@ -1509,19 +1572,61 @@ class _ResumeSummarySelection {
 class _ActiveAiRequest {
   final int token;
   final Future<String> generationFuture;
-  final String title;
-  final String loadingText;
-  final String emptyMessage;
-  final String copiedMessage;
+  final _AiRequestSpec requestSpec;
 
   const _ActiveAiRequest({
     required this.token,
     required this.generationFuture,
+    required this.requestSpec,
+  });
+}
+
+class _AiRequestSpec {
+  final String apiKey;
+  final String modelId;
+  final String prompt;
+  final String title;
+  final String loadingText;
+  final String emptyMessage;
+  final String copiedMessage;
+  final Future<void> Function()? onSuccess;
+
+  const _AiRequestSpec({
+    required this.apiKey,
+    required this.modelId,
+    required this.prompt,
     required this.title,
     required this.loadingText,
     required this.emptyMessage,
     required this.copiedMessage,
+    this.onSuccess,
   });
+
+  _AiRequestSpec copyWith({
+    String? apiKey,
+    String? modelId,
+    String? prompt,
+    String? title,
+    String? loadingText,
+    String? emptyMessage,
+    String? copiedMessage,
+    Future<void> Function()? onSuccess,
+  }) {
+    return _AiRequestSpec(
+      apiKey: apiKey ?? this.apiKey,
+      modelId: modelId ?? this.modelId,
+      prompt: prompt ?? this.prompt,
+      title: title ?? this.title,
+      loadingText: loadingText ?? this.loadingText,
+      emptyMessage: emptyMessage ?? this.emptyMessage,
+      copiedMessage: copiedMessage ?? this.copiedMessage,
+      onSuccess: onSuccess ?? this.onSuccess,
+    );
+  }
+}
+
+enum _AiResultSheetAction {
+  regenerateWithFallback,
 }
 
 class _AiLoadingSheet extends StatelessWidget {
@@ -1579,10 +1684,14 @@ class _AiLoadingSheet extends StatelessWidget {
 class _AiResultError extends StatelessWidget {
   final String title;
   final String message;
+  final VoidCallback onClose;
+  final VoidCallback onRegenerateWithFallback;
 
   const _AiResultError({
     required this.title,
     required this.message,
+    required this.onClose,
+    required this.onRegenerateWithFallback,
   });
 
   @override
@@ -1610,6 +1719,23 @@ class _AiResultError extends StatelessWidget {
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: Theme.of(context).colorScheme.outline,
                   ),
+            ),
+            const SizedBox(height: 16),
+            Wrap(
+              spacing: 12,
+              runSpacing: 8,
+              alignment: WrapAlignment.center,
+              children: [
+                OutlinedButton.icon(
+                  onPressed: onRegenerateWithFallback,
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Regenerate with Fallback'),
+                ),
+                FilledButton(
+                  onPressed: onClose,
+                  child: const Text('Close'),
+                ),
+              ],
             ),
           ],
         ),

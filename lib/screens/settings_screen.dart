@@ -103,6 +103,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
     await controller.setOpenRouterModelId(pickedModelId);
   }
 
+  Future<void> _showFallbackModelPicker(
+    BuildContext context,
+    SettingsController controller,
+  ) async {
+    final pickedModelId = await _pickModelId(
+      context: context,
+      apiKey: controller.openRouterApiKey,
+      selectedModelId: controller.openRouterFallbackModelId,
+    );
+    if (pickedModelId == null) return;
+    await controller.setOpenRouterFallbackModelId(pickedModelId);
+  }
+
   Future<void> _showFeatureConfigSheet(
     BuildContext context,
     SettingsController controller,
@@ -407,6 +420,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final selectedModelId = controller.openRouterModelId;
     final selectedModelLabel =
         selectedModelId.isEmpty ? 'No model selected' : selectedModelId;
+    final fallbackModelId = controller.openRouterFallbackModelId;
+    final fallbackModelLabel = fallbackModelId.isEmpty
+        ? 'No fallback model selected'
+        : fallbackModelId;
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -456,6 +473,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             trailing: const Icon(Icons.search),
             onTap: () => _showModelPicker(context, controller),
+          ),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Fallback Model'),
+            subtitle: Text(
+              fallbackModelLabel,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+            trailing: const Icon(Icons.search),
+            onTap: () => _showFallbackModelPicker(context, controller),
           ),
           const SizedBox(height: 8),
           Text(

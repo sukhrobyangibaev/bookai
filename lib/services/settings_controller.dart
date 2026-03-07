@@ -16,6 +16,7 @@ class SettingsController extends ChangeNotifier {
   ReaderFontFamily get fontFamily => _settings.fontFamily;
   String get openRouterApiKey => _settings.openRouterApiKey;
   String get openRouterModelId => _settings.openRouterModelId;
+  String get openRouterFallbackModelId => _settings.openRouterFallbackModelId;
   Map<String, AiFeatureConfig> get aiFeatureConfigs =>
       _settings.aiFeatureConfigs;
 
@@ -62,6 +63,14 @@ class SettingsController extends ChangeNotifier {
     _settings = _settings.copyWith(openRouterModelId: normalized);
     notifyListeners();
     await _service.saveOpenRouterModelId(normalized);
+  }
+
+  Future<void> setOpenRouterFallbackModelId(String modelId) async {
+    final normalized = modelId.trim();
+    if (_settings.openRouterFallbackModelId == normalized) return;
+    _settings = _settings.copyWith(openRouterFallbackModelId: normalized);
+    notifyListeners();
+    await _service.saveOpenRouterFallbackModelId(normalized);
   }
 
   AiFeatureConfig aiFeatureConfig(String featureId) {

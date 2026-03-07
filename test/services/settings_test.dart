@@ -26,6 +26,10 @@ void main() {
         ReaderSettings.defaults.openRouterModelId,
       );
       expect(
+        settings.openRouterFallbackModelId,
+        ReaderSettings.defaults.openRouterFallbackModelId,
+      );
+      expect(
         settings.aiFeatureConfigs[AiFeatureIds.resumeSummary],
         const AiFeatureConfig(
           promptTemplate: defaultResumeSummaryPromptTemplate,
@@ -52,6 +56,7 @@ void main() {
         'reader_font_family': 'literata',
         'reader_openrouter_api_key': 'stored-key',
         'reader_openrouter_model_id': 'openai/gpt-4.1-mini',
+        'reader_openrouter_fallback_model_id': 'anthropic/claude-3.7-sonnet',
         'reader_ai_feature_configs':
             '{"resume_summary":{"modelIdOverride":"openai/gpt-4o-mini","promptTemplate":"Use {source_text}"}}',
       });
@@ -64,6 +69,10 @@ void main() {
       expect(settings.fontFamily, ReaderFontFamily.literata);
       expect(settings.openRouterApiKey, 'stored-key');
       expect(settings.openRouterModelId, 'openai/gpt-4.1-mini');
+      expect(
+        settings.openRouterFallbackModelId,
+        'anthropic/claude-3.7-sonnet',
+      );
       expect(
         settings.aiFeatureConfigs[AiFeatureIds.resumeSummary],
         const AiFeatureConfig(
@@ -129,6 +138,19 @@ void main() {
       expect(
         prefs.getString('reader_openrouter_model_id'),
         'anthropic/claude-3.7-sonnet',
+      );
+    });
+
+    test('saveOpenRouterFallbackModelId persists value', () async {
+      SharedPreferences.setMockInitialValues({});
+
+      final service = SettingsService();
+      await service.saveOpenRouterFallbackModelId('openai/gpt-4.1-mini');
+
+      final prefs = await SharedPreferences.getInstance();
+      expect(
+        prefs.getString('reader_openrouter_fallback_model_id'),
+        'openai/gpt-4.1-mini',
       );
     });
 
@@ -200,6 +222,9 @@ void main() {
       await service.saveFontFamily(ReaderFontFamily.bitter);
       await service.saveOpenRouterApiKey('key-roundtrip');
       await service.saveOpenRouterModelId('openai/gpt-4o-mini');
+      await service.saveOpenRouterFallbackModelId(
+        'anthropic/claude-3.7-sonnet',
+      );
       await service.saveAiFeatureConfigs(const {
         AiFeatureIds.resumeSummary: AiFeatureConfig(
           modelIdOverride: 'openai/gpt-4.1-mini',
@@ -214,6 +239,10 @@ void main() {
       expect(loaded.fontFamily, ReaderFontFamily.bitter);
       expect(loaded.openRouterApiKey, 'key-roundtrip');
       expect(loaded.openRouterModelId, 'openai/gpt-4o-mini');
+      expect(
+        loaded.openRouterFallbackModelId,
+        'anthropic/claude-3.7-sonnet',
+      );
       expect(
         loaded.aiFeatureConfigs[AiFeatureIds.resumeSummary],
         const AiFeatureConfig(
@@ -251,6 +280,10 @@ void main() {
         controller.openRouterModelId,
         ReaderSettings.defaults.openRouterModelId,
       );
+      expect(
+        controller.openRouterFallbackModelId,
+        ReaderSettings.defaults.openRouterFallbackModelId,
+      );
     });
 
     test('load() reads persisted settings and notifies', () async {
@@ -260,6 +293,7 @@ void main() {
         'reader_font_family': 'atkinsonHyperlegible',
         'reader_openrouter_api_key': 'abc',
         'reader_openrouter_model_id': 'openai/gpt-4.1',
+        'reader_openrouter_fallback_model_id': 'openai/gpt-4.1-mini',
         'reader_ai_feature_configs':
             '{"resume_summary":{"modelIdOverride":"openai/gpt-4.1-mini","promptTemplate":"Loaded {source_text}"}}',
       });
@@ -276,6 +310,7 @@ void main() {
       expect(controller.fontFamily, ReaderFontFamily.atkinsonHyperlegible);
       expect(controller.openRouterApiKey, 'abc');
       expect(controller.openRouterModelId, 'openai/gpt-4.1');
+      expect(controller.openRouterFallbackModelId, 'openai/gpt-4.1-mini');
       expect(
         controller.aiFeatureConfig(AiFeatureIds.resumeSummary),
         const AiFeatureConfig(
@@ -435,6 +470,35 @@ void main() {
       expect(notifyCount, 0);
     });
 
+    test('setOpenRouterFallbackModelId updates value and notifies', () async {
+      SharedPreferences.setMockInitialValues({});
+
+      final controller = SettingsController();
+
+      int notifyCount = 0;
+      controller.addListener(() => notifyCount++);
+
+      await controller.setOpenRouterFallbackModelId('openai/gpt-4.1-mini');
+
+      expect(controller.openRouterFallbackModelId, 'openai/gpt-4.1-mini');
+      expect(notifyCount, 1);
+    });
+
+    test('setOpenRouterFallbackModelId trims and skips unchanged', () async {
+      SharedPreferences.setMockInitialValues({});
+
+      final controller = SettingsController();
+      await controller.setOpenRouterFallbackModelId('openai/gpt-4.1-mini');
+
+      int notifyCount = 0;
+      controller.addListener(() => notifyCount++);
+
+      await controller.setOpenRouterFallbackModelId('  openai/gpt-4.1-mini  ');
+
+      expect(controller.openRouterFallbackModelId, 'openai/gpt-4.1-mini');
+      expect(notifyCount, 0);
+    });
+
     test('setFontSize persists value through service', () async {
       SharedPreferences.setMockInitialValues({});
 
@@ -487,6 +551,21 @@ void main() {
       expect(
         prefs.getString('reader_openrouter_model_id'),
         'meta-llama/llama-3.3-70b-instruct',
+      );
+    });
+
+    test('setOpenRouterFallbackModelId persists value through service',
+        () async {
+      SharedPreferences.setMockInitialValues({});
+
+      final controller = SettingsController();
+      await controller
+          .setOpenRouterFallbackModelId('anthropic/claude-3.7-sonnet');
+
+      final prefs = await SharedPreferences.getInstance();
+      expect(
+        prefs.getString('reader_openrouter_fallback_model_id'),
+        'anthropic/claude-3.7-sonnet',
       );
     });
 
@@ -619,12 +698,19 @@ void main() {
       await controller.setFontFamily(ReaderFontFamily.literata);
       await controller.setOpenRouterApiKey('getter-key');
       await controller.setOpenRouterModelId('openai/gpt-4o-mini');
+      await controller.setOpenRouterFallbackModelId(
+        'anthropic/claude-3.7-sonnet',
+      );
 
       expect(controller.settings.fontSize, 22.0);
       expect(controller.settings.themeMode, AppThemeMode.dark);
       expect(controller.settings.fontFamily, ReaderFontFamily.literata);
       expect(controller.settings.openRouterApiKey, 'getter-key');
       expect(controller.settings.openRouterModelId, 'openai/gpt-4o-mini');
+      expect(
+        controller.settings.openRouterFallbackModelId,
+        'anthropic/claude-3.7-sonnet',
+      );
       expect(
         controller.settings.aiFeatureConfigs[AiFeatureIds.resumeSummary],
         const AiFeatureConfig(

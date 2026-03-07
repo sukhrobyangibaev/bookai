@@ -11,6 +11,8 @@ class SettingsService {
   static const _keyFontFamily = 'reader_font_family';
   static const _keyOpenRouterApiKey = 'reader_openrouter_api_key';
   static const _keyOpenRouterModelId = 'reader_openrouter_model_id';
+  static const _keyOpenRouterFallbackModelId =
+      'reader_openrouter_fallback_model_id';
   static const _keyAiFeatureConfigs = 'reader_ai_feature_configs';
 
   Future<ReaderSettings> load() async {
@@ -38,6 +40,9 @@ class SettingsService {
         ReaderSettings.defaults.openRouterApiKey;
     final openRouterModelId = prefs.getString(_keyOpenRouterModelId) ??
         ReaderSettings.defaults.openRouterModelId;
+    final openRouterFallbackModelId =
+        prefs.getString(_keyOpenRouterFallbackModelId) ??
+            ReaderSettings.defaults.openRouterFallbackModelId;
     final aiFeatureConfigs = _parseAiFeatureConfigsJson(
       prefs.getString(_keyAiFeatureConfigs),
     );
@@ -48,6 +53,7 @@ class SettingsService {
       'fontFamily': fontFamily.name,
       'openRouterApiKey': openRouterApiKey,
       'openRouterModelId': openRouterModelId,
+      'openRouterFallbackModelId': openRouterFallbackModelId,
       'aiFeatureConfigs': aiFeatureConfigs,
     });
   }
@@ -75,6 +81,11 @@ class SettingsService {
   Future<void> saveOpenRouterModelId(String modelId) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_keyOpenRouterModelId, modelId);
+  }
+
+  Future<void> saveOpenRouterFallbackModelId(String modelId) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_keyOpenRouterFallbackModelId, modelId);
   }
 
   Future<void> saveAiFeatureConfigs(

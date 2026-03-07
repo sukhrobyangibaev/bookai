@@ -26,6 +26,7 @@ class ReaderSettings {
   final ReaderFontFamily fontFamily;
   final String openRouterApiKey;
   final String openRouterModelId;
+  final String openRouterFallbackModelId;
   final Map<String, AiFeatureConfig> aiFeatureConfigs;
 
   const ReaderSettings({
@@ -34,6 +35,7 @@ class ReaderSettings {
     this.fontFamily = ReaderFontFamily.system,
     this.openRouterApiKey = '',
     this.openRouterModelId = '',
+    this.openRouterFallbackModelId = '',
     this.aiFeatureConfigs = defaultAiFeatureConfigs,
   });
 
@@ -43,6 +45,7 @@ class ReaderSettings {
     fontFamily: ReaderFontFamily.system,
     openRouterApiKey: '',
     openRouterModelId: '',
+    openRouterFallbackModelId: '',
   );
 
   ReaderSettings copyWith({
@@ -51,6 +54,7 @@ class ReaderSettings {
     ReaderFontFamily? fontFamily,
     String? openRouterApiKey,
     String? openRouterModelId,
+    String? openRouterFallbackModelId,
     Map<String, AiFeatureConfig>? aiFeatureConfigs,
   }) {
     return ReaderSettings(
@@ -59,6 +63,8 @@ class ReaderSettings {
       fontFamily: fontFamily ?? this.fontFamily,
       openRouterApiKey: openRouterApiKey ?? this.openRouterApiKey,
       openRouterModelId: openRouterModelId ?? this.openRouterModelId,
+      openRouterFallbackModelId:
+          openRouterFallbackModelId ?? this.openRouterFallbackModelId,
       aiFeatureConfigs: aiFeatureConfigs ?? this.aiFeatureConfigs,
     );
   }
@@ -70,6 +76,7 @@ class ReaderSettings {
       'fontFamily': fontFamily.name,
       'openRouterApiKey': openRouterApiKey,
       'openRouterModelId': openRouterModelId,
+      'openRouterFallbackModelId': openRouterFallbackModelId,
       'aiFeatureConfigs':
           aiFeatureConfigs.map((key, value) => MapEntry(key, value.toMap())),
     };
@@ -93,6 +100,8 @@ class ReaderSettings {
       fontFamily: fontFamily,
       openRouterApiKey: map['openRouterApiKey'] as String? ?? '',
       openRouterModelId: map['openRouterModelId'] as String? ?? '',
+      openRouterFallbackModelId:
+          map['openRouterFallbackModelId'] as String? ?? '',
       aiFeatureConfigs: _parseAiFeatureConfigs(map['aiFeatureConfigs']),
     );
   }
@@ -138,6 +147,7 @@ class ReaderSettings {
         'fontFamily: $fontFamily, '
         'openRouterApiKey: ${openRouterApiKey.isEmpty ? '<empty>' : '<redacted>'}, '
         'openRouterModelId: $openRouterModelId, '
+        'openRouterFallbackModelId: $openRouterFallbackModelId, '
         'aiFeatureConfigs: ${aiFeatureConfigs.length})';
   }
 
@@ -150,6 +160,7 @@ class ReaderSettings {
         other.fontFamily == fontFamily &&
         other.openRouterApiKey == openRouterApiKey &&
         other.openRouterModelId == openRouterModelId &&
+        other.openRouterFallbackModelId == openRouterFallbackModelId &&
         _configsEqual(other.aiFeatureConfigs, aiFeatureConfigs);
   }
 
@@ -160,6 +171,7 @@ class ReaderSettings {
         fontFamily,
         openRouterApiKey,
         openRouterModelId,
+        openRouterFallbackModelId,
         Object.hashAllUnordered(
           aiFeatureConfigs.entries.map(
             (entry) => Object.hash(entry.key, entry.value),

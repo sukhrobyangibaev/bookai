@@ -90,6 +90,7 @@ void main() {
       expect(find.text('Define & Translate'), findsOneWidget);
       expect(find.text('Definition: vague\nTranslation: neyasny'), findsOne);
       expect(find.text('Copy'), findsOneWidget);
+      expect(find.text('Regenerate with Fallback'), findsOneWidget);
       expect(find.byType(ModalBarrier), findsWidgets);
     });
 
@@ -123,6 +124,7 @@ void main() {
       );
       expect(find.text('Define & Translate'), findsOneWidget);
       expect(find.text('Network failed.'), findsOneWidget);
+      expect(find.text('Regenerate with Fallback'), findsOneWidget);
       expect(find.text('Copy'), findsNothing);
     });
 
@@ -191,6 +193,133 @@ void main() {
         contains('Context sentence:\nThe hero felt nebulous about the plan.'),
       );
     });
+
+    testWidgets(
+        'regenerate with fallback reruns define and translate with same prompt',
+        (tester) async {
+      final firstResult = Completer<String>();
+      final secondResult = Completer<String>();
+      var callIndex = 0;
+      final openRouter = _FakeOpenRouterService(
+        generateTextHandler: ({
+          required apiKey,
+          required modelId,
+          required prompt,
+          temperature,
+        }) {
+          final result =
+              callIndex == 0 ? firstResult.future : secondResult.future;
+          callIndex += 1;
+          return result;
+        },
+      );
+
+      await _pumpReaderScreen(
+        tester,
+        openRouterService: openRouter,
+      );
+
+      await _startDefineAndTranslate(tester);
+      firstResult.complete('Definition: vague\nTranslation: neyasny');
+
+      await tester.pump();
+      await tester.pumpAndSettle();
+
+      final firstCall = openRouter.generateTextCalls.single;
+      await tester.tap(find.text('Regenerate with Fallback'));
+      await tester.pump();
+
+      expect(openRouter.generateTextCallCount, 2);
+      expect(openRouter.generateTextCalls[1].prompt, firstCall.prompt);
+      expect(
+        openRouter.generateTextCalls[1].modelId,
+        'anthropic/claude-3.7-sonnet',
+      );
+
+      secondResult.complete('Definition: vague\nTranslation: neyasny 2');
+      await tester.pump();
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets(
+        'regenerate with fallback reruns simplify text with same prompt',
+        (tester) async {
+      final firstResult = Completer<String>();
+      final secondResult = Completer<String>();
+      var callIndex = 0;
+      final openRouter = _FakeOpenRouterService(
+        generateTextHandler: ({
+          required apiKey,
+          required modelId,
+          required prompt,
+          temperature,
+        }) {
+          final result =
+              callIndex == 0 ? firstResult.future : secondResult.future;
+          callIndex += 1;
+          return result;
+        },
+      );
+
+      await _pumpReaderScreen(
+        tester,
+        openRouterService: openRouter,
+      );
+
+      await _startSimplifyText(tester);
+      firstResult.complete('Simplified text.');
+
+      await tester.pump();
+      await tester.pumpAndSettle();
+
+      final firstCall = openRouter.generateTextCalls.single;
+      await tester.tap(find.text('Regenerate with Fallback'));
+      await tester.pump();
+
+      expect(openRouter.generateTextCallCount, 2);
+      expect(openRouter.generateTextCalls[1].prompt, firstCall.prompt);
+      expect(
+        openRouter.generateTextCalls[1].modelId,
+        'anthropic/claude-3.7-sonnet',
+      );
+
+      secondResult.complete('Simplified text again.');
+      await tester.pump();
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets(
+        'shows snackbar instead of retrying when fallback model is not configured',
+        (tester) async {
+      final openRouter = _FakeOpenRouterService(
+        generateTextHandler: ({
+          required apiKey,
+          required modelId,
+          required prompt,
+          temperature,
+        }) async =>
+            'Definition: vague\nTranslation: neyasny',
+      );
+
+      await _pumpReaderScreen(
+        tester,
+        openRouterService: openRouter,
+        fallbackModelId: '',
+      );
+
+      await _startDefineAndTranslate(tester);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Regenerate with Fallback'));
+      await tester.pump();
+
+      expect(openRouter.generateTextCallCount, 1);
+      expect(
+        find.text('Select a fallback AI model in Settings first.'),
+        findsOneWidget,
+      );
+      await tester.pump(const Duration(seconds: 2));
+    });
   });
 }
 
@@ -198,10 +327,12 @@ Future<void> _pumpReaderScreen(
   WidgetTester tester, {
   required OpenRouterService openRouterService,
   ResumeSummaryService? resumeSummaryService,
+  String fallbackModelId = 'anthropic/claude-3.7-sonnet',
 }) async {
   SharedPreferences.setMockInitialValues({
     'reader_openrouter_api_key': 'test-key',
     'reader_openrouter_model_id': 'openai/gpt-4o-mini',
+    'reader_openrouter_fallback_model_id': fallbackModelId,
   });
 
   final controller = SettingsController();
@@ -252,6 +383,14 @@ Future<void> _startDefineAndTranslate(WidgetTester tester) async {
   await tester.pump();
 }
 
+Future<void> _startSimplifyText(WidgetTester tester) async {
+  await tester.longPress(find.byType(SelectableText).first);
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 200));
+  await tester.tap(find.text('Simplify Text'));
+  await tester.pump();
+}
+
 typedef _GenerateTextHandler = Future<String> Function({
   required String apiKey,
   required String modelId,
@@ -262,6 +401,7 @@ typedef _GenerateTextHandler = Future<String> Function({
 class _FakeOpenRouterService extends OpenRouterService {
   final _GenerateTextHandler generateTextHandler;
   int generateTextCallCount = 0;
+  final List<_GenerateTextCall> generateTextCalls = [];
   String? lastPrompt;
 
   _FakeOpenRouterService({
@@ -276,6 +416,13 @@ class _FakeOpenRouterService extends OpenRouterService {
     double? temperature,
   }) {
     generateTextCallCount += 1;
+    generateTextCalls.add(
+      _GenerateTextCall(
+        apiKey: apiKey,
+        modelId: modelId,
+        prompt: prompt,
+      ),
+    );
     lastPrompt = prompt;
     return generateTextHandler(
       apiKey: apiKey,
@@ -284,6 +431,18 @@ class _FakeOpenRouterService extends OpenRouterService {
       temperature: temperature,
     );
   }
+}
+
+class _GenerateTextCall {
+  final String apiKey;
+  final String modelId;
+  final String prompt;
+
+  const _GenerateTextCall({
+    required this.apiKey,
+    required this.modelId,
+    required this.prompt,
+  });
 }
 
 class _SpyResumeSummaryService extends ResumeSummaryService {

@@ -57,6 +57,7 @@ void main() {
       SharedPreferences.setMockInitialValues({
         'reader_openrouter_api_key': 'stored-key',
         'reader_openrouter_model_id': 'openai/gpt-4o-mini',
+        'reader_openrouter_fallback_model_id': 'openai/gpt-4.1-mini',
       });
 
       final controller = SettingsController();
@@ -72,7 +73,9 @@ void main() {
 
       expect(find.text('AI'), findsOneWidget);
       expect(find.text('OpenRouter API Key'), findsOneWidget);
+      expect(find.text('Fallback Model'), findsOneWidget);
       expect(find.text('openai/gpt-4o-mini'), findsOneWidget);
+      expect(find.text('openai/gpt-4.1-mini'), findsOneWidget);
       expect(find.text('Resume Here and Catch Me Up'), findsOneWidget);
       expect(find.text('Simplify Text'), findsOneWidget);
       expect(find.text('Define & Translate'), findsOneWidget);

@@ -11,6 +11,7 @@ void main() {
       expect(ReaderSettings.defaults.fontFamily, ReaderFontFamily.system);
       expect(ReaderSettings.defaults.openRouterApiKey, '');
       expect(ReaderSettings.defaults.openRouterModelId, '');
+      expect(ReaderSettings.defaults.openRouterFallbackModelId, '');
       expect(
         ReaderSettings.defaults.aiFeatureConfigs[AiFeatureIds.resumeSummary],
         const AiFeatureConfig(
@@ -38,6 +39,7 @@ void main() {
         themeMode: AppThemeMode.dark,
         openRouterApiKey: 'test-key',
         openRouterModelId: 'openai/gpt-4o-mini',
+        openRouterFallbackModelId: 'anthropic/claude-3.7-sonnet',
       );
 
       final map = settings.toMap();
@@ -47,6 +49,10 @@ void main() {
       expect(map['fontFamily'], 'system');
       expect(map['openRouterApiKey'], 'test-key');
       expect(map['openRouterModelId'], 'openai/gpt-4o-mini');
+      expect(
+        map['openRouterFallbackModelId'],
+        'anthropic/claude-3.7-sonnet',
+      );
       expect(
         map['aiFeatureConfigs'][AiFeatureIds.resumeSummary]['promptTemplate'],
         defaultResumeSummaryPromptTemplate,
@@ -80,6 +86,7 @@ void main() {
         'fontFamily': 'bitter',
         'openRouterApiKey': 'abc123',
         'openRouterModelId': 'anthropic/claude-3.5-sonnet',
+        'openRouterFallbackModelId': 'openai/gpt-4.1-mini',
         'aiFeatureConfigs': {
           AiFeatureIds.resumeSummary: {
             'modelIdOverride': 'openai/gpt-4.1-mini',
@@ -95,6 +102,7 @@ void main() {
       expect(settings.fontFamily, ReaderFontFamily.bitter);
       expect(settings.openRouterApiKey, 'abc123');
       expect(settings.openRouterModelId, 'anthropic/claude-3.5-sonnet');
+      expect(settings.openRouterFallbackModelId, 'openai/gpt-4.1-mini');
       expect(
         settings.aiFeatureConfigs[AiFeatureIds.resumeSummary],
         const AiFeatureConfig(
@@ -202,6 +210,7 @@ void main() {
       expect(settings.fontFamily, ReaderFontFamily.system);
       expect(settings.openRouterApiKey, '');
       expect(settings.openRouterModelId, '');
+      expect(settings.openRouterFallbackModelId, '');
       expect(
         settings.aiFeatureConfigs[AiFeatureIds.resumeSummary],
         const AiFeatureConfig(
@@ -229,6 +238,7 @@ void main() {
         fontFamily: ReaderFontFamily.literata,
         openRouterApiKey: 'my-key',
         openRouterModelId: 'openai/gpt-4.1-mini',
+        openRouterFallbackModelId: 'anthropic/claude-3.7-sonnet',
       );
 
       final restored = ReaderSettings.fromMap(original.toMap());
@@ -242,6 +252,7 @@ void main() {
         themeMode: AppThemeMode.light,
         openRouterApiKey: 'k1',
         openRouterModelId: 'm1',
+        openRouterFallbackModelId: 'fallback-1',
       );
 
       final modified = original.copyWith(themeMode: AppThemeMode.dark);
@@ -251,6 +262,7 @@ void main() {
       expect(modified.fontFamily, ReaderFontFamily.system);
       expect(modified.openRouterApiKey, 'k1');
       expect(modified.openRouterModelId, 'm1');
+      expect(modified.openRouterFallbackModelId, 'fallback-1');
       expect(
         modified.aiFeatureConfigs,
         original.aiFeatureConfigs,
@@ -308,18 +320,21 @@ void main() {
         themeMode: AppThemeMode.light,
         openRouterApiKey: 'key',
         openRouterModelId: 'model',
+        openRouterFallbackModelId: 'fallback',
       );
       const b = ReaderSettings(
         fontSize: 18.0,
         themeMode: AppThemeMode.light,
         openRouterApiKey: 'key',
         openRouterModelId: 'model',
+        openRouterFallbackModelId: 'fallback',
       );
       const c = ReaderSettings(
         fontSize: 20.0,
         themeMode: AppThemeMode.light,
         openRouterApiKey: 'key',
         openRouterModelId: 'model',
+        openRouterFallbackModelId: 'fallback',
       );
 
       expect(a, equals(b));
