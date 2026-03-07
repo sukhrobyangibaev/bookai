@@ -332,14 +332,6 @@ class _ReaderScreenState extends State<ReaderScreen> {
     await _runAiResumeRangeFeature(
       editableTextState: editableTextState,
       featureId: AiFeatureIds.resumeSummary,
-      title: 'Summary',
-      loadingText: 'Generating summary...',
-      emptyMessage: 'Model returned an empty summary.',
-      copiedMessage: 'Summary copied',
-      invalidRangeMessage:
-          'Unable to build a summary range for this selection.',
-      invalidPromptMessage:
-          'Catch-up prompt must include the {source_text} placeholder.',
     );
   }
 
@@ -349,28 +341,17 @@ class _ReaderScreenState extends State<ReaderScreen> {
     await _runAiResumeRangeFeature(
       editableTextState: editableTextState,
       featureId: AiFeatureIds.simplifyText,
-      title: simplifyTextFeature.title,
-      loadingText: 'Rewriting text...',
-      emptyMessage: 'Model returned an empty rewrite.',
-      copiedMessage: 'Rewrite copied',
-      invalidRangeMessage: 'Unable to build a text range for this selection.',
-      invalidPromptMessage:
-          'Simplify Text prompt must include the {source_text} placeholder.',
     );
   }
 
   Future<void> _runAiResumeRangeFeature({
     required EditableTextState editableTextState,
     required String featureId,
-    required String title,
-    required String loadingText,
-    required String emptyMessage,
-    required String copiedMessage,
-    required String invalidRangeMessage,
-    required String invalidPromptMessage,
   }) async {
     final chapter = _currentChapter;
     if (chapter == null) return;
+    final featureSpec = _resumeRangeFeatureSpec(featureId);
+    if (featureSpec == null) return;
 
     final selection = editableTextState.textEditingValue.selection;
     final text = editableTextState.textEditingValue.text;
@@ -385,13 +366,61 @@ class _ReaderScreenState extends State<ReaderScreen> {
       _showAutoDismissSnackBar(
         SnackBar(
           content: Text(
-            invalidRangeMessage,
+            featureSpec.invalidRangeMessage,
           ),
           duration: const Duration(seconds: 2),
         ),
       );
       return;
     }
+
+    final requestSpec = _buildResumeRangeRequestSpec(
+      featureId: featureId,
+      summarySelection: summarySelection,
+    );
+    if (requestSpec == null) return;
+
+    await _startAiFeatureRequest(requestSpec);
+  }
+
+  _ResumeRangeAiFeatureSpec? _resumeRangeFeatureSpec(String featureId) {
+    return switch (featureId) {
+      AiFeatureIds.resumeSummary => const _ResumeRangeAiFeatureSpec(
+          featureId: AiFeatureIds.resumeSummary,
+          title: 'Summary',
+          loadingText: 'Generating summary...',
+          emptyMessage: 'Model returned an empty summary.',
+          copiedMessage: 'Summary copied',
+          invalidRangeMessage:
+              'Unable to build a summary range for this selection.',
+          invalidPromptMessage:
+              'Catch-up prompt must include the {source_text} placeholder.',
+          switchTargetFeatureId: AiFeatureIds.simplifyText,
+          switchButtonLabel: 'Simplify Text',
+        ),
+      AiFeatureIds.simplifyText => const _ResumeRangeAiFeatureSpec(
+          featureId: AiFeatureIds.simplifyText,
+          title: 'Simplify Text',
+          loadingText: 'Rewriting text...',
+          emptyMessage: 'Model returned an empty rewrite.',
+          copiedMessage: 'Rewrite copied',
+          invalidRangeMessage:
+              'Unable to build a text range for this selection.',
+          invalidPromptMessage:
+              'Simplify Text prompt must include the {source_text} placeholder.',
+          switchTargetFeatureId: AiFeatureIds.resumeSummary,
+          switchButtonLabel: 'Summary',
+        ),
+      _ => null,
+    };
+  }
+
+  _AiRequestSpec? _buildResumeRangeRequestSpec({
+    required String featureId,
+    required _ResumeSummarySelection summarySelection,
+  }) {
+    final featureSpec = _resumeRangeFeatureSpec(featureId);
+    if (featureSpec == null) return null;
 
     final settings = SettingsControllerScope.of(context);
     final apiKey = settings.openRouterApiKey.trim();
@@ -402,7 +431,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
           duration: Duration(seconds: 2),
         ),
       );
-      return;
+      return null;
     }
 
     final modelId = settings.effectiveModelIdForFeature(featureId);
@@ -413,7 +442,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
           duration: Duration(seconds: 2),
         ),
       );
-      return;
+      return null;
     }
 
     final featureConfig = settings.aiFeatureConfig(featureId);
@@ -422,12 +451,12 @@ class _ReaderScreenState extends State<ReaderScreen> {
       _showAutoDismissSnackBar(
         SnackBar(
           content: Text(
-            invalidPromptMessage,
+            featureSpec.invalidPromptMessage,
           ),
           duration: const Duration(seconds: 2),
         ),
       );
-      return;
+      return null;
     }
 
     final prompt = _resumeSummaryService.renderPromptTemplate(
@@ -437,21 +466,21 @@ class _ReaderScreenState extends State<ReaderScreen> {
       bookAuthor: widget.book.author,
       chapterTitle: summarySelection.chapterTitle,
     );
-    await _startAiFeatureRequest(
-      _AiRequestSpec(
-        apiKey: apiKey,
-        modelId: modelId,
-        prompt: prompt,
-        title: title,
-        loadingText: loadingText,
-        emptyMessage: emptyMessage,
-        copiedMessage: copiedMessage,
-        onSuccess: () => _saveResumeMarker(
-          selectedText: summarySelection.selectedText,
-          selectionStart: summarySelection.selectionStart,
-          selectionEnd: summarySelection.selectionEnd,
-        ),
+    return _AiRequestSpec(
+      apiKey: apiKey,
+      modelId: modelId,
+      prompt: prompt,
+      title: featureSpec.title,
+      loadingText: featureSpec.loadingText,
+      emptyMessage: featureSpec.emptyMessage,
+      copiedMessage: featureSpec.copiedMessage,
+      onSuccess: () => _saveResumeMarker(
+        selectedText: summarySelection.selectedText,
+        selectionStart: summarySelection.selectionStart,
+        selectionEnd: summarySelection.selectionEnd,
       ),
+      featureId: featureSpec.featureId,
+      resumeRangeSelection: summarySelection,
     );
   }
 
@@ -668,19 +697,49 @@ class _ReaderScreenState extends State<ReaderScreen> {
       title: request.requestSpec.title,
       emptyMessage: request.requestSpec.emptyMessage,
       copiedMessage: request.requestSpec.copiedMessage,
+      switchFeatureLabel: _switchFeatureLabelForRequest(request.requestSpec),
       result: result,
       error: error,
     );
     if (!mounted) return;
     if (action == _AiResultSheetAction.regenerateWithFallback) {
       await _regenerateAiRequestWithFallback(request.requestSpec);
+    } else if (action == _AiResultSheetAction.switchFeature) {
+      await _switchResumeRangeFeature(request.requestSpec);
     }
+  }
+
+  String? _switchFeatureLabelForRequest(_AiRequestSpec requestSpec) {
+    final featureId = requestSpec.featureId;
+    if (featureId == null || requestSpec.resumeRangeSelection == null) {
+      return null;
+    }
+
+    return _resumeRangeFeatureSpec(featureId)?.switchButtonLabel;
+  }
+
+  Future<void> _switchResumeRangeFeature(_AiRequestSpec requestSpec) async {
+    final featureId = requestSpec.featureId;
+    final summarySelection = requestSpec.resumeRangeSelection;
+    if (featureId == null || summarySelection == null) return;
+
+    final featureSpec = _resumeRangeFeatureSpec(featureId);
+    if (featureSpec == null) return;
+
+    final switchedRequestSpec = _buildResumeRangeRequestSpec(
+      featureId: featureSpec.switchTargetFeatureId,
+      summarySelection: summarySelection,
+    );
+    if (switchedRequestSpec == null) return;
+
+    await _startAiFeatureRequest(switchedRequestSpec);
   }
 
   Future<_AiResultSheetAction?> _showAiCompletedResultSheet({
     required String title,
     required String emptyMessage,
     required String copiedMessage,
+    String? switchFeatureLabel,
     String? result,
     Object? error,
   }) async {
@@ -723,8 +782,14 @@ class _ReaderScreenState extends State<ReaderScreen> {
               title: title,
               emptyMessage: emptyMessage,
               copiedMessage: copiedMessage,
+              onSwitchFeature: switchFeatureLabel == null
+                  ? null
+                  : () => Navigator.of(sheetContext).pop(
+                        _AiResultSheetAction.switchFeature,
+                      ),
               resultTextStyle: resultTextStyle,
               onRegenerateWithFallback: regenerateWithFallback,
+              switchFeatureLabel: switchFeatureLabel,
               result: result,
               error: error,
             ),
@@ -741,6 +806,8 @@ class _ReaderScreenState extends State<ReaderScreen> {
     required String copiedMessage,
     required TextStyle resultTextStyle,
     required VoidCallback onRegenerateWithFallback,
+    required String? switchFeatureLabel,
+    VoidCallback? onSwitchFeature,
     String? result,
     Object? error,
   }) {
@@ -789,8 +856,10 @@ class _ReaderScreenState extends State<ReaderScreen> {
         const SizedBox(height: 12),
         Align(
           alignment: Alignment.centerRight,
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
+          child: Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            alignment: WrapAlignment.end,
             children: [
               IconButton(
                 onPressed: () async {
@@ -813,6 +882,12 @@ class _ReaderScreenState extends State<ReaderScreen> {
                 tooltip: 'Regenerate with Fallback',
                 icon: const Icon(Icons.refresh),
               ),
+              if (onSwitchFeature != null && switchFeatureLabel != null)
+                IconButton(
+                  onPressed: onSwitchFeature,
+                  tooltip: switchFeatureLabel,
+                  icon: const Icon(Icons.swap_horiz),
+                ),
             ],
           ),
         ),
@@ -1563,6 +1638,30 @@ class _ResumeSummarySelection {
   });
 }
 
+class _ResumeRangeAiFeatureSpec {
+  final String featureId;
+  final String title;
+  final String loadingText;
+  final String emptyMessage;
+  final String copiedMessage;
+  final String invalidRangeMessage;
+  final String invalidPromptMessage;
+  final String switchTargetFeatureId;
+  final String switchButtonLabel;
+
+  const _ResumeRangeAiFeatureSpec({
+    required this.featureId,
+    required this.title,
+    required this.loadingText,
+    required this.emptyMessage,
+    required this.copiedMessage,
+    required this.invalidRangeMessage,
+    required this.invalidPromptMessage,
+    required this.switchTargetFeatureId,
+    required this.switchButtonLabel,
+  });
+}
+
 class _ActiveAiRequest {
   final int token;
   final Future<String> generationFuture;
@@ -1583,6 +1682,8 @@ class _AiRequestSpec {
   final String loadingText;
   final String emptyMessage;
   final String copiedMessage;
+  final String? featureId;
+  final _ResumeSummarySelection? resumeRangeSelection;
   final Future<void> Function()? onSuccess;
 
   const _AiRequestSpec({
@@ -1593,6 +1694,8 @@ class _AiRequestSpec {
     required this.loadingText,
     required this.emptyMessage,
     required this.copiedMessage,
+    this.featureId,
+    this.resumeRangeSelection,
     this.onSuccess,
   });
 
@@ -1604,6 +1707,8 @@ class _AiRequestSpec {
     String? loadingText,
     String? emptyMessage,
     String? copiedMessage,
+    String? featureId,
+    _ResumeSummarySelection? resumeRangeSelection,
     Future<void> Function()? onSuccess,
   }) {
     return _AiRequestSpec(
@@ -1614,6 +1719,8 @@ class _AiRequestSpec {
       loadingText: loadingText ?? this.loadingText,
       emptyMessage: emptyMessage ?? this.emptyMessage,
       copiedMessage: copiedMessage ?? this.copiedMessage,
+      featureId: featureId ?? this.featureId,
+      resumeRangeSelection: resumeRangeSelection ?? this.resumeRangeSelection,
       onSuccess: onSuccess ?? this.onSuccess,
     );
   }
@@ -1621,6 +1728,7 @@ class _AiRequestSpec {
 
 enum _AiResultSheetAction {
   regenerateWithFallback,
+  switchFeature,
 }
 
 class _AiLoadingSheet extends StatelessWidget {

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:bookai/app.dart';
 import 'package:bookai/models/book.dart';
+import 'package:bookai/models/ai_feature.dart';
 import 'package:bookai/models/chapter.dart';
 import 'package:bookai/screens/reader_screen.dart';
 import 'package:bookai/services/chapter_loader_service.dart';
@@ -91,10 +92,65 @@ void main() {
       expect(find.text('Definition: vague\nTranslation: neyasny'), findsOne);
       expect(find.byTooltip('Copy'), findsOneWidget);
       expect(find.byTooltip('Regenerate with Fallback'), findsOneWidget);
+      expect(find.byTooltip('Summary'), findsNothing);
+      expect(find.byTooltip('Simplify Text'), findsNothing);
       expect(find.text('Copy'), findsNothing);
       expect(find.text('Regenerate with Fallback'), findsNothing);
       expect(find.text('Close'), findsNothing);
       expect(find.byType(ModalBarrier), findsWidgets);
+    });
+
+    testWidgets('summary result sheet shows switch action for simplify text',
+        (tester) async {
+      final openRouter = _FakeOpenRouterService(
+        generateTextHandler: ({
+          required apiKey,
+          required modelId,
+          required prompt,
+          temperature,
+        }) async =>
+            'Catch-up summary.',
+      );
+
+      await _pumpReaderScreen(
+        tester,
+        openRouterService: openRouter,
+      );
+
+      await _startCatchMeUp(tester);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Summary'), findsOneWidget);
+      expect(find.text('Catch-up summary.'), findsOneWidget);
+      expect(find.byTooltip('Copy'), findsOneWidget);
+      expect(find.byTooltip('Regenerate with Fallback'), findsOneWidget);
+      expect(find.byTooltip('Simplify Text'), findsOneWidget);
+    });
+
+    testWidgets('simplify text result sheet shows switch action for summary',
+        (tester) async {
+      final openRouter = _FakeOpenRouterService(
+        generateTextHandler: ({
+          required apiKey,
+          required modelId,
+          required prompt,
+          temperature,
+        }) async =>
+            'Simplified text.',
+      );
+
+      await _pumpReaderScreen(
+        tester,
+        openRouterService: openRouter,
+      );
+
+      await _startSimplifyText(tester);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Simplified text.'), findsOneWidget);
+      expect(find.byTooltip('Copy'), findsOneWidget);
+      expect(find.byTooltip('Regenerate with Fallback'), findsOneWidget);
+      expect(find.byTooltip('Summary'), findsOneWidget);
     });
 
     testWidgets('opens the result sheet in error state when AI fails',
@@ -293,6 +349,108 @@ void main() {
     });
 
     testWidgets(
+        'switching from summary reruns simplify text with same source text',
+        (tester) async {
+      final firstResult = Completer<String>();
+      final secondResult = Completer<String>();
+      final spyResumeSummaryService = _SpyResumeSummaryService();
+      var callIndex = 0;
+      final openRouter = _FakeOpenRouterService(
+        generateTextHandler: ({
+          required apiKey,
+          required modelId,
+          required prompt,
+          temperature,
+        }) {
+          final result =
+              callIndex == 0 ? firstResult.future : secondResult.future;
+          callIndex += 1;
+          return result;
+        },
+      );
+
+      await _pumpReaderScreen(
+        tester,
+        openRouterService: openRouter,
+        resumeSummaryService: spyResumeSummaryService,
+      );
+
+      await _startCatchMeUp(tester);
+      firstResult.complete('Catch-up summary.');
+
+      await tester.pump();
+      await tester.pumpAndSettle();
+
+      expect(spyResumeSummaryService.renderCalls, hasLength(1));
+      final firstRender = spyResumeSummaryService.renderCalls.first;
+
+      await tester.tap(find.byTooltip('Simplify Text'));
+      await tester.pump();
+
+      expect(openRouter.generateTextCallCount, 2);
+      expect(spyResumeSummaryService.renderCalls, hasLength(2));
+      final secondRender = spyResumeSummaryService.renderCalls[1];
+      expect(firstRender.sourceText, secondRender.sourceText);
+      expect(firstRender.promptTemplate, defaultResumeSummaryPromptTemplate);
+      expect(secondRender.promptTemplate, defaultSimplifyTextPromptTemplate);
+
+      secondResult.complete('Simplified text.');
+      await tester.pump();
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets(
+        'switching from simplify text reruns summary with same source text',
+        (tester) async {
+      final firstResult = Completer<String>();
+      final secondResult = Completer<String>();
+      final spyResumeSummaryService = _SpyResumeSummaryService();
+      var callIndex = 0;
+      final openRouter = _FakeOpenRouterService(
+        generateTextHandler: ({
+          required apiKey,
+          required modelId,
+          required prompt,
+          temperature,
+        }) {
+          final result =
+              callIndex == 0 ? firstResult.future : secondResult.future;
+          callIndex += 1;
+          return result;
+        },
+      );
+
+      await _pumpReaderScreen(
+        tester,
+        openRouterService: openRouter,
+        resumeSummaryService: spyResumeSummaryService,
+      );
+
+      await _startSimplifyText(tester);
+      firstResult.complete('Simplified text.');
+
+      await tester.pump();
+      await tester.pumpAndSettle();
+
+      expect(spyResumeSummaryService.renderCalls, hasLength(1));
+      final firstRender = spyResumeSummaryService.renderCalls.first;
+
+      await tester.tap(find.byTooltip('Summary'));
+      await tester.pump();
+
+      expect(openRouter.generateTextCallCount, 2);
+      expect(spyResumeSummaryService.renderCalls, hasLength(2));
+      final secondRender = spyResumeSummaryService.renderCalls[1];
+      expect(firstRender.sourceText, secondRender.sourceText);
+      expect(firstRender.promptTemplate, defaultSimplifyTextPromptTemplate);
+      expect(secondRender.promptTemplate, defaultResumeSummaryPromptTemplate);
+
+      secondResult.complete('Catch-up summary.');
+      await tester.pump();
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets(
         'shows snackbar instead of retrying when fallback model is not configured',
         (tester) async {
       final openRouter = _FakeOpenRouterService(
@@ -387,6 +545,14 @@ Future<void> _startDefineAndTranslate(WidgetTester tester) async {
   await tester.pump();
 }
 
+Future<void> _startCatchMeUp(WidgetTester tester) async {
+  await tester.longPress(find.byType(SelectableText).first);
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 200));
+  await tester.tap(find.text('Catch Me Up'));
+  await tester.pump();
+}
+
 Future<void> _startSimplifyText(WidgetTester tester) async {
   await tester.longPress(find.byType(SelectableText).first);
   await tester.pump();
@@ -452,6 +618,7 @@ class _GenerateTextCall {
 class _SpyResumeSummaryService extends ResumeSummaryService {
   String? lastSourceText;
   String? lastContextSentence;
+  final List<_RenderPromptCall> renderCalls = [];
 
   @override
   String extractContextSentence({
@@ -473,6 +640,13 @@ class _SpyResumeSummaryService extends ResumeSummaryService {
   }) {
     lastSourceText = sourceText;
     lastContextSentence = contextSentence;
+    renderCalls.add(
+      _RenderPromptCall(
+        promptTemplate: promptTemplate,
+        sourceText: sourceText,
+        contextSentence: contextSentence,
+      ),
+    );
     return super.renderPromptTemplate(
       promptTemplate: promptTemplate,
       sourceText: sourceText,
@@ -482,4 +656,16 @@ class _SpyResumeSummaryService extends ResumeSummaryService {
       contextSentence: contextSentence,
     );
   }
+}
+
+class _RenderPromptCall {
+  final String promptTemplate;
+  final String sourceText;
+  final String contextSentence;
+
+  const _RenderPromptCall({
+    required this.promptTemplate,
+    required this.sourceText,
+    required this.contextSentence,
+  });
 }
