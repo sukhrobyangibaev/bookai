@@ -100,6 +100,37 @@ void main() {
       expect(find.byType(ModalBarrier), findsWidgets);
     });
 
+    testWidgets('AI result sheet text is justified like the main reader',
+        (tester) async {
+      final openRouter = _FakeOpenRouterService(
+        generateTextHandler: ({
+          required apiKey,
+          required modelId,
+          required prompt,
+          temperature,
+        }) async =>
+            'Definition: vague\nTranslation: neyasny',
+      );
+
+      await _pumpReaderScreen(
+        tester,
+        openRouterService: openRouter,
+      );
+
+      await _startDefineAndTranslate(tester);
+      await tester.pumpAndSettle();
+
+      final resultText = tester.widget<SelectableText>(
+        find.byWidgetPredicate(
+          (widget) =>
+              widget is SelectableText &&
+              widget.data == 'Definition: vague\nTranslation: neyasny',
+        ),
+      );
+
+      expect(resultText.textAlign, TextAlign.justify);
+    });
+
     testWidgets('summary result sheet shows switch action for simplify text',
         (tester) async {
       final openRouter = _FakeOpenRouterService(

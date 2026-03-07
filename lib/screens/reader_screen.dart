@@ -843,6 +843,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
           child: SingleChildScrollView(
             child: SelectableText(
               trimmedResult,
+              textAlign: TextAlign.justify,
               style: resultTextStyle,
               contextMenuBuilder: (context, editableTextState) {
                 return _buildDefaultSelectionToolbar(
