@@ -130,6 +130,26 @@ void main() {
       expect(resultText.textAlign, TextAlign.justify);
     });
 
+    testWidgets('shows a scrollbar for the chapter content on Android',
+        (tester) async {
+      final openRouter = _FakeOpenRouterService(
+        generateTextHandler: ({
+          required apiKey,
+          required modelId,
+          required prompt,
+          temperature,
+        }) async =>
+            'Definition: vague\nTranslation: neyasny',
+      );
+
+      await _pumpReaderScreen(
+        tester,
+        openRouterService: openRouter,
+      );
+
+      expect(find.byType(Scrollbar), findsOneWidget);
+    });
+
     testWidgets('summary result sheet shows switch action for simplify text',
         (tester) async {
       final openRouter = _FakeOpenRouterService(

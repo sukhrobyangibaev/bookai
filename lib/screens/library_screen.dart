@@ -4,6 +4,7 @@ import '../models/book.dart';
 import '../models/reading_progress.dart';
 import '../services/database_service.dart';
 import '../services/library_service.dart';
+import '../widgets/mobile_scrollbar.dart';
 import 'reader_screen.dart';
 import 'settings_screen.dart';
 
@@ -17,6 +18,7 @@ class LibraryScreen extends StatefulWidget {
 class _LibraryScreenState extends State<LibraryScreen> {
   final _library = LibraryService.instance;
   final _db = DatabaseService.instance;
+  final _scrollController = ScrollController();
 
   List<Book> _books = [];
 
@@ -29,6 +31,12 @@ class _LibraryScreenState extends State<LibraryScreen> {
   void initState() {
     super.initState();
     _loadBooks();
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadBooks() async {
@@ -182,20 +190,24 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
     return RefreshIndicator(
       onRefresh: _loadBooks,
-      child: ListView.separated(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
-        itemCount: _books.length,
-        separatorBuilder: (_, __) => const SizedBox(height: 8),
-        itemBuilder: (context, index) {
-          final book = _books[index];
-          final progress = book.id != null ? _progressMap[book.id!] : null;
-          return _BookCard(
-            book: book,
-            progress: progress,
-            onTap: () => _openReader(book),
-            onDelete: () => _deleteBook(book),
-          );
-        },
+      child: MobileScrollbar(
+        controller: _scrollController,
+        child: ListView.separated(
+          controller: _scrollController,
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
+          itemCount: _books.length,
+          separatorBuilder: (_, __) => const SizedBox(height: 8),
+          itemBuilder: (context, index) {
+            final book = _books[index];
+            final progress = book.id != null ? _progressMap[book.id!] : null;
+            return _BookCard(
+              book: book,
+              progress: progress,
+              onTap: () => _openReader(book),
+              onDelete: () => _deleteBook(book),
+            );
+          },
+        ),
       ),
     );
   }

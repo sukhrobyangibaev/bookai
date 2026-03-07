@@ -15,6 +15,7 @@ import '../services/database_service.dart';
 import '../services/openrouter_service.dart';
 import '../services/resume_summary_service.dart';
 import '../theme/reader_typography.dart';
+import '../widgets/mobile_scrollbar.dart';
 import '../widgets/reader_selection_toolbar.dart';
 
 /// Displays the content of a [Book] with chapter-by-chapter navigation.
@@ -843,17 +844,19 @@ class _ReaderScreenState extends State<ReaderScreen> {
         ),
         const SizedBox(height: 8),
         Expanded(
-          child: SingleChildScrollView(
-            child: SelectableText(
-              trimmedResult,
-              textAlign: TextAlign.justify,
-              style: resultTextStyle,
-              contextMenuBuilder: (context, editableTextState) {
-                return _buildDefaultSelectionToolbar(
-                  context,
-                  editableTextState,
-                );
-              },
+          child: MobileScrollbar(
+            child: SingleChildScrollView(
+              child: SelectableText(
+                trimmedResult,
+                textAlign: TextAlign.justify,
+                style: resultTextStyle,
+                contextMenuBuilder: (context, editableTextState) {
+                  return _buildDefaultSelectionToolbar(
+                    context,
+                    editableTextState,
+                  );
+                },
+              ),
             ),
           ),
         ),
@@ -1037,101 +1040,105 @@ class _ReaderScreenState extends State<ReaderScreen> {
                       )
                     else
                       Expanded(
-                        child: ListView.builder(
+                        child: MobileScrollbar(
                           controller: scrollController,
-                          itemCount: _highlights.length,
-                          itemBuilder: (context, index) {
-                            final hl = _highlights[index];
-                            final chapterTitle = _chapters != null &&
-                                    hl.chapterIndex >= 0 &&
-                                    hl.chapterIndex < _chapters!.length
-                                ? _chapters![hl.chapterIndex].title
-                                : 'Chapter ${hl.chapterIndex + 1}';
+                          child: ListView.builder(
+                            controller: scrollController,
+                            itemCount: _highlights.length,
+                            itemBuilder: (context, index) {
+                              final hl = _highlights[index];
+                              final chapterTitle = _chapters != null &&
+                                      hl.chapterIndex >= 0 &&
+                                      hl.chapterIndex < _chapters!.length
+                                  ? _chapters![hl.chapterIndex].title
+                                  : 'Chapter ${hl.chapterIndex + 1}';
 
-                            return Dismissible(
-                              key: ValueKey(hl.id),
-                              direction: DismissDirection.endToStart,
-                              background: Container(
-                                alignment: Alignment.centerRight,
-                                padding: const EdgeInsets.only(right: 20),
-                                color: Theme.of(context).colorScheme.error,
-                                child: Icon(
-                                  Icons.delete,
-                                  color: Theme.of(context).colorScheme.onError,
-                                ),
-                              ),
-                              onDismissed: (_) async {
-                                final removed = _highlights[index];
-                                setState(() {
-                                  _highlights.removeAt(index);
-                                });
-                                setSheetState(() {});
-                                if (removed.id != null) {
-                                  await _db.deleteHighlight(removed.id!);
-                                }
-                              },
-                              child: ListTile(
-                                leading: Container(
-                                  width: 4,
-                                  height: 40,
-                                  decoration: BoxDecoration(
-                                    color: Color(
-                                      int.parse(
-                                            hl.colorHex.replaceFirst('#', ''),
-                                            radix: 16,
-                                          ) |
-                                          0xFF000000,
-                                    ),
-                                    borderRadius: BorderRadius.circular(2),
-                                  ),
-                                ),
-                                title: Text(
-                                  '"${hl.selectedText}"',
-                                  maxLines: 3,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: Theme.of(context)
-                                      .textTheme
-                                      .bodyMedium
-                                      ?.copyWith(
-                                        fontStyle: FontStyle.italic,
-                                      ),
-                                ),
-                                subtitle: Text(
-                                  chapterTitle,
-                                  style: Theme.of(context)
-                                      .textTheme
-                                      .bodySmall
-                                      ?.copyWith(
-                                        color: Theme.of(context)
-                                            .colorScheme
-                                            .outline,
-                                      ),
-                                ),
-                                trailing: IconButton(
-                                  icon: Icon(
-                                    Icons.delete_outline,
-                                    size: 20,
+                              return Dismissible(
+                                key: ValueKey(hl.id),
+                                direction: DismissDirection.endToStart,
+                                background: Container(
+                                  alignment: Alignment.centerRight,
+                                  padding: const EdgeInsets.only(right: 20),
+                                  color: Theme.of(context).colorScheme.error,
+                                  child: Icon(
+                                    Icons.delete,
                                     color:
-                                        Theme.of(context).colorScheme.outline,
+                                        Theme.of(context).colorScheme.onError,
                                   ),
-                                  onPressed: () async {
-                                    final removed = _highlights[index];
-                                    setState(() {
-                                      _highlights.removeAt(index);
-                                    });
-                                    setSheetState(() {});
-                                    if (removed.id != null) {
-                                      await _db.deleteHighlight(removed.id!);
-                                    }
+                                ),
+                                onDismissed: (_) async {
+                                  final removed = _highlights[index];
+                                  setState(() {
+                                    _highlights.removeAt(index);
+                                  });
+                                  setSheetState(() {});
+                                  if (removed.id != null) {
+                                    await _db.deleteHighlight(removed.id!);
+                                  }
+                                },
+                                child: ListTile(
+                                  leading: Container(
+                                    width: 4,
+                                    height: 40,
+                                    decoration: BoxDecoration(
+                                      color: Color(
+                                        int.parse(
+                                              hl.colorHex.replaceFirst('#', ''),
+                                              radix: 16,
+                                            ) |
+                                            0xFF000000,
+                                      ),
+                                      borderRadius: BorderRadius.circular(2),
+                                    ),
+                                  ),
+                                  title: Text(
+                                    '"${hl.selectedText}"',
+                                    maxLines: 3,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodyMedium
+                                        ?.copyWith(
+                                          fontStyle: FontStyle.italic,
+                                        ),
+                                  ),
+                                  subtitle: Text(
+                                    chapterTitle,
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodySmall
+                                        ?.copyWith(
+                                          color: Theme.of(context)
+                                              .colorScheme
+                                              .outline,
+                                        ),
+                                  ),
+                                  trailing: IconButton(
+                                    icon: Icon(
+                                      Icons.delete_outline,
+                                      size: 20,
+                                      color:
+                                          Theme.of(context).colorScheme.outline,
+                                    ),
+                                    onPressed: () async {
+                                      final removed = _highlights[index];
+                                      setState(() {
+                                        _highlights.removeAt(index);
+                                      });
+                                      setSheetState(() {});
+                                      if (removed.id != null) {
+                                        await _db.deleteHighlight(removed.id!);
+                                      }
+                                    },
+                                  ),
+                                  onTap: () {
+                                    Navigator.of(context).pop();
+                                    _goToChapter(hl.chapterIndex);
                                   },
                                 ),
-                                onTap: () {
-                                  Navigator.of(context).pop();
-                                  _goToChapter(hl.chapterIndex);
-                                },
-                              ),
-                            );
-                          },
+                              );
+                            },
+                          ),
                         ),
                       ),
                   ],
@@ -1180,44 +1187,50 @@ class _ReaderScreenState extends State<ReaderScreen> {
                 ),
                 const Divider(height: 1),
                 Expanded(
-                  child: ListView.builder(
+                  child: MobileScrollbar(
                     controller: scrollController,
-                    itemCount: _chapters!.length,
-                    itemBuilder: (context, index) {
-                      final chapter = _chapters![index];
-                      final isCurrent = index == _currentIndex;
-                      return ListTile(
-                        leading: Text(
-                          '${index + 1}',
-                          style:
-                              Theme.of(context).textTheme.bodySmall?.copyWith(
-                                    color: isCurrent
-                                        ? Theme.of(context).colorScheme.primary
-                                        : Theme.of(context).colorScheme.outline,
-                                  ),
-                        ),
-                        title: Text(
-                          chapter.title,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: isCurrent
-                              ? TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  color: Theme.of(context).colorScheme.primary,
-                                )
-                              : null,
-                        ),
-                        selected: isCurrent,
-                        selectedTileColor: Theme.of(context)
-                            .colorScheme
-                            .primaryContainer
-                            .withAlpha(80),
-                        onTap: () {
-                          Navigator.of(context).pop();
-                          _goToChapter(index);
-                        },
-                      );
-                    },
+                    child: ListView.builder(
+                      controller: scrollController,
+                      itemCount: _chapters!.length,
+                      itemBuilder: (context, index) {
+                        final chapter = _chapters![index];
+                        final isCurrent = index == _currentIndex;
+                        return ListTile(
+                          leading: Text(
+                            '${index + 1}',
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodySmall
+                                ?.copyWith(
+                                  color: isCurrent
+                                      ? Theme.of(context).colorScheme.primary
+                                      : Theme.of(context).colorScheme.outline,
+                                ),
+                          ),
+                          title: Text(
+                            chapter.title,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: isCurrent
+                                ? TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    color:
+                                        Theme.of(context).colorScheme.primary,
+                                  )
+                                : null,
+                          ),
+                          selected: isCurrent,
+                          selectedTileColor: Theme.of(context)
+                              .colorScheme
+                              .primaryContainer
+                              .withAlpha(80),
+                          onTap: () {
+                            Navigator.of(context).pop();
+                            _goToChapter(index);
+                          },
+                        );
+                      },
+                    ),
                   ),
                 ),
               ],
@@ -1397,41 +1410,44 @@ class _ReaderScreenState extends State<ReaderScreen> {
       onHorizontalDragStart: _onHorizontalDragStart,
       onHorizontalDragEnd: _onHorizontalDragEnd,
       behavior: HitTestBehavior.translucent,
-      child: SingleChildScrollView(
+      child: MobileScrollbar(
         controller: _scrollController,
-        padding: EdgeInsets.fromLTRB(
-          20,
-          16,
-          20,
-          32 + (_activeAiRequest == null ? 0 : _aiLoadingSheetReservedSpace),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              chapter.title,
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-            ),
-            const SizedBox(height: 16),
-            SelectableText.rich(
-              _buildHighlightedText(
-                chapter.content,
-                currentHighlights,
-                currentResumeMarker,
+        child: SingleChildScrollView(
+          controller: _scrollController,
+          padding: EdgeInsets.fromLTRB(
+            20,
+            16,
+            20,
+            32 + (_activeAiRequest == null ? 0 : _aiLoadingSheetReservedSpace),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                chapter.title,
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
               ),
-              textAlign: TextAlign.justify,
-              style: buildReaderContentTextStyle(
-                context: context,
-                fontSize: settingsFontSize,
-                fontFamily: settingsFontFamily,
+              const SizedBox(height: 16),
+              SelectableText.rich(
+                _buildHighlightedText(
+                  chapter.content,
+                  currentHighlights,
+                  currentResumeMarker,
+                ),
+                textAlign: TextAlign.justify,
+                style: buildReaderContentTextStyle(
+                  context: context,
+                  fontSize: settingsFontSize,
+                  fontFamily: settingsFontFamily,
+                ),
+                contextMenuBuilder: (context, editableTextState) {
+                  return _buildSelectionToolbar(editableTextState);
+                },
               ),
-              contextMenuBuilder: (context, editableTextState) {
-                return _buildSelectionToolbar(editableTextState);
-              },
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

@@ -31,6 +31,7 @@ void main() {
       expect(find.text('Literata'), findsOneWidget);
       expect(find.text('Bitter'), findsOneWidget);
       expect(find.text('Atkinson Hyperlegible'), findsOneWidget);
+      expect(find.byType(Scrollbar), findsOneWidget);
     });
 
     testWidgets('selecting font updates controller value', (tester) async {

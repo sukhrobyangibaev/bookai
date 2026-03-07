@@ -8,6 +8,7 @@ import '../models/reader_settings.dart';
 import '../services/openrouter_service.dart';
 import '../services/settings_controller.dart';
 import '../theme/reader_typography.dart';
+import '../widgets/mobile_scrollbar.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -18,6 +19,7 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   late final TextEditingController _apiKeyController;
+  final ScrollController _scrollController = ScrollController();
   final OpenRouterService _openRouterService = OpenRouterService();
   bool _obscureApiKey = true;
   SettingsController? _controllerForSync;
@@ -45,6 +47,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void dispose() {
     _controllerForSync?.removeListener(_syncApiKeyField);
     _apiKeyController.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
@@ -261,17 +264,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
       body: ListenableBuilder(
         listenable: controller,
         builder: (context, _) {
-          return ListView(
-            padding: const EdgeInsets.symmetric(vertical: 16),
-            children: [
-              _buildFontSection(context, controller),
-              const Divider(height: 32),
-              _buildFontSizeSection(context, controller),
-              const Divider(height: 32),
-              _buildThemeSection(context, controller),
-              const Divider(height: 32),
-              _buildAiSection(context, controller),
-            ],
+          return MobileScrollbar(
+            controller: _scrollController,
+            child: ListView(
+              controller: _scrollController,
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              children: [
+                _buildFontSection(context, controller),
+                const Divider(height: 32),
+                _buildFontSizeSection(context, controller),
+                const Divider(height: 32),
+                _buildThemeSection(context, controller),
+                const Divider(height: 32),
+                _buildAiSection(context, controller),
+              ],
+            ),
           );
         },
       ),
@@ -547,12 +554,19 @@ class _OpenRouterModelPickerSheet extends StatefulWidget {
 class _OpenRouterModelPickerSheetState
     extends State<_OpenRouterModelPickerSheet> {
   late Future<List<OpenRouterModel>> _modelsFuture;
+  final ScrollController _scrollController = ScrollController();
   String _query = '';
 
   @override
   void initState() {
     super.initState();
     _modelsFuture = _loadModels();
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
   }
 
   Future<List<OpenRouterModel>> _loadModels({bool forceRefresh = false}) {
@@ -650,35 +664,39 @@ class _OpenRouterModelPickerSheetState
                       Expanded(
                         child: filtered.isEmpty
                             ? const _NoModelsFound()
-                            : ListView.separated(
-                                itemCount: filtered.length,
-                                separatorBuilder: (_, __) =>
-                                    const Divider(height: 1),
-                                itemBuilder: (context, index) {
-                                  final model = filtered[index];
-                                  final isSelected =
-                                      model.id == selectedModelId;
+                            : MobileScrollbar(
+                                controller: _scrollController,
+                                child: ListView.separated(
+                                  controller: _scrollController,
+                                  itemCount: filtered.length,
+                                  separatorBuilder: (_, __) =>
+                                      const Divider(height: 1),
+                                  itemBuilder: (context, index) {
+                                    final model = filtered[index];
+                                    final isSelected =
+                                        model.id == selectedModelId;
 
-                                  return ListTile(
-                                    selected: isSelected,
-                                    selectedTileColor: Theme.of(context)
-                                        .colorScheme
-                                        .primaryContainer
-                                        .withAlpha(80),
-                                    title: Text(model.displayName),
-                                    subtitle: _ModelSubtitle(model: model),
-                                    trailing: isSelected
-                                        ? Icon(
-                                            Icons.check,
-                                            color: Theme.of(context)
-                                                .colorScheme
-                                                .primary,
-                                          )
-                                        : null,
-                                    onTap: () =>
-                                        widget.onModelSelected(model.id),
-                                  );
-                                },
+                                    return ListTile(
+                                      selected: isSelected,
+                                      selectedTileColor: Theme.of(context)
+                                          .colorScheme
+                                          .primaryContainer
+                                          .withAlpha(80),
+                                      title: Text(model.displayName),
+                                      subtitle: _ModelSubtitle(model: model),
+                                      trailing: isSelected
+                                          ? Icon(
+                                              Icons.check,
+                                              color: Theme.of(context)
+                                                  .colorScheme
+                                                  .primary,
+                                            )
+                                          : null,
+                                      onTap: () =>
+                                          widget.onModelSelected(model.id),
+                                    );
+                                  },
+                                ),
                               ),
                       ),
                     ],
