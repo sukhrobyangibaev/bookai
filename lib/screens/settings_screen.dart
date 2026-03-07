@@ -69,6 +69,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     required BuildContext context,
     required String apiKey,
     required String selectedModelId,
+    String? requiredOutputModality,
+    String title = 'Choose OpenRouter Model',
   }) async {
     String? pickedModelId;
     await showModalBottomSheet<void>(
@@ -82,6 +84,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
             service: _openRouterService,
             apiKey: apiKey,
             selectedModelId: selectedModelId,
+            requiredOutputModality: requiredOutputModality,
+            title: title,
             onModelSelected: (modelId) {
               pickedModelId = modelId;
               Navigator.of(sheetContext).pop();
@@ -104,6 +108,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
     if (pickedModelId == null) return;
     await controller.setOpenRouterModelId(pickedModelId);
+  }
+
+  Future<void> _showImageModelPicker(
+    BuildContext context,
+    SettingsController controller,
+  ) async {
+    final pickedModelId = await _pickModelId(
+      context: context,
+      apiKey: controller.openRouterApiKey,
+      selectedModelId: controller.openRouterImageModelId,
+      requiredOutputModality: 'image',
+      title: 'Choose OpenRouter Image Model',
+    );
+    if (pickedModelId == null) return;
+    await controller.setOpenRouterImageModelId(pickedModelId);
   }
 
   Future<void> _showFallbackModelPicker(
@@ -431,6 +450,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final fallbackModelLabel = fallbackModelId.isEmpty
         ? 'No fallback model selected'
         : fallbackModelId;
+    final imageModelId = controller.openRouterImageModelId;
+    final imageModelLabel =
+        imageModelId.isEmpty ? 'No image model selected' : imageModelId;
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -492,6 +514,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
             trailing: const Icon(Icons.search),
             onTap: () => _showFallbackModelPicker(context, controller),
           ),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Image Model'),
+            subtitle: Text(
+              imageModelLabel,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+            trailing: const Icon(Icons.image_search_outlined),
+            onTap: () => _showImageModelPicker(context, controller),
+          ),
           const SizedBox(height: 8),
           Text(
             'AI Features',
@@ -503,9 +536,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
             final usesGlobalModel = config.modelIdOverride.trim().isEmpty;
             final modelLabel = usesGlobalModel
                 ? (selectedModelId.isEmpty
-                    ? 'Global default: Not set'
-                    : 'Global default: $selectedModelId')
-                : 'Model override: ${config.modelIdOverride}';
+                    ? 'Prompt model: Global default not set'
+                    : 'Prompt model: Global default $selectedModelId')
+                : 'Prompt model: Override ${config.modelIdOverride}';
+            final imageModelHint = feature.id == AiFeatureIds.generateImage
+                ? '\nImage model: ${imageModelId.isEmpty ? 'Not set' : imageModelId}'
+                : '';
             final promptPreview = config.promptTemplate
                 .replaceAll('\n', ' ')
                 .replaceAll(RegExp(r'\s+'), ' ')
@@ -515,8 +551,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
               contentPadding: EdgeInsets.zero,
               title: Text(feature.title),
               subtitle: Text(
-                '$modelLabel\nPrompt: $promptPreview',
-                maxLines: 3,
+                '$modelLabel$imageModelHint\nPrompt: $promptPreview',
+                maxLines: 4,
                 overflow: TextOverflow.ellipsis,
               ),
               trailing: const Icon(Icons.tune),
@@ -537,13 +573,17 @@ class _OpenRouterModelPickerSheet extends StatefulWidget {
   final OpenRouterService service;
   final String apiKey;
   final String selectedModelId;
+  final String? requiredOutputModality;
+  final String title;
   final ValueChanged<String> onModelSelected;
 
   const _OpenRouterModelPickerSheet({
     required this.service,
     required this.apiKey,
     required this.selectedModelId,
+    required this.title,
     required this.onModelSelected,
+    this.requiredOutputModality,
   });
 
   @override
@@ -584,14 +624,46 @@ class _OpenRouterModelPickerSheetState
 
   List<OpenRouterModel> _filterModels(List<OpenRouterModel> models) {
     final normalizedQuery = _query.trim().toLowerCase();
-    if (normalizedQuery.isEmpty) return models;
+    final filteredByQuery = normalizedQuery.isEmpty
+        ? List<OpenRouterModel>.from(models)
+        : models.where((model) {
+            final description = model.description?.toLowerCase() ?? '';
+            return model.id.toLowerCase().contains(normalizedQuery) ||
+                model.displayName.toLowerCase().contains(normalizedQuery) ||
+                description.contains(normalizedQuery);
+          }).toList(growable: false);
 
-    return models.where((model) {
-      final description = model.description?.toLowerCase() ?? '';
-      return model.id.toLowerCase().contains(normalizedQuery) ||
-          model.displayName.toLowerCase().contains(normalizedQuery) ||
-          description.contains(normalizedQuery);
-    }).toList(growable: false);
+    if (widget.requiredOutputModality != 'image') {
+      return filteredByQuery;
+    }
+
+    final filtered = normalizedQuery.isEmpty
+        ? filteredByQuery
+            .where((model) => model.isLikelyImageModel)
+            .toList(growable: false)
+        : filteredByQuery;
+
+    filtered.sort((a, b) {
+      final byRelevance = _imageModelRelevance(a).compareTo(
+        _imageModelRelevance(b),
+      );
+      if (byRelevance != 0) return byRelevance;
+
+      final byName = a.displayName.toLowerCase().compareTo(
+        b.displayName.toLowerCase(),
+      );
+      if (byName != 0) return byName;
+      return a.id.toLowerCase().compareTo(b.id.toLowerCase());
+    });
+
+    return filtered;
+  }
+
+  int _imageModelRelevance(OpenRouterModel model) {
+    if (model.supportsImageOutput && model.supportsTextOutput) return 0;
+    if (model.supportsImageOutput) return 1;
+    if (model.isLikelyImageModel) return 2;
+    return 3;
   }
 
   @override
@@ -608,7 +680,7 @@ class _OpenRouterModelPickerSheetState
               child: Row(
                 children: [
                   Text(
-                    'Choose OpenRouter Model',
+                    widget.title,
                     style: Theme.of(context).textTheme.titleMedium,
                   ),
                   const Spacer(),
@@ -653,7 +725,7 @@ class _OpenRouterModelPickerSheetState
                   final models = snapshot.data ?? const <OpenRouterModel>[];
                   final filtered = _filterModels(models);
                   final selectedModelId = widget.selectedModelId;
-                  final selectedInList = models.any(
+                  final selectedInList = filtered.any(
                     (model) => model.id == selectedModelId,
                   );
 
@@ -663,7 +735,11 @@ class _OpenRouterModelPickerSheetState
                         _SelectedModelWarning(modelId: selectedModelId),
                       Expanded(
                         child: filtered.isEmpty
-                            ? const _NoModelsFound()
+                            ? _NoModelsFound(
+                                message: widget.requiredOutputModality == null
+                                    ? 'No models match your search.'
+                                    : 'No likely image models match your search.',
+                              )
                             : MobileScrollbar(
                                 controller: _scrollController,
                                 child: ListView.separated(
@@ -720,9 +796,16 @@ class _ModelSubtitle extends StatelessWidget {
   Widget build(BuildContext context) {
     final contextLabel =
         model.contextLength != null ? 'Context: ${model.contextLength}' : null;
+    final outputsLabel = model.outputModalities.isEmpty
+        ? null
+        : 'Outputs: ${model.outputModalities.join(', ')}';
 
+    final metadata = <String>[
+      if (contextLabel != null) contextLabel,
+      if (outputsLabel != null) outputsLabel,
+    ];
     final idText =
-        contextLabel == null ? model.id : '${model.id} · $contextLabel';
+        metadata.isEmpty ? model.id : '${model.id} · ${metadata.join(' · ')}';
     final description = model.description;
 
     return Column(
@@ -774,7 +857,11 @@ class _SelectedModelWarning extends StatelessWidget {
 }
 
 class _NoModelsFound extends StatelessWidget {
-  const _NoModelsFound();
+  final String message;
+
+  const _NoModelsFound({
+    required this.message,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -791,7 +878,7 @@ class _NoModelsFound extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             Text(
-              'No models match your search.',
+              message,
               style: Theme.of(context).textTheme.bodyMedium,
             ),
           ],

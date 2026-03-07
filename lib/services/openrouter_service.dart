@@ -15,6 +15,16 @@ class OpenRouterException implements Exception {
   String toString() => message;
 }
 
+class OpenRouterImageGenerationResult {
+  final String assistantText;
+  final List<String> imageUrls;
+
+  const OpenRouterImageGenerationResult({
+    required this.assistantText,
+    required this.imageUrls,
+  });
+}
+
 class OpenRouterService {
   static final Uri _modelsUri =
       Uri.parse('https://openrouter.ai/api/v1/models');
@@ -120,6 +130,72 @@ class OpenRouterService {
     required String prompt,
     double? temperature,
   }) async {
+    final decoded = await _sendChatCompletion(
+      apiKey: apiKey,
+      modelId: modelId,
+      prompt: prompt,
+      temperature: temperature,
+      action: 'generating text',
+    );
+    return _extractGeneratedText(decoded);
+  }
+
+  Future<OpenRouterImageGenerationResult> generateImage({
+    required String apiKey,
+    required String modelId,
+    required String prompt,
+    List<String> modalities = const <String>['image', 'text'],
+    double? temperature,
+  }) async {
+    final normalizedModalities = modalities
+        .map((value) => value.trim().toLowerCase())
+        .where((value) => value.isNotEmpty)
+        .toList(growable: false);
+    if (normalizedModalities.isEmpty) {
+      throw const OpenRouterException(
+        'At least one response modality is required.',
+      );
+    }
+
+    final decoded = await _sendChatCompletion(
+      apiKey: apiKey,
+      modelId: modelId,
+      prompt: prompt,
+      temperature: temperature,
+      action: 'generating images',
+      modalities: normalizedModalities,
+    );
+    return _extractGeneratedImages(decoded);
+  }
+
+  Map<String, dynamic> _decodePayload(String body) {
+    final dynamic decoded;
+    try {
+      decoded = jsonDecode(body);
+    } catch (error) {
+      throw OpenRouterException(
+        'OpenRouter returned malformed JSON.',
+        cause: error,
+      );
+    }
+
+    if (decoded is! Map<String, dynamic>) {
+      throw const OpenRouterException(
+        'OpenRouter response must be a JSON object.',
+      );
+    }
+
+    return decoded;
+  }
+
+  Future<Map<String, dynamic>> _sendChatCompletion({
+    required String apiKey,
+    required String modelId,
+    required String prompt,
+    required String action,
+    List<String>? modalities,
+    double? temperature,
+  }) async {
     final normalizedApiKey = apiKey.trim();
     final normalizedModelId = modelId.trim();
     final normalizedPrompt = prompt.trim();
@@ -140,6 +216,9 @@ class OpenRouterService {
         {'role': 'user', 'content': normalizedPrompt},
       ],
     };
+    if (modalities != null && modalities.isNotEmpty) {
+      payload['modalities'] = modalities;
+    }
     if (temperature != null) {
       payload['temperature'] = temperature;
     }
@@ -168,52 +247,17 @@ class OpenRouterService {
       throw OpenRouterException(
         _buildStatusErrorMessage(
           statusCode: response.statusCode,
-          action: 'generating text',
+          action: action,
           responseBody: response.body,
         ),
       );
     }
 
-    final decoded = _decodePayload(response.body);
-    return _extractGeneratedText(decoded);
-  }
-
-  Map<String, dynamic> _decodePayload(String body) {
-    final dynamic decoded;
-    try {
-      decoded = jsonDecode(body);
-    } catch (error) {
-      throw OpenRouterException(
-        'OpenRouter returned malformed JSON.',
-        cause: error,
-      );
-    }
-
-    if (decoded is! Map<String, dynamic>) {
-      throw const OpenRouterException(
-        'OpenRouter response must be a JSON object.',
-      );
-    }
-
-    return decoded;
+    return _decodePayload(response.body);
   }
 
   String _extractGeneratedText(Map<String, dynamic> payload) {
-    final rawChoices = payload['choices'];
-    if (rawChoices is! List || rawChoices.isEmpty) {
-      throw const OpenRouterException(
-        'OpenRouter response is missing generated choices.',
-      );
-    }
-
-    final firstChoice = rawChoices.first;
-    if (firstChoice is! Map) {
-      throw const OpenRouterException(
-        'OpenRouter response contains an invalid generated choice.',
-      );
-    }
-
-    final choice = Map<String, dynamic>.from(firstChoice);
+    final choice = _extractFirstChoice(payload);
     final rawMessage = choice['message'];
     if (rawMessage is Map) {
       final message = Map<String, dynamic>.from(rawMessage);
@@ -231,6 +275,53 @@ class OpenRouterService {
     );
   }
 
+  OpenRouterImageGenerationResult _extractGeneratedImages(
+    Map<String, dynamic> payload,
+  ) {
+    final choice = _extractFirstChoice(payload);
+    final rawMessage = choice['message'];
+    if (rawMessage is! Map) {
+      throw const OpenRouterException(
+        'OpenRouter response did not include a valid assistant message.',
+      );
+    }
+
+    final message = Map<String, dynamic>.from(rawMessage);
+    final imageUrls = _extractImageUrls(
+      content: message['content'],
+      images: message['images'],
+    );
+
+    if (imageUrls.isEmpty) {
+      throw const OpenRouterException(
+        'OpenRouter response did not include generated images.',
+      );
+    }
+
+    return OpenRouterImageGenerationResult(
+      assistantText: _extractTextFromMessageContent(message['content']),
+      imageUrls: imageUrls,
+    );
+  }
+
+  Map<String, dynamic> _extractFirstChoice(Map<String, dynamic> payload) {
+    final rawChoices = payload['choices'];
+    if (rawChoices is! List || rawChoices.isEmpty) {
+      throw const OpenRouterException(
+        'OpenRouter response is missing generated choices.',
+      );
+    }
+
+    final firstChoice = rawChoices.first;
+    if (firstChoice is! Map) {
+      throw const OpenRouterException(
+        'OpenRouter response contains an invalid generated choice.',
+      );
+    }
+
+    return Map<String, dynamic>.from(firstChoice);
+  }
+
   String _extractTextFromMessageContent(dynamic content) {
     if (content is String) {
       return content.trim();
@@ -246,6 +337,56 @@ class OpenRouterService {
         }
       }
       return parts.join('\n').trim();
+    }
+
+    return '';
+  }
+
+  List<String> _extractImageUrls({
+    required dynamic content,
+    required dynamic images,
+  }) {
+    final results = <String>[];
+
+    if (images is List) {
+      for (final item in images) {
+        final url = _extractImageUrl(item);
+        if (url.isNotEmpty) {
+          results.add(url);
+        }
+      }
+    }
+
+    if (content is List) {
+      for (final item in content) {
+        final url = _extractImageUrl(item);
+        if (url.isNotEmpty) {
+          results.add(url);
+        }
+      }
+    }
+
+    return results.toSet().toList(growable: false);
+  }
+
+  String _extractImageUrl(dynamic item) {
+    if (item is! Map) return '';
+
+    final map = Map<String, dynamic>.from(item);
+    final directUrl = map['url'];
+    if (directUrl is String && directUrl.trim().isNotEmpty) {
+      return directUrl.trim();
+    }
+
+    final imageUrl = map['image_url'];
+    if (imageUrl is String && imageUrl.trim().isNotEmpty) {
+      return imageUrl.trim();
+    }
+    if (imageUrl is Map) {
+      final nestedUrl = imageUrl['url'];
+      if (nestedUrl is String && nestedUrl.trim().isNotEmpty) {
+        return nestedUrl.trim();
+      }
     }
 
     return '';

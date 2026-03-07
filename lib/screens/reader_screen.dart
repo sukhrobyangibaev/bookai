@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -7,13 +8,16 @@ import '../app.dart';
 import '../models/ai_feature.dart';
 import '../models/book.dart';
 import '../models/chapter.dart';
+import '../models/generated_image.dart';
 import '../models/highlight.dart';
+import '../models/openrouter_model.dart';
 import '../models/reading_progress.dart';
 import '../models/resume_marker.dart';
 import '../services/chapter_loader_service.dart';
 import '../services/database_service.dart';
 import '../services/openrouter_service.dart';
 import '../services/resume_summary_service.dart';
+import '../services/storage_service.dart';
 import '../theme/reader_typography.dart';
 import '../widgets/mobile_scrollbar.dart';
 import '../widgets/reader_selection_toolbar.dart';
@@ -25,6 +29,7 @@ class ReaderScreen extends StatefulWidget {
   final DatabaseService? databaseService;
   final OpenRouterService? openRouterService;
   final ResumeSummaryService? resumeSummaryService;
+  final StorageService? storageService;
 
   const ReaderScreen({
     super.key,
@@ -33,6 +38,7 @@ class ReaderScreen extends StatefulWidget {
     this.databaseService,
     this.openRouterService,
     this.resumeSummaryService,
+    this.storageService,
   });
 
   @override
@@ -44,6 +50,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
   late final DatabaseService _db;
   late final OpenRouterService _openRouter;
   late final ResumeSummaryService _resumeSummaryService;
+  late final StorageService _storage;
   final _scrollController = ScrollController();
 
   List<Chapter>? _chapters;
@@ -97,6 +104,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
     _openRouter = widget.openRouterService ?? OpenRouterService();
     _resumeSummaryService =
         widget.resumeSummaryService ?? const ResumeSummaryService();
+    _storage = widget.storageService ?? StorageService.instance;
     _scrollController.addListener(_onScroll);
     _loadChapters();
   }
@@ -567,6 +575,740 @@ class _ReaderScreenState extends State<ReaderScreen> {
         emptyMessage: 'Model returned an empty definition or translation.',
         copiedMessage: 'Result copied',
       ),
+    );
+  }
+
+  Future<void> _showGenerateImageModePicker(
+    EditableTextState editableTextState,
+  ) async {
+    final choice = await showModalBottomSheet<_GenerateImageMode>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Generate Image',
+                  style: Theme.of(sheetContext).textTheme.titleMedium,
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Choose how the source text should be collected for the prompt.',
+                  style: Theme.of(sheetContext).textTheme.bodySmall,
+                ),
+                const SizedBox(height: 12),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.short_text),
+                  title: const Text('Selected Text'),
+                  subtitle: const Text(
+                    'Use only the currently selected words or sentence.',
+                  ),
+                  onTap: () => Navigator.of(sheetContext).pop(
+                    _GenerateImageMode.selectedText,
+                  ),
+                ),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.bookmark_outline),
+                  title: const Text('Resume Range'),
+                  subtitle: const Text(
+                    'Use the range between the last resume point and this selection.',
+                  ),
+                  onTap: () => Navigator.of(sheetContext).pop(
+                    _GenerateImageMode.resumeRange,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+    if (!mounted || choice == null) return;
+
+    switch (choice) {
+      case _GenerateImageMode.selectedText:
+        await _generateImageFromSelectedText(editableTextState);
+        break;
+      case _GenerateImageMode.resumeRange:
+        await _generateImageFromResumeRange(editableTextState);
+        break;
+    }
+  }
+
+  Future<void> _generateImageFromSelectedText(
+    EditableTextState editableTextState,
+  ) async {
+    final chapter = _currentChapter;
+    if (chapter == null) return;
+
+    final selection = editableTextState.textEditingValue.selection;
+    final text = editableTextState.textEditingValue.text;
+    editableTextState.hideToolbar();
+
+    final imageSelection = _buildSelectedTextGenerateImageSelection(
+      selection: selection,
+      chapterContent: text,
+      chapterTitle: chapter.title,
+    );
+    if (imageSelection == null) {
+      _showAutoDismissSnackBar(
+        const SnackBar(
+          content: Text('Select some text to generate an image.'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+
+    await _startGenerateImageFlow(imageSelection);
+  }
+
+  Future<void> _generateImageFromResumeRange(
+    EditableTextState editableTextState,
+  ) async {
+    final chapter = _currentChapter;
+    if (chapter == null) return;
+
+    final selection = editableTextState.textEditingValue.selection;
+    final text = editableTextState.textEditingValue.text;
+    editableTextState.hideToolbar();
+
+    final imageSelection = _buildResumeRangeGenerateImageSelection(
+      selection: selection,
+      chapterContent: text,
+      chapterTitle: chapter.title,
+    );
+    if (imageSelection == null) {
+      _showAutoDismissSnackBar(
+        const SnackBar(
+          content: Text('Unable to build an image range for this selection.'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+
+    await _startGenerateImageFlow(imageSelection);
+  }
+
+  _GenerateImageSelection? _buildSelectedTextGenerateImageSelection({
+    required TextSelection selection,
+    required String chapterContent,
+    required String chapterTitle,
+  }) {
+    if (!selection.isValid || selection.isCollapsed) return null;
+
+    final boundedStart = selection.start.clamp(0, chapterContent.length);
+    final boundedEnd = selection.end.clamp(0, chapterContent.length);
+    if (boundedEnd <= boundedStart) return null;
+
+    final selectedText = chapterContent.substring(boundedStart, boundedEnd);
+    final sourceText = selectedText.trim();
+    if (sourceText.isEmpty) return null;
+
+    return _GenerateImageSelection(
+      featureMode: _GenerateImageFeatureModes.selectedText,
+      sourceText: sourceText,
+      chapterTitle: chapterTitle,
+      contextSentence: _resumeSummaryService.extractContextSentence(
+        chapterContent: chapterContent,
+        selectionStart: boundedStart,
+        selectionEnd: boundedEnd,
+      ),
+    );
+  }
+
+  _GenerateImageSelection? _buildResumeRangeGenerateImageSelection({
+    required TextSelection selection,
+    required String chapterContent,
+    required String chapterTitle,
+  }) {
+    final summarySelection = _buildResumeSummarySelection(
+      selection: selection,
+      chapterContent: chapterContent,
+      chapterTitle: chapterTitle,
+    );
+    if (summarySelection == null) return null;
+
+    return _GenerateImageSelection(
+      featureMode: _GenerateImageFeatureModes.resumeRange,
+      sourceText: summarySelection.sourceText,
+      chapterTitle: summarySelection.chapterTitle,
+      contextSentence: '',
+    );
+  }
+
+  _GenerateImagePromptRequest? _buildGenerateImagePromptRequest(
+    _GenerateImageSelection selection,
+  ) {
+    final settings = SettingsControllerScope.of(context);
+    final apiKey = settings.openRouterApiKey.trim();
+    if (apiKey.isEmpty) {
+      _showAutoDismissSnackBar(
+        const SnackBar(
+          content: Text('Add your OpenRouter API key in Settings first.'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return null;
+    }
+
+    final promptModelId = settings.effectiveModelIdForFeature(
+      AiFeatureIds.generateImage,
+    );
+    if (promptModelId.isEmpty) {
+      _showAutoDismissSnackBar(
+        const SnackBar(
+          content: Text('Select a default AI model in Settings first.'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return null;
+    }
+
+    final imageModelId = settings.openRouterImageModelId.trim();
+    if (imageModelId.isEmpty) {
+      _showAutoDismissSnackBar(
+        const SnackBar(
+          content: Text('Select an image AI model in Settings first.'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return null;
+    }
+
+    final featureConfig = settings.aiFeatureConfig(AiFeatureIds.generateImage);
+    final promptTemplate = featureConfig.promptTemplate;
+    if (!_resumeSummaryService.hasRequiredPlaceholder(promptTemplate)) {
+      _showAutoDismissSnackBar(
+        const SnackBar(
+          content: Text(
+            'Generate Image prompt must include the {source_text} placeholder.',
+          ),
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return null;
+    }
+
+    final prompt = _resumeSummaryService.renderPromptTemplate(
+      promptTemplate: promptTemplate,
+      sourceText: selection.sourceText,
+      bookTitle: widget.book.title,
+      bookAuthor: widget.book.author,
+      chapterTitle: selection.chapterTitle,
+      contextSentence: selection.contextSentence,
+    );
+
+    return _GenerateImagePromptRequest(
+      apiKey: apiKey,
+      promptModelId: promptModelId,
+      imageModelId: imageModelId,
+      prompt: prompt,
+      selection: selection,
+    );
+  }
+
+  Future<void> _startGenerateImageFlow(
+    _GenerateImageSelection selection,
+  ) async {
+    final request = _buildGenerateImagePromptRequest(selection);
+    if (request == null) return;
+
+    String generatedPrompt;
+    try {
+      final result = await _runAiLoadingTask<String>(
+        loadingText: 'Generating image prompt...',
+        task: () => _openRouter.generateText(
+          apiKey: request.apiKey,
+          modelId: request.promptModelId,
+          prompt: request.prompt,
+        ),
+      );
+      if (result == null) return;
+      generatedPrompt = result.trim();
+    } catch (error) {
+      await _showAiBasicErrorSheet(
+        title: 'Generate Image',
+        message: error.toString(),
+      );
+      return;
+    }
+
+    if (generatedPrompt.isEmpty) {
+      await _showAiBasicErrorSheet(
+        title: 'Generate Image',
+        message: 'Model returned an empty image prompt.',
+      );
+      return;
+    }
+
+    final editedPrompt = await _showImagePromptEditorSheet(
+      initialPrompt: generatedPrompt,
+    );
+    if (!mounted || editedPrompt == null) return;
+
+    final normalizedPrompt = editedPrompt.trim();
+    if (normalizedPrompt.isEmpty) {
+      _showAutoDismissSnackBar(
+        const SnackBar(
+          content: Text('Image prompt cannot be empty.'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+
+    final imageModel = await _lookupImageModelMetadata(
+      apiKey: request.apiKey,
+      modelId: request.imageModelId,
+    );
+    if (!mounted) return;
+
+    OpenRouterImageGenerationResult imageResult;
+    try {
+      final result = await _generateImageWithBestEffortModalities(
+        apiKey: request.apiKey,
+        modelId: request.imageModelId,
+        prompt: normalizedPrompt,
+        imageModel: imageModel,
+      );
+      if (result == null) return;
+      imageResult = result;
+    } catch (error) {
+      await _showAiBasicErrorSheet(
+        title: 'Generate Image',
+        message: error.toString(),
+      );
+      return;
+    }
+
+    if (imageResult.imageUrls.isEmpty) {
+      await _showAiBasicErrorSheet(
+        title: 'Generate Image',
+        message: 'OpenRouter did not return an image.',
+      );
+      return;
+    }
+
+    GeneratedImage savedImage;
+    try {
+      final persisted = await _persistGeneratedImage(
+        selection: request.selection,
+        promptText: normalizedPrompt,
+        imageDataUrl: imageResult.imageUrls.first,
+      );
+      if (persisted == null) {
+        await _showAiBasicErrorSheet(
+          title: 'Generate Image',
+          message: 'This book must be saved in the library before images can be stored.',
+        );
+        return;
+      }
+      savedImage = persisted;
+    } catch (error) {
+      await _showAiBasicErrorSheet(
+        title: 'Generate Image',
+        message: error.toString(),
+      );
+      return;
+    }
+
+    if (!mounted) return;
+    unawaited(
+      _showGeneratedImageResultSheet(
+        generatedImage: savedImage,
+        assistantText: imageResult.assistantText,
+      ),
+    );
+  }
+
+  Future<OpenRouterModel?> _lookupImageModelMetadata({
+    required String apiKey,
+    required String modelId,
+  }) async {
+    try {
+      final models = await _runAiLoadingTask<List<OpenRouterModel>>(
+        loadingText: 'Checking image model...',
+        task: () => _openRouter.fetchModels(apiKey: apiKey),
+      );
+      if (models == null) return null;
+
+      for (final model in models) {
+        if (model.id == modelId) {
+          return model;
+        }
+      }
+    } catch (error) {
+      // Some valid image models are not labeled consistently in the models
+      // metadata, so a lookup failure should not block generation.
+      return null;
+    }
+
+    return null;
+  }
+
+  Future<OpenRouterImageGenerationResult?> _generateImageWithBestEffortModalities({
+    required String apiKey,
+    required String modelId,
+    required String prompt,
+    OpenRouterModel? imageModel,
+  }) async {
+    final attempts = <List<String>>[
+      _preferredImageModalities(
+        modelId: modelId,
+        imageModel: imageModel,
+      ),
+    ];
+    const imageOnlyModalities = <String>['image'];
+    const imageAndTextModalities = <String>['image', 'text'];
+
+    if (!_modalitiesEqual(attempts.first, imageOnlyModalities)) {
+      attempts.add(imageOnlyModalities);
+    }
+    if (!_modalitiesEqual(attempts.first, imageAndTextModalities)) {
+      attempts.add(imageAndTextModalities);
+    }
+
+    Object? lastError;
+    for (final modalities in attempts) {
+      try {
+        return await _runAiLoadingTask<OpenRouterImageGenerationResult>(
+          loadingText: 'Generating image...',
+          task: () => _openRouter.generateImage(
+            apiKey: apiKey,
+            modelId: modelId,
+            prompt: prompt,
+            modalities: modalities,
+          ),
+        );
+      } catch (error) {
+        lastError = error;
+      }
+    }
+
+    if (lastError is Exception) throw lastError;
+    if (lastError != null) throw OpenRouterException(lastError.toString());
+    throw const OpenRouterException('OpenRouter did not return an image.');
+  }
+
+  List<String> _preferredImageModalities({
+    required String modelId,
+    OpenRouterModel? imageModel,
+  }) {
+    if (imageModel != null && imageModel.supportsImageOutput) {
+      return imageModel.supportsTextOutput
+          ? const <String>['image', 'text']
+          : const <String>['image'];
+    }
+
+    return _looksLikeImageOnlyModelId(modelId)
+        ? const <String>['image']
+        : const <String>['image', 'text'];
+  }
+
+  bool _looksLikeImageOnlyModelId(String modelId) {
+    final normalized = modelId.trim().toLowerCase();
+    const imageOnlyMarkers = <String>[
+      'flux',
+      'recraft',
+      'seedream',
+      'riverflow',
+      'ideogram',
+      'sourceful',
+      'imagen',
+      'gpt-image',
+      'black-forest-labs',
+    ];
+    for (final marker in imageOnlyMarkers) {
+      if (normalized.contains(marker)) return true;
+    }
+    return false;
+  }
+
+  bool _modalitiesEqual(List<String> a, List<String> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
+  }
+
+  Future<GeneratedImage?> _persistGeneratedImage({
+    required _GenerateImageSelection selection,
+    required String promptText,
+    required String imageDataUrl,
+  }) async {
+    final bookId = widget.book.id;
+    if (bookId == null) return null;
+
+    final savedFile = await _storage.saveGeneratedImageDataUrl(
+      bookId: bookId,
+      dataUrl: imageDataUrl,
+    );
+    try {
+      return await _db.addGeneratedImage(
+        GeneratedImage(
+          bookId: bookId,
+          chapterIndex: _currentIndex,
+          featureMode: selection.featureMode,
+          sourceText: selection.sourceText,
+          promptText: promptText,
+          filePath: savedFile.path,
+          createdAt: DateTime.now(),
+        ),
+      );
+    } catch (_) {
+      await _storage.deleteGeneratedImageFile(savedFile.path);
+      rethrow;
+    }
+  }
+
+  Future<T?> _runAiLoadingTask<T>({
+    required String loadingText,
+    required Future<T> Function() task,
+  }) async {
+    if (!_canStartAiRequest()) return null;
+
+    final loadingRequest = _ActiveAiRequest(
+      token: ++_aiRequestToken,
+      generationFuture: Future<String>.value(''),
+      requestSpec: _AiRequestSpec(
+        apiKey: '',
+        modelId: '',
+        prompt: '',
+        title: '',
+        loadingText: loadingText,
+        emptyMessage: '',
+        copiedMessage: '',
+      ),
+    );
+
+    if (!mounted) return null;
+    setState(() => _activeAiRequest = loadingRequest);
+
+    try {
+      final result = await task();
+      if (!mounted || _activeAiRequest?.token != loadingRequest.token) {
+        return null;
+      }
+      return result;
+    } finally {
+      if (mounted && _activeAiRequest?.token == loadingRequest.token) {
+        setState(() => _activeAiRequest = null);
+      }
+    }
+  }
+
+  Future<String?> _showImagePromptEditorSheet({
+    required String initialPrompt,
+  }) async {
+    final controller = TextEditingController(text: initialPrompt);
+    final prompt = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Padding(
+            padding: EdgeInsets.only(
+              left: 16,
+              right: 16,
+              top: 8,
+              bottom: MediaQuery.viewInsetsOf(sheetContext).bottom + 16,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Edit Image Prompt',
+                  style: Theme.of(sheetContext).textTheme.titleMedium,
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Review or edit the generated prompt before requesting the image.',
+                  style: Theme.of(sheetContext).textTheme.bodySmall,
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: controller,
+                  maxLines: 10,
+                  minLines: 6,
+                  decoration: const InputDecoration(
+                    border: OutlineInputBorder(),
+                    labelText: 'Image Prompt',
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    TextButton(
+                      onPressed: () => Navigator.of(sheetContext).pop(),
+                      child: const Text('Cancel'),
+                    ),
+                    const Spacer(),
+                    FilledButton(
+                      onPressed: () => Navigator.of(sheetContext).pop(
+                        controller.text,
+                      ),
+                      child: const Text('Generate'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+    controller.dispose();
+    return prompt;
+  }
+
+  Future<void> _showGeneratedImageResultSheet({
+    required GeneratedImage generatedImage,
+    required String assistantText,
+  }) {
+    return showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        return FractionallySizedBox(
+          heightFactor: 0.9,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Generated Image',
+                  style: Theme.of(sheetContext).textTheme.titleMedium,
+                ),
+                const SizedBox(height: 8),
+                Expanded(
+                  child: MobileScrollbar(
+                    child: SingleChildScrollView(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(18),
+                            child: Image.file(
+                              File(generatedImage.filePath),
+                              key: const ValueKey<String>(
+                                'generated-image-result',
+                              ),
+                              fit: BoxFit.contain,
+                              errorBuilder: (context, error, stackTrace) {
+                                return Container(
+                                  height: 280,
+                                  width: double.infinity,
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .surfaceContainerHighest,
+                                  alignment: Alignment.center,
+                                  child: const Icon(
+                                    Icons.broken_image_outlined,
+                                    size: 40,
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                          if (assistantText.trim().isNotEmpty) ...[
+                            const SizedBox(height: 16),
+                            Text(
+                              'Notes',
+                              style: Theme.of(sheetContext).textTheme.titleSmall,
+                            ),
+                            const SizedBox(height: 6),
+                            SelectableText(assistantText.trim()),
+                          ],
+                          const SizedBox(height: 16),
+                          Text(
+                            'Prompt',
+                            style: Theme.of(sheetContext).textTheme.titleSmall,
+                          ),
+                          const SizedBox(height: 6),
+                          SelectableText(generatedImage.promptText),
+                          const SizedBox(height: 16),
+                          Text(
+                            'Source Text',
+                            style: Theme.of(sheetContext).textTheme.titleSmall,
+                          ),
+                          const SizedBox(height: 6),
+                          SelectableText(generatedImage.sourceText),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      OutlinedButton.icon(
+                        onPressed: () async {
+                          await Clipboard.setData(
+                            ClipboardData(text: generatedImage.promptText),
+                          );
+                          if (!sheetContext.mounted) return;
+                          ScaffoldMessenger.of(sheetContext).showSnackBar(
+                            const SnackBar(
+                              content: Text('Prompt copied'),
+                              duration: Duration(seconds: 2),
+                            ),
+                          );
+                        },
+                        icon: const Icon(Icons.copy_outlined),
+                        label: const Text('Copy Prompt'),
+                      ),
+                      FilledButton(
+                        onPressed: () => Navigator.of(sheetContext).pop(),
+                        child: const Text('Close'),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _showAiBasicErrorSheet({
+    required String title,
+    required String message,
+  }) {
+    return showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
+            child: _AiBasicError(
+              title: title,
+              message: message,
+              onClose: () => Navigator.of(sheetContext).pop(),
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -1588,6 +2330,9 @@ class _ReaderScreenState extends State<ReaderScreen> {
       onDefineAndTranslate: () {
         _defineAndTranslateSelection(editableTextState);
       },
+      onGenerateImage: () {
+        _showGenerateImageModePicker(editableTextState);
+      },
       onSimplifyText: () {
         _simplifyTextFromResumePoint(editableTextState);
       },
@@ -1657,6 +2402,46 @@ class _ResumeSummarySelection {
     required this.selectionStart,
     required this.selectionEnd,
     required this.shouldUpdateResumeMarker,
+  });
+}
+
+enum _GenerateImageMode {
+  selectedText,
+  resumeRange,
+}
+
+class _GenerateImageFeatureModes {
+  static const selectedText = 'selected_text';
+  static const resumeRange = 'resume_range';
+}
+
+class _GenerateImageSelection {
+  final String featureMode;
+  final String sourceText;
+  final String chapterTitle;
+  final String contextSentence;
+
+  const _GenerateImageSelection({
+    required this.featureMode,
+    required this.sourceText,
+    required this.chapterTitle,
+    required this.contextSentence,
+  });
+}
+
+class _GenerateImagePromptRequest {
+  final String apiKey;
+  final String promptModelId;
+  final String imageModelId;
+  final String prompt;
+  final _GenerateImageSelection selection;
+
+  const _GenerateImagePromptRequest({
+    required this.apiKey,
+    required this.promptModelId,
+    required this.imageModelId,
+    required this.prompt,
+    required this.selection,
   });
 }
 
@@ -1863,6 +2648,52 @@ class _AiResultError extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _AiBasicError extends StatelessWidget {
+  final String title;
+  final String message;
+  final VoidCallback onClose;
+
+  const _AiBasicError({
+    required this.title,
+    required this.message,
+    required this.onClose,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.error_outline,
+            size: 48,
+            color: Theme.of(context).colorScheme.error,
+          ),
+          const SizedBox(height: 12),
+          Text(
+            title,
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.outline,
+                ),
+          ),
+          const SizedBox(height: 16),
+          FilledButton(
+            onPressed: onClose,
+            child: const Text('Close'),
+          ),
+        ],
       ),
     );
   }

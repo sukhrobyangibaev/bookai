@@ -7,6 +7,7 @@ List<ContextMenuButtonItem> buildReaderSelectionButtonItems({
   required VoidCallback onCopy,
   required VoidCallback onHighlight,
   required VoidCallback onDefineAndTranslate,
+  VoidCallback? onGenerateImage,
   required VoidCallback onSimplifyText,
   required VoidCallback onResumeHere,
   required VoidCallback onCatchMeUp,
@@ -32,6 +33,10 @@ List<ContextMenuButtonItem> buildReaderSelectionButtonItems({
     ContextMenuButtonItem(
       label: 'Define & Translate',
       onPressed: onDefineAndTranslate,
+    ),
+    ContextMenuButtonItem(
+      label: 'Generate Image',
+      onPressed: onGenerateImage,
     ),
     ContextMenuButtonItem(
       label: 'Simplify Text',
@@ -244,11 +249,14 @@ class _ToolbarActionStyle {
   static const String _copyId = 'copy';
   static const String _highlightId = 'highlight';
   static const String _defineAndTranslateId = 'define_and_translate';
+  static const String _generateImageId = 'generate_image';
   static const String _simplifyTextId = 'simplify_text';
   static const String _resumeHereId = 'resume_here';
   static const String _catchMeUpId = 'catch_me_up';
   static const Color _defineAndTranslateLight = Color(0xFF0B57D0);
   static const Color _defineAndTranslateDark = Color(0xFF8AB4F8);
+  static const Color _generateImageLight = Color(0xFF6A1B9A);
+  static const Color _generateImageDark = Color(0xFFE1BEE7);
   static const Color _simplifyTextLight = Color(0xFF2E7D32);
   static const Color _simplifyTextDark = Color(0xFF81C995);
   static const Color _catchMeUpLight = Color(0xFFEF6C00);
@@ -281,6 +289,13 @@ class _ToolbarActionStyle {
           accentColor: theme.brightness == Brightness.dark
               ? _defineAndTranslateDark
               : _defineAndTranslateLight,
+        ),
+      _generateImageId => _accent(
+          id: actionId,
+          toolbarColor: toolbarColor,
+          accentColor: theme.brightness == Brightness.dark
+              ? _generateImageDark
+              : _generateImageLight,
         ),
       _simplifyTextId => _accent(
           id: actionId,
@@ -331,6 +346,7 @@ class _ToolbarActionStyle {
     return switch (item.label) {
       'Highlight' => _highlightId,
       'Define & Translate' => _defineAndTranslateId,
+      'Generate Image' => _generateImageId,
       'Simplify Text' => _simplifyTextId,
       'Resume Here' => _resumeHereId,
       'Catch Me Up' => _catchMeUpId,

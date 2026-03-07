@@ -31,5 +31,25 @@ void main() {
       expect(feature.placeholders, contains('{context_sentence}'));
       expect(feature.placeholders, contains('{book_author}'));
     });
+
+    test('registers generate image feature', () {
+      final feature = aiFeatureById(AiFeatureIds.generateImage);
+
+      expect(feature, isNotNull);
+      expect(feature!.title, 'Generate Image');
+      expect(feature.placeholders, contains('{source_text}'));
+      expect(feature.placeholders, contains('{context_sentence}'));
+      expect(feature.placeholders, contains('{book_author}'));
+      expect(feature.placeholders, contains('{chapter_title}'));
+    });
+
+    test('provides default config for generate image', () {
+      expect(
+        defaultAiFeatureConfigs[AiFeatureIds.generateImage],
+        const AiFeatureConfig(
+          promptTemplate: defaultGenerateImagePromptTemplate,
+        ),
+      );
+    });
   });
 }

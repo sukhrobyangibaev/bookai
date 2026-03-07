@@ -3,6 +3,7 @@ import 'package:path/path.dart';
 
 import '../models/book.dart';
 import '../models/chapter.dart';
+import '../models/generated_image.dart';
 import '../models/highlight.dart';
 import '../models/reading_progress.dart';
 import '../models/resume_marker.dart';
@@ -33,7 +34,7 @@ class DatabaseService {
   Future<Database> openDatabaseAt(String path) {
     return openDatabase(
       path,
-      version: 4,
+      version: 5,
       onConfigure: _onConfigure,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
@@ -97,6 +98,7 @@ class DatabaseService {
 
     await _createResumeMarkersTable(db);
     await _createChaptersTable(db);
+    await _createGeneratedImagesTable(db);
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -109,6 +111,9 @@ class DatabaseService {
     }
     if (oldVersion < 4) {
       await _createChaptersTable(db);
+    }
+    if (oldVersion < 5) {
+      await _createGeneratedImagesTable(db);
     }
   }
 
@@ -138,6 +143,30 @@ class DatabaseService {
         FOREIGN KEY (bookId) REFERENCES books(id) ON DELETE CASCADE
       )
     ''');
+  }
+
+  Future<void> _createGeneratedImagesTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS generated_images (
+        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        bookId       INTEGER NOT NULL,
+        chapterIndex INTEGER NOT NULL,
+        featureMode  TEXT    NOT NULL,
+        sourceText   TEXT    NOT NULL,
+        promptText   TEXT    NOT NULL,
+        filePath     TEXT    NOT NULL,
+        createdAt    TEXT    NOT NULL,
+        FOREIGN KEY (bookId) REFERENCES books(id) ON DELETE CASCADE
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_generated_images_bookId '
+      'ON generated_images(bookId)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_generated_images_createdAt '
+      'ON generated_images(createdAt DESC)',
+    );
   }
 
   // ── Books ─────────────────────────────────────────────────────────────────
@@ -296,5 +325,46 @@ class DatabaseService {
   Future<void> deleteHighlight(int highlightId) async {
     final db = await database;
     await db.delete('highlights', where: 'id = ?', whereArgs: [highlightId]);
+  }
+
+  // ── Generated Images ──────────────────────────────────────────────────────
+
+  Future<GeneratedImage> addGeneratedImage(
+      GeneratedImage generatedImage) async {
+    final db = await database;
+    final id = await db.insert(
+      'generated_images',
+      generatedImage.toMap(),
+    );
+    return generatedImage.copyWith(id: id);
+  }
+
+  Future<List<GeneratedImage>> getAllGeneratedImages() async {
+    final db = await database;
+    final rows = await db.query(
+      'generated_images',
+      orderBy: 'createdAt DESC',
+    );
+    return rows.map(GeneratedImage.fromMap).toList();
+  }
+
+  Future<List<GeneratedImage>> getGeneratedImagesByBookId(int bookId) async {
+    final db = await database;
+    final rows = await db.query(
+      'generated_images',
+      where: 'bookId = ?',
+      whereArgs: [bookId],
+      orderBy: 'createdAt DESC',
+    );
+    return rows.map(GeneratedImage.fromMap).toList();
+  }
+
+  Future<void> deleteGeneratedImage(int generatedImageId) async {
+    final db = await database;
+    await db.delete(
+      'generated_images',
+      where: 'id = ?',
+      whereArgs: [generatedImageId],
+    );
   }
 }

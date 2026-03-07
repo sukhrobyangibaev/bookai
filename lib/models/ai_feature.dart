@@ -20,6 +20,7 @@ class AiFeatureIds {
   static const resumeSummary = 'resume_summary';
   static const defineAndTranslate = 'define_and_translate';
   static const simplifyText = 'simplify_text';
+  static const generateImage = 'generate_image';
 }
 
 const String defaultResumeSummaryPromptTemplate = '''
@@ -115,10 +116,46 @@ const AiFeatureDefinition defineAndTranslateFeature = AiFeatureDefinition(
   ],
 );
 
+const String defaultGenerateImagePromptTemplate = '''
+You are creating an image-generation prompt for a scene from a book.
+
+Book: {book_title}
+Author: {book_author}
+Chapter: {chapter_title}
+
+Selected passage:
+{source_text}
+
+Context sentence:
+{context_sentence}
+
+Write one vivid, spoiler-safe prompt for an illustration of this exact moment.
+Base it only on details that are explicit in the passage or context sentence.
+Describe the important subject, setting, mood, lighting, composition, clothing, and notable objects when they are available.
+Do not mention text overlays, page layouts, watermarks, artist names, or camera brands.
+Return only the final image prompt.
+''';
+
+const AiFeatureDefinition generateImageFeature = AiFeatureDefinition(
+  id: AiFeatureIds.generateImage,
+  title: 'Generate Image',
+  description:
+      'Turn the selected text or resume range into an editable image prompt.',
+  defaultPromptTemplate: defaultGenerateImagePromptTemplate,
+  placeholders: <String>[
+    '{book_title}',
+    '{book_author}',
+    '{chapter_title}',
+    '{context_sentence}',
+    '{source_text}',
+  ],
+);
+
 const List<AiFeatureDefinition> aiFeatures = <AiFeatureDefinition>[
   resumeSummaryFeature,
   simplifyTextFeature,
   defineAndTranslateFeature,
+  generateImageFeature,
 ];
 
 const Map<String, AiFeatureConfig> defaultAiFeatureConfigs =
@@ -131,6 +168,9 @@ const Map<String, AiFeatureConfig> defaultAiFeatureConfigs =
   ),
   AiFeatureIds.defineAndTranslate: AiFeatureConfig(
     promptTemplate: defaultDefineAndTranslatePromptTemplate,
+  ),
+  AiFeatureIds.generateImage: AiFeatureConfig(
+    promptTemplate: defaultGenerateImagePromptTemplate,
   ),
 };
 

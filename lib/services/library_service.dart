@@ -4,6 +4,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:path/path.dart' as p;
 
 import '../models/book.dart';
+import '../models/generated_image.dart';
 import 'database_service.dart';
 import 'epub_service.dart';
 import 'storage_service.dart';
@@ -145,11 +146,12 @@ class LibraryService {
   // ── Delete ──────────────────────────────────────────────────────────────────
 
   /// Deletes a book and all associated data (progress, highlights,
-  /// local epub file, and in-memory epub cache).
+  /// generated images, local epub file, and in-memory epub cache).
   Future<void> deleteBook(Book book) async {
     if (book.id != null) {
-      // CASCADE deletes handle progress and highlights.
+      // CASCADE deletes handle progress, highlights, and generated images.
       await _db.deleteBook(book.id!);
+      await _storage.deleteGeneratedImagesForBook(book.id!);
     }
 
     // Remove the epub file from local storage.
@@ -162,6 +164,16 @@ class LibraryService {
   // ── Library queries ────────────────────────────────────────────────────────
 
   Future<List<Book>> getAllBooks() => _db.getAllBooks();
+  Future<List<GeneratedImage>> getAllGeneratedImages() =>
+      _db.getAllGeneratedImages();
+
+  Future<void> deleteGeneratedImage(GeneratedImage generatedImage) async {
+    final id = generatedImage.id;
+    if (id != null) {
+      await _db.deleteGeneratedImage(id);
+    }
+    await _storage.deleteGeneratedImageFile(generatedImage.filePath);
+  }
 
   // ── Helpers ────────────────────────────────────────────────────────────────
 

@@ -10,6 +10,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:bookai/app.dart';
 import 'package:bookai/services/database_service.dart';
 import 'package:bookai/services/settings_controller.dart';
+import 'package:bookai/services/storage_service.dart';
 
 void main() {
   GoogleFonts.config.allowRuntimeFetching = false;
@@ -24,6 +25,7 @@ void main() {
 
   tearDown(() async {
     await DatabaseService.instance.resetForTesting();
+    await StorageService.instance.resetForTesting();
     if (await tempDir.exists()) {
       await tempDir.delete(recursive: true);
     }
@@ -35,6 +37,9 @@ void main() {
       databasePath = p.join(tempDir.path, 'bookai_test.db');
       await DatabaseService.instance
           .resetForTesting(databasePath: databasePath);
+      await StorageService.instance.resetForTesting(
+        documentsDirectoryProvider: () async => tempDir,
+      );
     });
 
     testWidgets('empty state shows correct elements and import buttons',
@@ -61,14 +66,24 @@ void main() {
       // ── App bar ──────────────────────────────────────────────────────────
       expect(find.text('BookAI Library'), findsOneWidget);
       expect(find.byIcon(Icons.settings_outlined), findsOneWidget);
+      expect(find.text('Books'), findsOneWidget);
+      expect(find.text('Images'), findsOneWidget);
 
       // ── Empty state content ──────────────────────────────────────────────
-      expect(find.byIcon(Icons.auto_stories_outlined), findsOneWidget);
+      expect(
+        find.byWidgetPredicate(
+          (widget) =>
+              widget is Icon &&
+              widget.icon == Icons.auto_stories_outlined &&
+              widget.size == 96,
+        ),
+        findsOneWidget,
+      );
       expect(find.text('Your library is empty'), findsOneWidget);
       expect(
         find.text(
           'Import an EPUB file to start reading.\n'
-          'Your books, progress, and highlights are stored locally.',
+          'Your books, progress, highlights, and generated images are stored locally.',
         ),
         findsOneWidget,
       );
@@ -85,6 +100,39 @@ void main() {
 
       // ── No loading indicator (data has loaded) ───────────────────────────
       expect(find.byType(CircularProgressIndicator), findsNothing);
+    });
+
+    testWidgets('images tab shows generated image empty state',
+        (WidgetTester tester) async {
+      SharedPreferences.setMockInitialValues({});
+
+      await tester.runAsync(() async {
+        await DatabaseService.instance.database;
+      });
+
+      final controller = SettingsController();
+      await tester.runAsync(() => controller.load());
+
+      await tester.pumpWidget(BookAiApp(settingsController: controller));
+
+      for (int i = 0; i < 10; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 50)),
+        );
+        await tester.pump();
+      }
+
+      await tester.tap(find.text('Images'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('No generated images yet'), findsOneWidget);
+      expect(
+        find.text(
+          'Generate an image from the reader and it will appear here for the book it belongs to.',
+        ),
+        findsOneWidget,
+      );
+      expect(find.byType(FloatingActionButton), findsNothing);
     });
   });
 }

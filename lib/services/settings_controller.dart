@@ -17,6 +17,7 @@ class SettingsController extends ChangeNotifier {
   String get openRouterApiKey => _settings.openRouterApiKey;
   String get openRouterModelId => _settings.openRouterModelId;
   String get openRouterFallbackModelId => _settings.openRouterFallbackModelId;
+  String get openRouterImageModelId => _settings.openRouterImageModelId;
   Map<String, AiFeatureConfig> get aiFeatureConfigs =>
       _settings.aiFeatureConfigs;
 
@@ -71,6 +72,14 @@ class SettingsController extends ChangeNotifier {
     _settings = _settings.copyWith(openRouterFallbackModelId: normalized);
     notifyListeners();
     await _service.saveOpenRouterFallbackModelId(normalized);
+  }
+
+  Future<void> setOpenRouterImageModelId(String modelId) async {
+    final normalized = modelId.trim();
+    if (_settings.openRouterImageModelId == normalized) return;
+    _settings = _settings.copyWith(openRouterImageModelId: normalized);
+    notifyListeners();
+    await _service.saveOpenRouterImageModelId(normalized);
   }
 
   AiFeatureConfig aiFeatureConfig(String featureId) {

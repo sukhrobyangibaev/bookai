@@ -6,6 +6,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:bookai/models/book.dart';
 import 'package:bookai/models/chapter.dart';
+import 'package:bookai/models/generated_image.dart';
 import 'package:bookai/services/database_service.dart';
 
 void main() {
@@ -82,10 +83,42 @@ void main() {
     });
   });
 
-  test('openDatabaseAt migrates version 3 databases to version 4', () async {
+  test('stores and cascades generated images', () async {
+    final book = await service.insertBook(
+      Book(
+        title: 'Images Book',
+        author: 'Author',
+        filePath: '/tmp/images.epub',
+        totalChapters: 1,
+        createdAt: DateTime.utc(2025, 1, 4),
+      ),
+    );
+
+    final savedImage = await service.addGeneratedImage(
+      GeneratedImage(
+        bookId: book.id!,
+        chapterIndex: 0,
+        featureMode: 'selected_text',
+        sourceText: 'The moon over the harbor.',
+        promptText: 'A moonlit harbor in watercolor.',
+        filePath: '/tmp/generated.png',
+        createdAt: DateTime.utc(2025, 1, 5),
+      ),
+    );
+
+    final images = await service.getAllGeneratedImages();
+    expect(images, hasLength(1));
+    expect(images.single, savedImage);
+
+    await service.deleteBook(book.id!);
+
+    expect(await service.getGeneratedImagesByBookId(book.id!), isEmpty);
+  });
+
+  test('openDatabaseAt migrates version 4 databases to version 5', () async {
     final oldDb = await openDatabase(
       databasePath,
-      version: 3,
+      version: 4,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
       },
@@ -136,6 +169,16 @@ void main() {
             FOREIGN KEY (bookId) REFERENCES books(id) ON DELETE CASCADE
           )
         ''');
+        await db.execute('''
+          CREATE TABLE chapters (
+            bookId         INTEGER NOT NULL,
+            chapterIndex   INTEGER NOT NULL,
+            title          TEXT    NOT NULL,
+            content        TEXT    NOT NULL,
+            PRIMARY KEY (bookId, chapterIndex),
+            FOREIGN KEY (bookId) REFERENCES books(id) ON DELETE CASCADE
+          )
+        ''');
       },
     );
     await oldDb.close();
@@ -146,6 +189,9 @@ void main() {
     final chapterColumns =
         await migrated.rawQuery('PRAGMA table_info(chapters)');
     expect(chapterColumns, isNotEmpty);
+    final generatedImageColumns =
+        await migrated.rawQuery('PRAGMA table_info(generated_images)');
+    expect(generatedImageColumns, isNotEmpty);
 
     await migrated.insert('books', {
       'id': 1,
@@ -162,10 +208,21 @@ void main() {
       'title': 'Chapter 1',
       'content': 'Stored content',
     });
+    await migrated.insert('generated_images', {
+      'bookId': 1,
+      'chapterIndex': 0,
+      'featureMode': 'resume_range',
+      'sourceText': 'Stored source',
+      'promptText': 'Stored prompt',
+      'filePath': '/tmp/generated.png',
+      'createdAt': DateTime.utc(2025, 1, 6).toIso8601String(),
+    });
 
     await migrated.delete('books', where: 'id = ?', whereArgs: [1]);
 
     final remainingChapters = await migrated.query('chapters');
+    final remainingGeneratedImages = await migrated.query('generated_images');
     expect(remainingChapters, isEmpty);
+    expect(remainingGeneratedImages, isEmpty);
   });
 }

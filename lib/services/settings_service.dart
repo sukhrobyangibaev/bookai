@@ -13,6 +13,7 @@ class SettingsService {
   static const _keyOpenRouterModelId = 'reader_openrouter_model_id';
   static const _keyOpenRouterFallbackModelId =
       'reader_openrouter_fallback_model_id';
+  static const _keyOpenRouterImageModelId = 'reader_openrouter_image_model_id';
   static const _keyAiFeatureConfigs = 'reader_ai_feature_configs';
 
   Future<ReaderSettings> load() async {
@@ -43,6 +44,9 @@ class SettingsService {
     final openRouterFallbackModelId =
         prefs.getString(_keyOpenRouterFallbackModelId) ??
             ReaderSettings.defaults.openRouterFallbackModelId;
+    final openRouterImageModelId =
+        prefs.getString(_keyOpenRouterImageModelId) ??
+            ReaderSettings.defaults.openRouterImageModelId;
     final aiFeatureConfigs = _parseAiFeatureConfigsJson(
       prefs.getString(_keyAiFeatureConfigs),
     );
@@ -54,6 +58,7 @@ class SettingsService {
       'openRouterApiKey': openRouterApiKey,
       'openRouterModelId': openRouterModelId,
       'openRouterFallbackModelId': openRouterFallbackModelId,
+      'openRouterImageModelId': openRouterImageModelId,
       'aiFeatureConfigs': aiFeatureConfigs,
     });
   }
@@ -86,6 +91,11 @@ class SettingsService {
   Future<void> saveOpenRouterFallbackModelId(String modelId) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_keyOpenRouterFallbackModelId, modelId);
+  }
+
+  Future<void> saveOpenRouterImageModelId(String modelId) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_keyOpenRouterImageModelId, modelId);
   }
 
   Future<void> saveAiFeatureConfigs(

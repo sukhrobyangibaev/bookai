@@ -12,6 +12,7 @@ void main() {
       expect(ReaderSettings.defaults.openRouterApiKey, '');
       expect(ReaderSettings.defaults.openRouterModelId, '');
       expect(ReaderSettings.defaults.openRouterFallbackModelId, '');
+      expect(ReaderSettings.defaults.openRouterImageModelId, '');
       expect(
         ReaderSettings.defaults.aiFeatureConfigs[AiFeatureIds.resumeSummary],
         const AiFeatureConfig(
@@ -31,6 +32,12 @@ void main() {
           promptTemplate: defaultSimplifyTextPromptTemplate,
         ),
       );
+      expect(
+        ReaderSettings.defaults.aiFeatureConfigs[AiFeatureIds.generateImage],
+        const AiFeatureConfig(
+          promptTemplate: defaultGenerateImagePromptTemplate,
+        ),
+      );
     });
 
     test('toMap produces expected keys and values', () {
@@ -40,6 +47,7 @@ void main() {
         openRouterApiKey: 'test-key',
         openRouterModelId: 'openai/gpt-4o-mini',
         openRouterFallbackModelId: 'anthropic/claude-3.7-sonnet',
+        openRouterImageModelId: 'openai/gpt-image-1',
       );
 
       final map = settings.toMap();
@@ -53,6 +61,7 @@ void main() {
         map['openRouterFallbackModelId'],
         'anthropic/claude-3.7-sonnet',
       );
+      expect(map['openRouterImageModelId'], 'openai/gpt-image-1');
       expect(
         map['aiFeatureConfigs'][AiFeatureIds.resumeSummary]['promptTemplate'],
         defaultResumeSummaryPromptTemplate,
@@ -65,6 +74,10 @@ void main() {
       expect(
         map['aiFeatureConfigs'][AiFeatureIds.simplifyText]['promptTemplate'],
         defaultSimplifyTextPromptTemplate,
+      );
+      expect(
+        map['aiFeatureConfigs'][AiFeatureIds.generateImage]['promptTemplate'],
+        defaultGenerateImagePromptTemplate,
       );
     });
 
@@ -87,6 +100,7 @@ void main() {
         'openRouterApiKey': 'abc123',
         'openRouterModelId': 'anthropic/claude-3.5-sonnet',
         'openRouterFallbackModelId': 'openai/gpt-4.1-mini',
+        'openRouterImageModelId': 'openai/gpt-image-1',
         'aiFeatureConfigs': {
           AiFeatureIds.resumeSummary: {
             'modelIdOverride': 'openai/gpt-4.1-mini',
@@ -103,6 +117,7 @@ void main() {
       expect(settings.openRouterApiKey, 'abc123');
       expect(settings.openRouterModelId, 'anthropic/claude-3.5-sonnet');
       expect(settings.openRouterFallbackModelId, 'openai/gpt-4.1-mini');
+      expect(settings.openRouterImageModelId, 'openai/gpt-image-1');
       expect(
         settings.aiFeatureConfigs[AiFeatureIds.resumeSummary],
         const AiFeatureConfig(
@@ -120,6 +135,12 @@ void main() {
         settings.aiFeatureConfigs[AiFeatureIds.simplifyText],
         const AiFeatureConfig(
           promptTemplate: defaultSimplifyTextPromptTemplate,
+        ),
+      );
+      expect(
+        settings.aiFeatureConfigs[AiFeatureIds.generateImage],
+        const AiFeatureConfig(
+          promptTemplate: defaultGenerateImagePromptTemplate,
         ),
       );
     });
@@ -211,6 +232,7 @@ void main() {
       expect(settings.openRouterApiKey, '');
       expect(settings.openRouterModelId, '');
       expect(settings.openRouterFallbackModelId, '');
+      expect(settings.openRouterImageModelId, '');
       expect(
         settings.aiFeatureConfigs[AiFeatureIds.resumeSummary],
         const AiFeatureConfig(
@@ -229,6 +251,12 @@ void main() {
           promptTemplate: defaultSimplifyTextPromptTemplate,
         ),
       );
+      expect(
+        settings.aiFeatureConfigs[AiFeatureIds.generateImage],
+        const AiFeatureConfig(
+          promptTemplate: defaultGenerateImagePromptTemplate,
+        ),
+      );
     });
 
     test('roundtrip toMap -> fromMap preserves all fields', () {
@@ -239,6 +267,7 @@ void main() {
         openRouterApiKey: 'my-key',
         openRouterModelId: 'openai/gpt-4.1-mini',
         openRouterFallbackModelId: 'anthropic/claude-3.7-sonnet',
+        openRouterImageModelId: 'openai/gpt-image-1',
       );
 
       final restored = ReaderSettings.fromMap(original.toMap());
@@ -253,6 +282,7 @@ void main() {
         openRouterApiKey: 'k1',
         openRouterModelId: 'm1',
         openRouterFallbackModelId: 'fallback-1',
+        openRouterImageModelId: 'image-1',
       );
 
       final modified = original.copyWith(themeMode: AppThemeMode.dark);
@@ -263,6 +293,7 @@ void main() {
       expect(modified.openRouterApiKey, 'k1');
       expect(modified.openRouterModelId, 'm1');
       expect(modified.openRouterFallbackModelId, 'fallback-1');
+      expect(modified.openRouterImageModelId, 'image-1');
       expect(
         modified.aiFeatureConfigs,
         original.aiFeatureConfigs,
@@ -321,6 +352,7 @@ void main() {
         openRouterApiKey: 'key',
         openRouterModelId: 'model',
         openRouterFallbackModelId: 'fallback',
+        openRouterImageModelId: 'image-model',
       );
       const b = ReaderSettings(
         fontSize: 18.0,
@@ -328,6 +360,7 @@ void main() {
         openRouterApiKey: 'key',
         openRouterModelId: 'model',
         openRouterFallbackModelId: 'fallback',
+        openRouterImageModelId: 'image-model',
       );
       const c = ReaderSettings(
         fontSize: 20.0,
@@ -335,6 +368,7 @@ void main() {
         openRouterApiKey: 'key',
         openRouterModelId: 'model',
         openRouterFallbackModelId: 'fallback',
+        openRouterImageModelId: 'image-model',
       );
 
       expect(a, equals(b));

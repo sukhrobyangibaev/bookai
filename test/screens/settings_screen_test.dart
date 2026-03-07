@@ -59,6 +59,7 @@ void main() {
         'reader_openrouter_api_key': 'stored-key',
         'reader_openrouter_model_id': 'openai/gpt-4o-mini',
         'reader_openrouter_fallback_model_id': 'openai/gpt-4.1-mini',
+        'reader_openrouter_image_model_id': 'openai/gpt-image-1',
       });
 
       final controller = SettingsController();
@@ -75,11 +76,14 @@ void main() {
       expect(find.text('AI'), findsOneWidget);
       expect(find.text('OpenRouter API Key'), findsOneWidget);
       expect(find.text('Fallback Model'), findsOneWidget);
+      expect(find.text('Image Model'), findsOneWidget);
       expect(find.text('openai/gpt-4o-mini'), findsOneWidget);
       expect(find.text('openai/gpt-4.1-mini'), findsOneWidget);
+      expect(find.text('openai/gpt-image-1'), findsOneWidget);
       expect(find.text('Resume Here and Catch Me Up'), findsOneWidget);
       expect(find.text('Simplify Text'), findsOneWidget);
       expect(find.text('Define & Translate'), findsOneWidget);
+      expect(find.text('Generate Image'), findsOneWidget);
     });
 
     testWidgets('editing API key updates controller value', (tester) async {
@@ -117,18 +121,44 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      final defineAndTranslateTile = find.widgetWithText(
-        ListTile,
-        'Define & Translate',
-      );
-      await tester.drag(find.byType(ListView), const Offset(0, -500));
+      final defineAndTranslateText = find.text('Define & Translate');
+      await tester.ensureVisible(defineAndTranslateText);
       await tester.pumpAndSettle();
-      await tester.tap(defineAndTranslateTile);
+      await tester.tap(defineAndTranslateText);
       await tester.pumpAndSettle();
 
       expect(
         find.textContaining(
           'Supported placeholders: {book_title}, {book_author}, {context_sentence}, {source_text}',
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('shows generate image placeholders in feature config sheet',
+        (tester) async {
+      SharedPreferences.setMockInitialValues({});
+
+      final controller = SettingsController();
+      await tester.runAsync(() => controller.load());
+
+      await tester.pumpWidget(
+        SettingsControllerScope(
+          controller: controller,
+          child: const MaterialApp(home: SettingsScreen()),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final generateImageText = find.text('Generate Image');
+      await tester.ensureVisible(generateImageText);
+      await tester.pumpAndSettle();
+      await tester.tap(generateImageText);
+      await tester.pumpAndSettle();
+
+      expect(
+        find.textContaining(
+          'Supported placeholders: {book_title}, {book_author}, {chapter_title}, {context_sentence}, {source_text}',
         ),
         findsOneWidget,
       );

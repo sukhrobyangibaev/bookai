@@ -28,12 +28,13 @@ void main() {
         onCopy: () {},
         onHighlight: () {},
         onDefineAndTranslate: () {},
+        onGenerateImage: () {},
         onSimplifyText: () {},
         onResumeHere: () {},
         onCatchMeUp: () {},
       );
 
-      expect(items, hasLength(6));
+      expect(items, hasLength(7));
       expect(items.first.type, ContextMenuButtonType.copy);
       expect(
         items.where((item) => item.type == ContextMenuButtonType.selectAll),
@@ -43,6 +44,7 @@ void main() {
         'Copy',
         'Highlight',
         'Define & Translate',
+        'Generate Image',
         'Simplify Text',
         'Resume Here',
         'Catch Me Up',
@@ -77,6 +79,7 @@ void main() {
                 onCopy: () {},
                 onHighlight: () {},
                 onDefineAndTranslate: () {},
+                onGenerateImage: () {},
                 onSimplifyText: () {},
                 onResumeHere: () {},
                 onCatchMeUp: () {},
@@ -89,6 +92,7 @@ void main() {
       expect(find.text('Copy'), findsOneWidget);
       expect(find.text('Highlight'), findsOneWidget);
       expect(find.text('Define & Translate'), findsOneWidget);
+      expect(find.text('Generate Image'), findsOneWidget);
       expect(find.text('Simplify Text'), findsOneWidget);
       expect(find.text('Resume Here'), findsOneWidget);
       expect(find.text('Catch Me Up'), findsOneWidget);
@@ -125,6 +129,7 @@ void main() {
                 onCopy: () {},
                 onHighlight: () {},
                 onDefineAndTranslate: () {},
+                onGenerateImage: () {},
                 onSimplifyText: () {
                   simplifyPressed = true;
                 },
@@ -164,6 +169,7 @@ void main() {
                 onCopy: () {},
                 onHighlight: () {},
                 onDefineAndTranslate: () {},
+                onGenerateImage: () {},
                 onSimplifyText: () {},
                 onResumeHere: () {},
                 onCatchMeUp: () {},
@@ -185,6 +191,10 @@ void main() {
         tester,
         'reader-selection-button-define_and_translate',
       );
+      final generateImageShape = toolbarShapeFor(
+        tester,
+        'reader-selection-button-generate_image',
+      );
       final simplifyShape = toolbarShapeFor(
         tester,
         'reader-selection-button-simplify_text',
@@ -201,9 +211,14 @@ void main() {
       expect(copyShape.side.color, equals(highlightShape.side.color));
       expect(copyShape.side.color, equals(resumeShape.side.color));
       expect(defineShape.side.color, isNot(equals(copyShape.side.color)));
+      expect(generateImageShape.side.color, isNot(equals(copyShape.side.color)));
       expect(simplifyShape.side.color, isNot(equals(copyShape.side.color)));
       expect(catchMeUpShape.side.color, isNot(equals(copyShape.side.color)));
       expect(defineShape.side.color, isNot(equals(simplifyShape.side.color)));
+      expect(
+        generateImageShape.side.color,
+        isNot(equals(defineShape.side.color)),
+      );
       expect(catchMeUpShape.side.color, isNot(equals(defineShape.side.color)));
       expect(
           catchMeUpShape.side.color, isNot(equals(simplifyShape.side.color)));

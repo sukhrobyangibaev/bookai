@@ -26,10 +26,12 @@ void main() {
                 'name': 'GPT-4o Mini',
                 'description': 'OpenAI model',
                 'context_length': 128000,
+                'output_modalities': ['text'],
               },
               {
                 'id': 'anthropic/claude-3.7-sonnet',
                 'name': 'Claude 3.7 Sonnet',
+                'output_modalities': ['image', 'text'],
               },
             ],
           }),
@@ -44,6 +46,7 @@ void main() {
       expect(models.first.id, 'anthropic/claude-3.7-sonnet');
       expect(models.last.id, 'openai/gpt-4o-mini');
       expect(models.last.contextLength, 128000);
+      expect(models.first.supportsImageOutput, isTrue);
     });
 
     test('fetchModels throws on non-2xx status', () async {
@@ -278,6 +281,113 @@ void main() {
             (e) => e.message,
             'message',
             contains('choices'),
+          ),
+        ),
+      );
+    });
+
+    test('generateImage sends modalities and parses assistant images',
+        () async {
+      final client = MockClient((request) async {
+        expect(
+          request.url.toString(),
+          'https://openrouter.ai/api/v1/chat/completions',
+        );
+        final body = jsonDecode(request.body) as Map<String, dynamic>;
+        expect(body['model'], 'openai/gpt-image-1');
+        expect(body['modalities'], ['image', 'text']);
+        expect(body['messages'][0]['content'], 'Illustrate the storm.');
+
+        return http.Response(
+          jsonEncode({
+            'choices': [
+              {
+                'message': {
+                  'content': 'Generated one image.',
+                  'images': [
+                    {
+                      'image_url': {
+                        'url': 'data:image/png;base64,abc123',
+                      },
+                    },
+                  ],
+                },
+              }
+            ],
+          }),
+          200,
+        );
+      });
+
+      final service = OpenRouterService(client: client);
+      final result = await service.generateImage(
+        apiKey: 'test-key',
+        modelId: 'openai/gpt-image-1',
+        prompt: 'Illustrate the storm.',
+      );
+
+      expect(result.assistantText, 'Generated one image.');
+      expect(result.imageUrls, ['data:image/png;base64,abc123']);
+    });
+
+    test('generateImage reads image urls from content parts', () async {
+      final client = MockClient((_) async {
+        return http.Response(
+          jsonEncode({
+            'choices': [
+              {
+                'message': {
+                  'content': [
+                    {'type': 'text', 'text': 'Done.'},
+                    {
+                      'type': 'image_url',
+                      'image_url': {
+                        'url': 'data:image/png;base64,from-content',
+                      },
+                    },
+                  ],
+                },
+              }
+            ],
+          }),
+          200,
+        );
+      });
+
+      final service = OpenRouterService(client: client);
+      final result = await service.generateImage(
+        apiKey: 'k',
+        modelId: 'm',
+        prompt: 'p',
+        modalities: const ['image'],
+      );
+
+      expect(result.assistantText, 'Done.');
+      expect(result.imageUrls, ['data:image/png;base64,from-content']);
+    });
+
+    test('generateImage throws when no image payload is returned', () async {
+      final client = MockClient((_) async {
+        return http.Response(
+          jsonEncode({
+            'choices': [
+              {
+                'message': {'content': 'Only text here.'}
+              }
+            ],
+          }),
+          200,
+        );
+      });
+      final service = OpenRouterService(client: client);
+
+      await expectLater(
+        service.generateImage(apiKey: 'k', modelId: 'm', prompt: 'p'),
+        throwsA(
+          isA<OpenRouterException>().having(
+            (e) => e.message,
+            'message',
+            contains('generated images'),
           ),
         ),
       );

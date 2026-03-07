@@ -27,6 +27,7 @@ class ReaderSettings {
   final String openRouterApiKey;
   final String openRouterModelId;
   final String openRouterFallbackModelId;
+  final String openRouterImageModelId;
   final Map<String, AiFeatureConfig> aiFeatureConfigs;
 
   const ReaderSettings({
@@ -36,6 +37,7 @@ class ReaderSettings {
     this.openRouterApiKey = '',
     this.openRouterModelId = '',
     this.openRouterFallbackModelId = '',
+    this.openRouterImageModelId = '',
     this.aiFeatureConfigs = defaultAiFeatureConfigs,
   });
 
@@ -46,6 +48,7 @@ class ReaderSettings {
     openRouterApiKey: '',
     openRouterModelId: '',
     openRouterFallbackModelId: '',
+    openRouterImageModelId: '',
   );
 
   ReaderSettings copyWith({
@@ -55,6 +58,7 @@ class ReaderSettings {
     String? openRouterApiKey,
     String? openRouterModelId,
     String? openRouterFallbackModelId,
+    String? openRouterImageModelId,
     Map<String, AiFeatureConfig>? aiFeatureConfigs,
   }) {
     return ReaderSettings(
@@ -65,6 +69,8 @@ class ReaderSettings {
       openRouterModelId: openRouterModelId ?? this.openRouterModelId,
       openRouterFallbackModelId:
           openRouterFallbackModelId ?? this.openRouterFallbackModelId,
+      openRouterImageModelId:
+          openRouterImageModelId ?? this.openRouterImageModelId,
       aiFeatureConfigs: aiFeatureConfigs ?? this.aiFeatureConfigs,
     );
   }
@@ -77,6 +83,7 @@ class ReaderSettings {
       'openRouterApiKey': openRouterApiKey,
       'openRouterModelId': openRouterModelId,
       'openRouterFallbackModelId': openRouterFallbackModelId,
+      'openRouterImageModelId': openRouterImageModelId,
       'aiFeatureConfigs':
           aiFeatureConfigs.map((key, value) => MapEntry(key, value.toMap())),
     };
@@ -102,6 +109,7 @@ class ReaderSettings {
       openRouterModelId: map['openRouterModelId'] as String? ?? '',
       openRouterFallbackModelId:
           map['openRouterFallbackModelId'] as String? ?? '',
+      openRouterImageModelId: map['openRouterImageModelId'] as String? ?? '',
       aiFeatureConfigs: _parseAiFeatureConfigs(map['aiFeatureConfigs']),
     );
   }
@@ -148,6 +156,7 @@ class ReaderSettings {
         'openRouterApiKey: ${openRouterApiKey.isEmpty ? '<empty>' : '<redacted>'}, '
         'openRouterModelId: $openRouterModelId, '
         'openRouterFallbackModelId: $openRouterFallbackModelId, '
+        'openRouterImageModelId: $openRouterImageModelId, '
         'aiFeatureConfigs: ${aiFeatureConfigs.length})';
   }
 
@@ -161,6 +170,7 @@ class ReaderSettings {
         other.openRouterApiKey == openRouterApiKey &&
         other.openRouterModelId == openRouterModelId &&
         other.openRouterFallbackModelId == openRouterFallbackModelId &&
+        other.openRouterImageModelId == openRouterImageModelId &&
         _configsEqual(other.aiFeatureConfigs, aiFeatureConfigs);
   }
 
@@ -172,6 +182,7 @@ class ReaderSettings {
         openRouterApiKey,
         openRouterModelId,
         openRouterFallbackModelId,
+        openRouterImageModelId,
         Object.hashAllUnordered(
           aiFeatureConfigs.entries.map(
             (entry) => Object.hash(entry.key, entry.value),
