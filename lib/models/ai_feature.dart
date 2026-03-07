@@ -79,7 +79,7 @@ const AiFeatureDefinition simplifyTextFeature = AiFeatureDefinition(
 );
 
 const String defaultDefineAndTranslatePromptTemplate = '''
-You will be given a selected word or phrase from a book.
+You will be given selected text from a book. It may be a word, a phrase, or a character name.
 
 Book: {book_title}
 Author: {book_author}
@@ -91,10 +91,13 @@ Context sentence:
 {context_sentence}
 
 Respond briefly in exactly two parts:
-1. Definition: give a short, plain explanation of the selected text in English. If it is a phrase, explain the phrase naturally instead of treating each word separately.
+1. Definition: give a short, plain explanation of the selected text in English. If it is a phrase, explain the phrase naturally instead of treating each word separately. If it is a character name, identify who the character is only in spoiler-safe terms based on the provided context.
 2. Translation: translate the selected text into Russian.
 
 Use the context sentence to disambiguate meaning when needed.
+Never include spoilers.
+Only use information that is explicit in the selected text and context sentence.
+Do not mention future events, hidden motives, later relationships, twists, backstory not shown here, or anything a reader would learn later in the book.
 Keep the answer concise and useful for a reader.
 ''';
 
@@ -102,7 +105,7 @@ const AiFeatureDefinition defineAndTranslateFeature = AiFeatureDefinition(
   id: AiFeatureIds.defineAndTranslate,
   title: 'Define & Translate',
   description:
-      'Explain the selected word or phrase and translate it using the prompt language.',
+      'Explain the selected text and translate it using the prompt language.',
   defaultPromptTemplate: defaultDefineAndTranslatePromptTemplate,
   placeholders: <String>[
     '{book_title}',
