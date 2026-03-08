@@ -316,7 +316,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
   Future<void> _summarizeFromResumePoint(
     EditableTextState editableTextState,
   ) async {
-    await _runAiResumeRangeFeature(
+    await _showTextAiSourceModePicker(
       editableTextState: editableTextState,
       featureId: AiFeatureIds.resumeSummary,
     );
@@ -325,10 +325,77 @@ class _ReaderScreenState extends State<ReaderScreen> {
   Future<void> _simplifyTextFromResumePoint(
     EditableTextState editableTextState,
   ) async {
-    await _runAiResumeRangeFeature(
+    await _showTextAiSourceModePicker(
       editableTextState: editableTextState,
       featureId: AiFeatureIds.simplifyText,
     );
+  }
+
+  Future<void> _showTextAiSourceModePicker({
+    required EditableTextState editableTextState,
+    required String featureId,
+  }) async {
+    final featureSpec = _textAiFeatureSpec(featureId);
+    if (featureSpec == null) return;
+
+    final choice = await _showAiSourceModePicker(
+      title: featureSpec.title,
+      description:
+          'Choose how the source text should be collected for this request.',
+    );
+    if (!mounted || choice == null) return;
+
+    switch (choice) {
+      case _AiSourceMode.selectedText:
+        await _runAiSelectedTextFeature(
+          editableTextState: editableTextState,
+          featureId: featureId,
+        );
+        break;
+      case _AiSourceMode.resumeRange:
+        await _runAiResumeRangeFeature(
+          editableTextState: editableTextState,
+          featureId: featureId,
+        );
+        break;
+    }
+  }
+
+  Future<void> _runAiSelectedTextFeature({
+    required EditableTextState editableTextState,
+    required String featureId,
+  }) async {
+    final chapter = _currentChapter;
+    if (chapter == null) return;
+    final featureSpec = _textAiFeatureSpec(featureId);
+    if (featureSpec == null) return;
+
+    final selection = editableTextState.textEditingValue.selection;
+    final text = editableTextState.textEditingValue.text;
+    final textFeatureSelection = _buildSelectedTextAiSelection(
+      selection: selection,
+      chapterContent: text,
+      chapterTitle: chapter.title,
+    );
+    editableTextState.hideToolbar();
+
+    if (textFeatureSelection == null) {
+      _showAutoDismissSnackBar(
+        SnackBar(
+          content: Text(featureSpec.invalidSelectedTextMessage),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+
+    final requestSpec = _buildTextFeatureRequestSpec(
+      featureId: featureId,
+      textFeatureSelection: textFeatureSelection,
+    );
+    if (requestSpec == null) return;
+
+    await _startAiFeatureRequest(requestSpec);
   }
 
   Future<void> _runAiResumeRangeFeature({
@@ -337,19 +404,19 @@ class _ReaderScreenState extends State<ReaderScreen> {
   }) async {
     final chapter = _currentChapter;
     if (chapter == null) return;
-    final featureSpec = _resumeRangeFeatureSpec(featureId);
+    final featureSpec = _textAiFeatureSpec(featureId);
     if (featureSpec == null) return;
 
     final selection = editableTextState.textEditingValue.selection;
     final text = editableTextState.textEditingValue.text;
-    final summarySelection = _buildResumeSummarySelection(
+    final textFeatureSelection = _buildResumeRangeAiSelection(
       selection: selection,
       chapterContent: text,
       chapterTitle: chapter.title,
     );
     editableTextState.hideToolbar();
 
-    if (summarySelection == null) {
+    if (textFeatureSelection == null) {
       _showAutoDismissSnackBar(
         SnackBar(
           content: Text(
@@ -361,23 +428,24 @@ class _ReaderScreenState extends State<ReaderScreen> {
       return;
     }
 
-    final requestSpec = _buildResumeRangeRequestSpec(
+    final requestSpec = _buildTextFeatureRequestSpec(
       featureId: featureId,
-      summarySelection: summarySelection,
+      textFeatureSelection: textFeatureSelection,
     );
     if (requestSpec == null) return;
 
     await _startAiFeatureRequest(requestSpec);
   }
 
-  _ResumeRangeAiFeatureSpec? _resumeRangeFeatureSpec(String featureId) {
+  _TextAiFeatureSpec? _textAiFeatureSpec(String featureId) {
     return switch (featureId) {
-      AiFeatureIds.resumeSummary => const _ResumeRangeAiFeatureSpec(
+      AiFeatureIds.resumeSummary => const _TextAiFeatureSpec(
           featureId: AiFeatureIds.resumeSummary,
           title: 'Summary',
           loadingText: 'Generating summary...',
           emptyMessage: 'Model returned an empty summary.',
           copiedMessage: 'Summary copied',
+          invalidSelectedTextMessage: 'Select some text to summarize.',
           invalidRangeMessage:
               'Unable to build a summary range for this selection.',
           invalidPromptMessage:
@@ -385,12 +453,13 @@ class _ReaderScreenState extends State<ReaderScreen> {
           switchTargetFeatureId: AiFeatureIds.simplifyText,
           switchButtonLabel: 'Simplify Text',
         ),
-      AiFeatureIds.simplifyText => const _ResumeRangeAiFeatureSpec(
+      AiFeatureIds.simplifyText => const _TextAiFeatureSpec(
           featureId: AiFeatureIds.simplifyText,
           title: 'Simplify Text',
           loadingText: 'Rewriting text...',
           emptyMessage: 'Model returned an empty rewrite.',
           copiedMessage: 'Rewrite copied',
+          invalidSelectedTextMessage: 'Select some text to simplify.',
           invalidRangeMessage:
               'Unable to build a text range for this selection.',
           invalidPromptMessage:
@@ -402,11 +471,11 @@ class _ReaderScreenState extends State<ReaderScreen> {
     };
   }
 
-  _AiRequestSpec? _buildResumeRangeRequestSpec({
+  _AiRequestSpec? _buildTextFeatureRequestSpec({
     required String featureId,
-    required _ResumeSummarySelection summarySelection,
+    required _TextAiSelection textFeatureSelection,
   }) {
-    final featureSpec = _resumeRangeFeatureSpec(featureId);
+    final featureSpec = _textAiFeatureSpec(featureId);
     if (featureSpec == null) return null;
 
     final settings = SettingsControllerScope.of(context);
@@ -448,10 +517,10 @@ class _ReaderScreenState extends State<ReaderScreen> {
 
     final prompt = _resumeSummaryService.renderPromptTemplate(
       promptTemplate: promptTemplate,
-      sourceText: summarySelection.sourceText,
+      sourceText: textFeatureSelection.sourceText,
       bookTitle: widget.book.title,
       bookAuthor: widget.book.author,
-      chapterTitle: summarySelection.chapterTitle,
+      chapterTitle: textFeatureSelection.chapterTitle,
     );
     return _AiRequestSpec(
       apiKey: apiKey,
@@ -461,15 +530,15 @@ class _ReaderScreenState extends State<ReaderScreen> {
       loadingText: featureSpec.loadingText,
       emptyMessage: featureSpec.emptyMessage,
       copiedMessage: featureSpec.copiedMessage,
-      onSuccess: summarySelection.shouldUpdateResumeMarker
+      onSuccess: textFeatureSelection.shouldUpdateResumeMarker
           ? () => _saveResumeMarker(
-                selectedText: summarySelection.selectedText,
-                selectionStart: summarySelection.selectionStart,
-                selectionEnd: summarySelection.selectionEnd,
+                selectedText: textFeatureSelection.selectedText,
+                selectionStart: textFeatureSelection.selectionStart,
+                selectionEnd: textFeatureSelection.selectionEnd,
               )
           : null,
       featureId: featureSpec.featureId,
-      resumeRangeSelection: summarySelection,
+      textFeatureSelection: textFeatureSelection,
     );
   }
 
@@ -559,62 +628,18 @@ class _ReaderScreenState extends State<ReaderScreen> {
   Future<void> _showGenerateImageModePicker(
     EditableTextState editableTextState,
   ) async {
-    final choice = await showModalBottomSheet<_GenerateImageMode>(
-      context: context,
-      showDragHandle: true,
-      builder: (sheetContext) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Generate Image',
-                  style: Theme.of(sheetContext).textTheme.titleMedium,
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  'Choose how the source text should be collected for the prompt.',
-                  style: Theme.of(sheetContext).textTheme.bodySmall,
-                ),
-                const SizedBox(height: 12),
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.short_text),
-                  title: const Text('Selected Text'),
-                  subtitle: const Text(
-                    'Use only the currently selected words or sentence.',
-                  ),
-                  onTap: () => Navigator.of(sheetContext).pop(
-                    _GenerateImageMode.selectedText,
-                  ),
-                ),
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.bookmark_outline),
-                  title: const Text('Resume Range'),
-                  subtitle: const Text(
-                    'Use the range between the last resume point and this selection.',
-                  ),
-                  onTap: () => Navigator.of(sheetContext).pop(
-                    _GenerateImageMode.resumeRange,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
+    final choice = await _showAiSourceModePicker(
+      title: 'Generate Image',
+      description:
+          'Choose how the source text should be collected for the prompt.',
     );
     if (!mounted || choice == null) return;
 
     switch (choice) {
-      case _GenerateImageMode.selectedText:
+      case _AiSourceMode.selectedText:
         await _generateImageFromSelectedText(editableTextState);
         break;
-      case _GenerateImageMode.resumeRange:
+      case _AiSourceMode.resumeRange:
         await _generateImageFromResumeRange(editableTextState);
         break;
     }
@@ -708,7 +733,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
     required String chapterContent,
     required String chapterTitle,
   }) {
-    final summarySelection = _buildResumeSummarySelection(
+    final summarySelection = _buildResumeRangeAiSelection(
       selection: selection,
       chapterContent: chapterContent,
       chapterTitle: chapterTitle,
@@ -1419,7 +1444,86 @@ class _ReaderScreenState extends State<ReaderScreen> {
     );
   }
 
-  _ResumeSummarySelection? _buildResumeSummarySelection({
+  Future<_AiSourceMode?> _showAiSourceModePicker({
+    required String title,
+    required String description,
+  }) {
+    return showModalBottomSheet<_AiSourceMode>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: Theme.of(sheetContext).textTheme.titleMedium,
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  description,
+                  style: Theme.of(sheetContext).textTheme.bodySmall,
+                ),
+                const SizedBox(height: 12),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.short_text),
+                  title: const Text('Selected Text'),
+                  subtitle: const Text(
+                    'Use only the currently selected words or sentence.',
+                  ),
+                  onTap: () => Navigator.of(sheetContext)
+                      .pop(_AiSourceMode.selectedText),
+                ),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.bookmark_outline),
+                  title: const Text('Resume Range'),
+                  subtitle: const Text(
+                    'Use the range between the last resume point and this selection.',
+                  ),
+                  onTap: () =>
+                      Navigator.of(sheetContext).pop(_AiSourceMode.resumeRange),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  _TextAiSelection? _buildSelectedTextAiSelection({
+    required TextSelection selection,
+    required String chapterContent,
+    required String chapterTitle,
+  }) {
+    if (!selection.isValid || selection.isCollapsed) return null;
+
+    final boundedStart = selection.start.clamp(0, chapterContent.length);
+    final boundedEnd = selection.end.clamp(0, chapterContent.length);
+    if (boundedEnd <= boundedStart) return null;
+
+    final selectedText = chapterContent.substring(boundedStart, boundedEnd);
+    final sourceText = selectedText.trim();
+    if (sourceText.isEmpty) return null;
+
+    return _TextAiSelection(
+      sourceMode: _AiSourceMode.selectedText,
+      sourceText: sourceText,
+      chapterTitle: chapterTitle,
+      selectedText: selectedText,
+      selectionStart: boundedStart,
+      selectionEnd: boundedEnd,
+      shouldUpdateResumeMarker: false,
+    );
+  }
+
+  _TextAiSelection? _buildResumeRangeAiSelection({
     required TextSelection selection,
     required String chapterContent,
     required String chapterTitle,
@@ -1442,7 +1546,8 @@ class _ReaderScreenState extends State<ReaderScreen> {
     );
     if (range == null) return null;
 
-    return _ResumeSummarySelection(
+    return _TextAiSelection(
+      sourceMode: _AiSourceMode.resumeRange,
       sourceText: range.sourceText,
       chapterTitle: chapterTitle,
       selectedText: selectedText,
@@ -1511,30 +1616,30 @@ class _ReaderScreenState extends State<ReaderScreen> {
     if (action == _AiResultSheetAction.regenerateWithFallback) {
       await _regenerateAiRequestWithFallback(request.requestSpec);
     } else if (action == _AiResultSheetAction.switchFeature) {
-      await _switchResumeRangeFeature(request.requestSpec);
+      await _switchTextFeature(request.requestSpec);
     }
   }
 
   String? _switchFeatureLabelForRequest(_AiRequestSpec requestSpec) {
     final featureId = requestSpec.featureId;
-    if (featureId == null || requestSpec.resumeRangeSelection == null) {
+    if (featureId == null || requestSpec.textFeatureSelection == null) {
       return null;
     }
 
-    return _resumeRangeFeatureSpec(featureId)?.switchButtonLabel;
+    return _textAiFeatureSpec(featureId)?.switchButtonLabel;
   }
 
-  Future<void> _switchResumeRangeFeature(_AiRequestSpec requestSpec) async {
+  Future<void> _switchTextFeature(_AiRequestSpec requestSpec) async {
     final featureId = requestSpec.featureId;
-    final summarySelection = requestSpec.resumeRangeSelection;
-    if (featureId == null || summarySelection == null) return;
+    final textFeatureSelection = requestSpec.textFeatureSelection;
+    if (featureId == null || textFeatureSelection == null) return;
 
-    final featureSpec = _resumeRangeFeatureSpec(featureId);
+    final featureSpec = _textAiFeatureSpec(featureId);
     if (featureSpec == null) return;
 
-    final switchedRequestSpec = _buildResumeRangeRequestSpec(
+    final switchedRequestSpec = _buildTextFeatureRequestSpec(
       featureId: featureSpec.switchTargetFeatureId,
-      summarySelection: summarySelection,
+      textFeatureSelection: textFeatureSelection,
     );
     if (switchedRequestSpec == null) return;
 
@@ -2518,7 +2623,8 @@ class _StyledRange {
   });
 }
 
-class _ResumeSummarySelection {
+class _TextAiSelection {
+  final _AiSourceMode sourceMode;
   final String sourceText;
   final String chapterTitle;
   final String selectedText;
@@ -2526,7 +2632,8 @@ class _ResumeSummarySelection {
   final int selectionEnd;
   final bool shouldUpdateResumeMarker;
 
-  const _ResumeSummarySelection({
+  const _TextAiSelection({
+    required this.sourceMode,
     required this.sourceText,
     required this.chapterTitle,
     required this.selectedText,
@@ -2536,7 +2643,7 @@ class _ResumeSummarySelection {
   });
 }
 
-enum _GenerateImageMode {
+enum _AiSourceMode {
   selectedText,
   resumeRange,
 }
@@ -2586,23 +2693,25 @@ class _GeneratedImageDraft {
   });
 }
 
-class _ResumeRangeAiFeatureSpec {
+class _TextAiFeatureSpec {
   final String featureId;
   final String title;
   final String loadingText;
   final String emptyMessage;
   final String copiedMessage;
+  final String invalidSelectedTextMessage;
   final String invalidRangeMessage;
   final String invalidPromptMessage;
   final String switchTargetFeatureId;
   final String switchButtonLabel;
 
-  const _ResumeRangeAiFeatureSpec({
+  const _TextAiFeatureSpec({
     required this.featureId,
     required this.title,
     required this.loadingText,
     required this.emptyMessage,
     required this.copiedMessage,
+    required this.invalidSelectedTextMessage,
     required this.invalidRangeMessage,
     required this.invalidPromptMessage,
     required this.switchTargetFeatureId,
@@ -2631,7 +2740,7 @@ class _AiRequestSpec {
   final String emptyMessage;
   final String copiedMessage;
   final String? featureId;
-  final _ResumeSummarySelection? resumeRangeSelection;
+  final _TextAiSelection? textFeatureSelection;
   final Future<void> Function()? onSuccess;
 
   const _AiRequestSpec({
@@ -2643,7 +2752,7 @@ class _AiRequestSpec {
     required this.emptyMessage,
     required this.copiedMessage,
     this.featureId,
-    this.resumeRangeSelection,
+    this.textFeatureSelection,
     this.onSuccess,
   });
 
@@ -2656,7 +2765,7 @@ class _AiRequestSpec {
     String? emptyMessage,
     String? copiedMessage,
     String? featureId,
-    _ResumeSummarySelection? resumeRangeSelection,
+    _TextAiSelection? textFeatureSelection,
     Future<void> Function()? onSuccess,
   }) {
     return _AiRequestSpec(
@@ -2668,7 +2777,7 @@ class _AiRequestSpec {
       emptyMessage: emptyMessage ?? this.emptyMessage,
       copiedMessage: copiedMessage ?? this.copiedMessage,
       featureId: featureId ?? this.featureId,
-      resumeRangeSelection: resumeRangeSelection ?? this.resumeRangeSelection,
+      textFeatureSelection: textFeatureSelection ?? this.textFeatureSelection,
       onSuccess: onSuccess ?? this.onSuccess,
     );
   }

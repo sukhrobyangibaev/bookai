@@ -42,7 +42,7 @@ Passage:
 const AiFeatureDefinition resumeSummaryFeature = AiFeatureDefinition(
   id: AiFeatureIds.resumeSummary,
   title: 'Resume Here and Catch Me Up',
-  description: 'Give a short catch-up from the previous resume point.',
+  description: 'Give a short catch-up from selected text or a resume range.',
   defaultPromptTemplate: defaultResumeSummaryPromptTemplate,
   placeholders: <String>[
     '{book_title}',
@@ -70,7 +70,7 @@ const AiFeatureDefinition simplifyTextFeature = AiFeatureDefinition(
   id: AiFeatureIds.simplifyText,
   title: 'Simplify Text',
   description:
-      'Rewrite the selected resume range with simpler words and clearer phrasing.',
+      'Rewrite selected text or a resume range with simpler words and clearer phrasing.',
   defaultPromptTemplate: defaultSimplifyTextPromptTemplate,
   placeholders: <String>[
     '{book_title}',

@@ -6,6 +6,7 @@ import 'package:bookai/models/book.dart';
 import 'package:bookai/models/ai_feature.dart';
 import 'package:bookai/models/chapter.dart';
 import 'package:bookai/models/openrouter_model.dart';
+import 'package:bookai/models/resume_marker.dart';
 import 'package:bookai/screens/reader_screen.dart';
 import 'package:bookai/services/chapter_loader_service.dart';
 import 'package:bookai/services/database_service.dart';
@@ -335,6 +336,54 @@ void main() {
       expect(find.byTooltip('Summary'), findsOneWidget);
     });
 
+    testWidgets('shows both summary source modes', (tester) async {
+      final openRouter = _FakeOpenRouterService(
+        generateTextHandler: ({
+          required apiKey,
+          required modelId,
+          required prompt,
+          temperature,
+        }) async =>
+            'Catch-up summary.',
+      );
+
+      await _pumpReaderScreen(
+        tester,
+        openRouterService: openRouter,
+      );
+
+      await _startCatchMeUp(tester, sourceModeLabel: null);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Summary'), findsWidgets);
+      expect(find.text('Selected Text'), findsOneWidget);
+      expect(find.text('Resume Range'), findsOneWidget);
+    });
+
+    testWidgets('shows both simplify text source modes', (tester) async {
+      final openRouter = _FakeOpenRouterService(
+        generateTextHandler: ({
+          required apiKey,
+          required modelId,
+          required prompt,
+          temperature,
+        }) async =>
+            'Simplified text.',
+      );
+
+      await _pumpReaderScreen(
+        tester,
+        openRouterService: openRouter,
+      );
+
+      await _startSimplifyText(tester, sourceModeLabel: null);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Simplify Text'), findsWidgets);
+      expect(find.text('Selected Text'), findsOneWidget);
+      expect(find.text('Resume Range'), findsOneWidget);
+    });
+
     testWidgets('opens the result sheet in error state when AI fails',
         (tester) async {
       final completer = Completer<String>();
@@ -434,6 +483,164 @@ void main() {
         openRouter.lastPrompt,
         contains('Context sentence:\nThe hero felt nebulous about the plan.'),
       );
+    });
+
+    testWidgets('selected-text summary flow uses only the selected text',
+        (tester) async {
+      const forcedRangeText = 'Forced resume range text.';
+      final spyResumeSummaryService = _SpyResumeSummaryService(
+        forcedRange: const ResumeSummaryRange(
+          startOffset: 0,
+          endOffset: 24,
+          sourceText: forcedRangeText,
+          shouldUpdateResumeMarker: false,
+        ),
+      );
+      final openRouter = _FakeOpenRouterService(
+        generateTextHandler: ({
+          required apiKey,
+          required modelId,
+          required prompt,
+          temperature,
+        }) async =>
+            'Catch-up summary.',
+      );
+
+      await _pumpReaderScreen(
+        tester,
+        openRouterService: openRouter,
+        resumeSummaryService: spyResumeSummaryService,
+        chapters: const [
+          Chapter(
+            bookId: null,
+            index: 0,
+            title: 'Chapter 1',
+            content: 'Anchorword leads the sentence. More text follows here.',
+          ),
+        ],
+      );
+
+      await _startCatchMeUp(tester, sourceModeLabel: 'Selected Text');
+      await tester.pumpAndSettle();
+
+      expect(spyResumeSummaryService.computeRangeCallCount, 0);
+      expect(spyResumeSummaryService.lastSourceText, 'Anchorword');
+      expect(openRouter.lastPrompt, contains('Passage:\nAnchorword'));
+      expect(openRouter.lastPrompt, isNot(contains(forcedRangeText)));
+    });
+
+    testWidgets('selected-text simplify flow uses only the selected text',
+        (tester) async {
+      const forcedRangeText = 'Forced resume range text.';
+      final spyResumeSummaryService = _SpyResumeSummaryService(
+        forcedRange: const ResumeSummaryRange(
+          startOffset: 0,
+          endOffset: 24,
+          sourceText: forcedRangeText,
+          shouldUpdateResumeMarker: false,
+        ),
+      );
+      final openRouter = _FakeOpenRouterService(
+        generateTextHandler: ({
+          required apiKey,
+          required modelId,
+          required prompt,
+          temperature,
+        }) async =>
+            'Simplified text.',
+      );
+
+      await _pumpReaderScreen(
+        tester,
+        openRouterService: openRouter,
+        resumeSummaryService: spyResumeSummaryService,
+        chapters: const [
+          Chapter(
+            bookId: null,
+            index: 0,
+            title: 'Chapter 1',
+            content: 'Anchorword leads the sentence. More text follows here.',
+          ),
+        ],
+      );
+
+      await _startSimplifyText(tester, sourceModeLabel: 'Selected Text');
+      await tester.pumpAndSettle();
+
+      expect(spyResumeSummaryService.computeRangeCallCount, 0);
+      expect(spyResumeSummaryService.lastSourceText, 'Anchorword');
+      expect(openRouter.lastPrompt, contains('Passage:\nAnchorword'));
+      expect(openRouter.lastPrompt, isNot(contains(forcedRangeText)));
+    });
+
+    testWidgets('resume-range summary flow still uses the computed range',
+        (tester) async {
+      const forcedRangeText = 'Forced resume range text.';
+      final spyResumeSummaryService = _SpyResumeSummaryService(
+        forcedRange: const ResumeSummaryRange(
+          startOffset: 0,
+          endOffset: 24,
+          sourceText: forcedRangeText,
+          shouldUpdateResumeMarker: false,
+        ),
+      );
+      final openRouter = _FakeOpenRouterService(
+        generateTextHandler: ({
+          required apiKey,
+          required modelId,
+          required prompt,
+          temperature,
+        }) async =>
+            'Catch-up summary.',
+      );
+
+      await _pumpReaderScreen(
+        tester,
+        openRouterService: openRouter,
+        resumeSummaryService: spyResumeSummaryService,
+      );
+
+      await _startCatchMeUp(tester);
+      await tester.pumpAndSettle();
+
+      expect(spyResumeSummaryService.computeRangeCallCount, 1);
+      expect(spyResumeSummaryService.lastSourceText, forcedRangeText);
+      expect(openRouter.lastPrompt, contains('Passage:\n$forcedRangeText'));
+    });
+
+    testWidgets('resume-range simplify flow still uses the computed range',
+        (tester) async {
+      const forcedRangeText = 'Forced resume range text.';
+      final spyResumeSummaryService = _SpyResumeSummaryService(
+        forcedRange: const ResumeSummaryRange(
+          startOffset: 0,
+          endOffset: 24,
+          sourceText: forcedRangeText,
+          shouldUpdateResumeMarker: false,
+        ),
+      );
+      final openRouter = _FakeOpenRouterService(
+        generateTextHandler: ({
+          required apiKey,
+          required modelId,
+          required prompt,
+          temperature,
+        }) async =>
+            'Simplified text.',
+      );
+
+      await _pumpReaderScreen(
+        tester,
+        openRouterService: openRouter,
+        resumeSummaryService: spyResumeSummaryService,
+      );
+
+      await _startSimplifyText(tester);
+      await tester.pumpAndSettle();
+
+      expect(spyResumeSummaryService.computeRangeCallCount, 1);
+      expect(spyResumeSummaryService.lastSourceText, forcedRangeText);
+      expect(openRouter.lastPrompt, contains('Passage:\n$forcedRangeText'));
     });
 
     testWidgets('shows both generate image source modes', (tester) async {
@@ -1051,16 +1258,34 @@ Future<void> _startDefineAndTranslate(WidgetTester tester) async {
   await tester.pump();
 }
 
-Future<void> _startCatchMeUp(WidgetTester tester) async {
+Future<void> _startCatchMeUp(
+  WidgetTester tester, {
+  String? sourceModeLabel = 'Resume Range',
+}) async {
   await _openReaderSelectionToolbar(tester);
   await tester.tap(find.text('Catch Me Up'));
-  await tester.pump();
+  await tester.pumpAndSettle();
+  if (sourceModeLabel != null) {
+    final sourceModeFinder = find.text(sourceModeLabel);
+    await tester.ensureVisible(sourceModeFinder);
+    await tester.tap(sourceModeFinder);
+    await tester.pump();
+  }
 }
 
-Future<void> _startSimplifyText(WidgetTester tester) async {
+Future<void> _startSimplifyText(
+  WidgetTester tester, {
+  String? sourceModeLabel = 'Resume Range',
+}) async {
   await _openReaderSelectionToolbar(tester);
   await tester.tap(find.text('Simplify Text'));
-  await tester.pump();
+  await tester.pumpAndSettle();
+  if (sourceModeLabel != null) {
+    final sourceModeFinder = find.text(sourceModeLabel);
+    await tester.ensureVisible(sourceModeFinder);
+    await tester.tap(sourceModeFinder);
+    await tester.pump();
+  }
 }
 
 Future<void> _startGenerateImage(WidgetTester tester) async {
@@ -1241,6 +1466,31 @@ class _SpyResumeSummaryService extends ResumeSummaryService {
   String? lastSourceText;
   String? lastContextSentence;
   final List<_RenderPromptCall> renderCalls = [];
+  final ResumeSummaryRange? forcedRange;
+  int computeRangeCallCount = 0;
+
+  _SpyResumeSummaryService({
+    this.forcedRange,
+  });
+
+  @override
+  ResumeSummaryRange? computeRange({
+    required String chapterContent,
+    required int currentChapterIndex,
+    required int selectionStart,
+    required int selectionEnd,
+    ResumeMarker? previousMarker,
+  }) {
+    computeRangeCallCount += 1;
+    return forcedRange ??
+        super.computeRange(
+          chapterContent: chapterContent,
+          currentChapterIndex: currentChapterIndex,
+          selectionStart: selectionStart,
+          selectionEnd: selectionEnd,
+          previousMarker: previousMarker,
+        );
+  }
 
   @override
   String extractContextSentence({
