@@ -10,6 +10,10 @@ void main() {
     return material.shape! as RoundedRectangleBorder;
   }
 
+  Offset buttonCenterFor(WidgetTester tester, String keyValue) {
+    return tester.getCenter(find.byKey(ValueKey<String>(keyValue)));
+  }
+
   group('buildReaderSelectionButtonItems', () {
     test('keeps copy, drops select all, and appends reader actions', () {
       final items = buildReaderSelectionButtonItems(
@@ -53,7 +57,7 @@ void main() {
   });
 
   group('ReaderSelectionToolbar', () {
-    testWidgets('shows all reader actions inline without overflow',
+    testWidgets('shows reader actions in fixed rows without overflow',
         (tester) async {
       await tester.pumpWidget(
         MaterialApp(
@@ -98,6 +102,46 @@ void main() {
       expect(find.text('Catch Me Up'), findsOneWidget);
       expect(find.text('Select All'), findsNothing);
       expect(find.byIcon(Icons.more_vert), findsNothing);
+
+      final copyCenter = buttonCenterFor(
+        tester,
+        'reader-selection-button-copy',
+      );
+      final highlightCenter = buttonCenterFor(
+        tester,
+        'reader-selection-button-highlight',
+      );
+      final defineCenter = buttonCenterFor(
+        tester,
+        'reader-selection-button-define_and_translate',
+      );
+      final generateImageCenter = buttonCenterFor(
+        tester,
+        'reader-selection-button-generate_image',
+      );
+      final simplifyCenter = buttonCenterFor(
+        tester,
+        'reader-selection-button-simplify_text',
+      );
+      final catchMeUpCenter = buttonCenterFor(
+        tester,
+        'reader-selection-button-catch_me_up',
+      );
+      final resumeCenter = buttonCenterFor(
+        tester,
+        'reader-selection-button-resume_here',
+      );
+
+      expect(copyCenter.dy, moreOrLessEquals(highlightCenter.dy));
+      expect(defineCenter.dy, moreOrLessEquals(generateImageCenter.dy));
+      expect(simplifyCenter.dy, moreOrLessEquals(catchMeUpCenter.dy));
+      expect(defineCenter.dy, greaterThan(copyCenter.dy));
+      expect(simplifyCenter.dy, greaterThan(defineCenter.dy));
+      expect(resumeCenter.dy, greaterThan(simplifyCenter.dy));
+
+      expect(copyCenter.dx, lessThan(highlightCenter.dx));
+      expect(defineCenter.dx, lessThan(generateImageCenter.dx));
+      expect(simplifyCenter.dx, lessThan(catchMeUpCenter.dx));
 
       final toolbarShape = toolbarShapeFor(
         tester,
@@ -211,7 +255,8 @@ void main() {
       expect(copyShape.side.color, equals(highlightShape.side.color));
       expect(copyShape.side.color, equals(resumeShape.side.color));
       expect(defineShape.side.color, isNot(equals(copyShape.side.color)));
-      expect(generateImageShape.side.color, isNot(equals(copyShape.side.color)));
+      expect(
+          generateImageShape.side.color, isNot(equals(copyShape.side.color)));
       expect(simplifyShape.side.color, isNot(equals(copyShape.side.color)));
       expect(catchMeUpShape.side.color, isNot(equals(copyShape.side.color)));
       expect(defineShape.side.color, isNot(equals(simplifyShape.side.color)));

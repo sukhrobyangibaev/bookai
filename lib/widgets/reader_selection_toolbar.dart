@@ -63,9 +63,55 @@ class ReaderSelectionToolbar extends StatelessWidget {
   static const double _kToolbarBorderRadius = 22.0;
   static const double _kToolbarContentDistance = 8.0;
   static const double _kScreenPadding = 8.0;
+  static const List<List<String>> _kButtonRows = [
+    [_ToolbarActionStyle._copyId, _ToolbarActionStyle._highlightId],
+    [
+      _ToolbarActionStyle._defineAndTranslateId,
+      _ToolbarActionStyle._generateImageId,
+    ],
+    [_ToolbarActionStyle._simplifyTextId, _ToolbarActionStyle._catchMeUpId],
+    [_ToolbarActionStyle._resumeHereId],
+  ];
 
   final TextSelectionToolbarAnchors anchors;
   final List<ContextMenuButtonItem> buttonItems;
+
+  List<List<ContextMenuButtonItem>> _buildButtonRows() {
+    final itemsById = <String, ContextMenuButtonItem>{};
+    final usedIds = <String>{};
+
+    for (final item in buttonItems) {
+      final actionId = _ToolbarActionStyle._actionIdForItem(item);
+      itemsById.putIfAbsent(actionId, () => item);
+    }
+
+    final rows = <List<ContextMenuButtonItem>>[];
+    for (final rowIds in _kButtonRows) {
+      final row = <ContextMenuButtonItem>[];
+      for (final rowId in rowIds) {
+        final item = itemsById[rowId];
+        if (item == null) {
+          continue;
+        }
+        usedIds.add(rowId);
+        row.add(item);
+      }
+      if (row.isNotEmpty) {
+        rows.add(row);
+      }
+    }
+
+    final extraItems = buttonItems.where((item) {
+      final actionId = _ToolbarActionStyle._actionIdForItem(item);
+      return !usedIds.contains(actionId);
+    }).toList();
+
+    for (int i = 0; i < extraItems.length; i += 2) {
+      rows.add(extraItems.skip(i).take(2).toList());
+    }
+
+    return rows;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -84,6 +130,7 @@ class ReaderSelectionToolbar extends StatelessWidget {
       MediaQuery.sizeOf(context).width - (_kScreenPadding * 2),
       0.0,
     );
+    final buttonRows = _buildButtonRows();
 
     return Padding(
       padding: EdgeInsets.fromLTRB(
@@ -102,24 +149,30 @@ class ReaderSelectionToolbar extends StatelessWidget {
           child: _ReaderSelectionToolbarContainer(
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
-              child: Wrap(
-                alignment: WrapAlignment.center,
-                spacing: 6,
-                runSpacing: 6,
-                crossAxisAlignment: WrapCrossAlignment.center,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  for (final buttonItem in buttonItems) ...[
-                    _ReaderSelectionToolbarButton(
-                      label: AdaptiveTextSelectionToolbar.getButtonLabel(
-                        context,
-                        buttonItem,
-                      ),
-                      actionStyle: _ToolbarActionStyle.resolve(
-                        theme: Theme.of(context),
-                        item: buttonItem,
-                      ),
-                      onPressed: buttonItem.onPressed,
+                  for (int i = 0; i < buttonRows.length; i++) ...[
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        for (int j = 0; j < buttonRows[i].length; j++) ...[
+                          if (j > 0) const SizedBox(width: 6),
+                          _ReaderSelectionToolbarButton(
+                            label: AdaptiveTextSelectionToolbar.getButtonLabel(
+                              context,
+                              buttonRows[i][j],
+                            ),
+                            actionStyle: _ToolbarActionStyle.resolve(
+                              theme: Theme.of(context),
+                              item: buttonRows[i][j],
+                            ),
+                            onPressed: buttonRows[i][j].onPressed,
+                          ),
+                        ],
+                      ],
                     ),
+                    if (i < buttonRows.length - 1) const SizedBox(height: 6),
                   ],
                 ],
               ),
