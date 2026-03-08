@@ -95,6 +95,15 @@ class _ReaderScreenState extends State<ReaderScreen> {
   _ActiveAiRequest? _activeAiRequest;
 
   static const double _aiLoadingSheetReservedSpace = 88.0;
+  static const double _readerHorizontalPadding = 20.0;
+  static const double _readerTopPadding = 16.0;
+  static const double _readerBottomPadding = 32.0;
+  static const double _hiddenNavPillHeight = 40.0;
+  static const double _hiddenNavPillTopInset = 8.0;
+  static const double _hiddenNavPillSideInset = 8.0;
+  static const double _hiddenNavPillContentGap = 8.0;
+  static const ValueKey<String> _hiddenNavPillKey =
+      ValueKey<String>('reader-hidden-nav-pill');
 
   @override
   void initState() {
@@ -2076,35 +2085,76 @@ class _ReaderScreenState extends State<ReaderScreen> {
           : null,
       body: Stack(
         children: [
-          Positioned.fill(child: _buildBody()),
+          Positioned.fill(
+            child: SafeArea(
+              top: !_isNavbarVisible,
+              bottom: false,
+              left: false,
+              right: false,
+              child: _buildBody(),
+            ),
+          ),
           if (_activeAiRequest != null)
             _AiLoadingSheet(
               loadingText: _activeAiRequest!.requestSpec.loadingText,
             ),
-          if (!_isNavbarVisible)
-            SafeArea(
-              child: Align(
-                alignment: Alignment.topRight,
-                child: Padding(
-                  padding: const EdgeInsets.only(top: 8, right: 8),
-                  child: Material(
-                    elevation: 2,
-                    color: Theme.of(context).colorScheme.surface.withAlpha(220),
-                    shape: const CircleBorder(),
-                    child: IconButton(
+          if (!_isNavbarVisible) _buildHiddenNavPill(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHiddenNavPill() {
+    final theme = Theme.of(context);
+    final progressText = _chapters != null && _chapters!.isNotEmpty
+        ? '${_currentIndex + 1} / ${_chapters!.length}'
+        : null;
+
+    return SafeArea(
+      bottom: false,
+      child: Align(
+        alignment: Alignment.topRight,
+        child: Padding(
+          padding: const EdgeInsets.only(
+            top: _hiddenNavPillTopInset,
+            right: _hiddenNavPillSideInset,
+          ),
+          child: Material(
+            key: _hiddenNavPillKey,
+            elevation: 2,
+            color: theme.colorScheme.surface.withAlpha(228),
+            shadowColor: Colors.black.withOpacity(0.1),
+            shape: const StadiumBorder(),
+            child: SizedBox(
+              height: _hiddenNavPillHeight,
+              child: Padding(
+                padding: const EdgeInsets.only(left: 4, right: 12),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
                       icon: const Icon(Icons.menu),
                       iconSize: 20,
                       tooltip: 'Show Navigation Bar',
                       onPressed: _toggleNavbar,
-                      padding: const EdgeInsets.all(8),
+                      visualDensity: VisualDensity.compact,
+                      padding: EdgeInsets.zero,
                       constraints:
                           const BoxConstraints.tightFor(width: 36, height: 36),
                     ),
-                  ),
+                    if (progressText != null) ...[
+                      const SizedBox(width: 4),
+                      Text(
+                        progressText,
+                        style: theme.textTheme.bodySmall,
+                      ),
+                    ],
+                  ],
                 ),
               ),
             ),
-        ],
+          ),
+        ),
       ),
     );
   }
@@ -2187,6 +2237,10 @@ class _ReaderScreenState extends State<ReaderScreen> {
     final settings = SettingsControllerScope.of(context);
     final settingsFontSize = settings.fontSize;
     final settingsFontFamily = settings.fontFamily;
+    final topPadding = _readerTopPadding +
+        (_isNavbarVisible
+            ? 0
+            : _hiddenNavPillHeight + _hiddenNavPillContentGap);
 
     // Collect highlight texts for the current chapter to display inline
     // highlighting. Build a set for quick lookups.
@@ -2206,10 +2260,11 @@ class _ReaderScreenState extends State<ReaderScreen> {
         child: SingleChildScrollView(
           controller: _scrollController,
           padding: EdgeInsets.fromLTRB(
-            20,
-            16,
-            20,
-            32 + (_activeAiRequest == null ? 0 : _aiLoadingSheetReservedSpace),
+            _readerHorizontalPadding,
+            topPadding,
+            _readerHorizontalPadding,
+            _readerBottomPadding +
+                (_activeAiRequest == null ? 0 : _aiLoadingSheetReservedSpace),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,

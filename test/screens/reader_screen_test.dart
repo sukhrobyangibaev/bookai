@@ -161,6 +161,44 @@ void main() {
       expect(find.byType(Scrollbar), findsOneWidget);
     });
 
+    testWidgets(
+        'hidden nav mode keeps chapter content below the sticky top pill',
+        (tester) async {
+      final openRouter = _FakeOpenRouterService(
+        generateTextHandler: ({
+          required apiKey,
+          required modelId,
+          required prompt,
+          temperature,
+        }) async =>
+            'Definition: vague\nTranslation: neyasny',
+      );
+
+      await _pumpReaderScreen(
+        tester,
+        openRouterService: openRouter,
+        mediaQueryPadding: const EdgeInsets.only(top: 32),
+      );
+
+      final pillFinder =
+          find.byKey(const ValueKey<String>('reader-hidden-nav-pill'));
+      final chapterTitleFinder = find.text('Chapter 1');
+
+      expect(pillFinder, findsOneWidget);
+      expect(find.text('1 / 1'), findsOneWidget);
+
+      final pillBottom = tester.getBottomLeft(pillFinder).dy;
+      final chapterTop = tester.getTopLeft(chapterTitleFinder).dy;
+
+      expect(chapterTop, greaterThan(32));
+      expect(chapterTop, greaterThan(pillBottom));
+
+      await tester.tap(find.byTooltip('Show Navigation Bar'));
+      await tester.pumpAndSettle();
+
+      expect(find.byTooltip('Hide Navigation Bar'), findsOneWidget);
+    });
+
     testWidgets('summary result sheet shows switch action for simplify text',
         (tester) async {
       final openRouter = _FakeOpenRouterService(
@@ -355,12 +393,12 @@ void main() {
           required forceRefresh,
         }) async =>
             const [
-              OpenRouterModel(
-                id: 'openai/gpt-image-1',
-                name: 'GPT Image 1',
-                outputModalities: ['image', 'text'],
-              ),
-            ],
+          OpenRouterModel(
+            id: 'openai/gpt-image-1',
+            name: 'GPT Image 1',
+            outputModalities: ['image', 'text'],
+          ),
+        ],
         generateImageHandler: ({
           required apiKey,
           required modelId,
@@ -369,11 +407,11 @@ void main() {
           temperature,
         }) async =>
             const OpenRouterImageGenerationResult(
-              assistantText: 'Rendered successfully.',
-              imageUrls: [
-                'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO6V1xQAAAAASUVORK5CYII='
-              ],
-            ),
+          assistantText: 'Rendered successfully.',
+          imageUrls: [
+            'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO6V1xQAAAAASUVORK5CYII='
+          ],
+        ),
       );
 
       await _pumpReaderScreen(
@@ -429,11 +467,11 @@ void main() {
           required forceRefresh,
         }) async =>
             const [
-              OpenRouterModel(
-                id: 'black-forest-labs/flux.2-klein-4b',
-                name: 'FLUX.2 Klein',
-              ),
-            ],
+          OpenRouterModel(
+            id: 'black-forest-labs/flux.2-klein-4b',
+            name: 'FLUX.2 Klein',
+          ),
+        ],
         generateImageHandler: ({
           required apiKey,
           required modelId,
@@ -442,11 +480,11 @@ void main() {
           temperature,
         }) async =>
             const OpenRouterImageGenerationResult(
-              assistantText: '',
-              imageUrls: [
-                'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO6V1xQAAAAASUVORK5CYII='
-              ],
-            ),
+          assistantText: '',
+          imageUrls: [
+            'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO6V1xQAAAAASUVORK5CYII='
+          ],
+        ),
       );
 
       await _pumpReaderScreen(
@@ -473,8 +511,7 @@ void main() {
       expect(openRouter.generateImageCalls.single.modalities, ['image']);
     });
 
-    testWidgets(
-        'generate image respects image-only metadata modalities',
+    testWidgets('generate image respects image-only metadata modalities',
         (tester) async {
       final openRouter = _FakeOpenRouterService(
         generateTextHandler: ({
@@ -489,12 +526,12 @@ void main() {
           required forceRefresh,
         }) async =>
             const [
-              OpenRouterModel(
-                id: 'example/image-only-model',
-                name: 'Image Only Model',
-                outputModalities: ['image'],
-              ),
-            ],
+          OpenRouterModel(
+            id: 'example/image-only-model',
+            name: 'Image Only Model',
+            outputModalities: ['image'],
+          ),
+        ],
         generateImageHandler: ({
           required apiKey,
           required modelId,
@@ -503,11 +540,11 @@ void main() {
           temperature,
         }) async =>
             const OpenRouterImageGenerationResult(
-              assistantText: '',
-              imageUrls: [
-                'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO6V1xQAAAAASUVORK5CYII='
-              ],
-            ),
+          assistantText: '',
+          imageUrls: [
+            'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO6V1xQAAAAASUVORK5CYII='
+          ],
+        ),
       );
 
       await _pumpReaderScreen(
@@ -550,17 +587,17 @@ void main() {
           required forceRefresh,
         }) async =>
             const [
-              OpenRouterModel(
-                id: 'example/image-only-prompt-model',
-                name: 'Image Only Prompt Model',
-                outputModalities: ['image'],
-              ),
-              OpenRouterModel(
-                id: 'openai/gpt-image-1',
-                name: 'GPT Image 1',
-                outputModalities: ['image', 'text'],
-              ),
-            ],
+          OpenRouterModel(
+            id: 'example/image-only-prompt-model',
+            name: 'Image Only Prompt Model',
+            outputModalities: ['image'],
+          ),
+          OpenRouterModel(
+            id: 'openai/gpt-image-1',
+            name: 'GPT Image 1',
+            outputModalities: ['image', 'text'],
+          ),
+        ],
       );
 
       await _pumpReaderScreen(
@@ -825,6 +862,7 @@ Future<void> _pumpReaderScreen(
   Book? savedBook,
   DatabaseService? databaseService,
   StorageService? storageService,
+  EdgeInsets mediaQueryPadding = EdgeInsets.zero,
 }) async {
   SharedPreferences.setMockInitialValues({
     'reader_openrouter_api_key': 'test-key',
@@ -866,20 +904,28 @@ Future<void> _pumpReaderScreen(
     SettingsControllerScope(
       controller: controller,
       child: MaterialApp(
-        home: ReaderScreen(
-          book: savedBook ??
-              Book(
-                title: 'Test Book',
-                author: 'Test Author',
-                filePath: '/tmp/test.epub',
-                totalChapters: 1,
-                createdAt: DateTime(2024, 1, 1),
-              ),
-          chapterLoader: chapterLoader,
-          databaseService: databaseService,
-          openRouterService: openRouterService,
-          resumeSummaryService: resumeSummaryService,
-          storageService: storageService,
+        home: Builder(
+          builder: (context) => MediaQuery(
+            data: MediaQuery.of(context).copyWith(
+              padding: mediaQueryPadding,
+              viewPadding: mediaQueryPadding,
+            ),
+            child: ReaderScreen(
+              book: savedBook ??
+                  Book(
+                    title: 'Test Book',
+                    author: 'Test Author',
+                    filePath: '/tmp/test.epub',
+                    totalChapters: 1,
+                    createdAt: DateTime(2024, 1, 1),
+                  ),
+              chapterLoader: chapterLoader,
+              databaseService: databaseService,
+              openRouterService: openRouterService,
+              resumeSummaryService: resumeSummaryService,
+              storageService: storageService,
+            ),
+          ),
         ),
       ),
     ),
@@ -899,35 +945,38 @@ Future<void> _pumpReaderScreen(
 }
 
 Future<void> _startDefineAndTranslate(WidgetTester tester) async {
-  await tester.longPress(find.byType(SelectableText).first);
-  await tester.pump();
-  await tester.pump(const Duration(milliseconds: 200));
+  await _openReaderSelectionToolbar(tester);
   await tester.tap(find.text('Define & Translate'));
   await tester.pump();
 }
 
 Future<void> _startCatchMeUp(WidgetTester tester) async {
-  await tester.longPress(find.byType(SelectableText).first);
-  await tester.pump();
-  await tester.pump(const Duration(milliseconds: 200));
+  await _openReaderSelectionToolbar(tester);
   await tester.tap(find.text('Catch Me Up'));
   await tester.pump();
 }
 
 Future<void> _startSimplifyText(WidgetTester tester) async {
-  await tester.longPress(find.byType(SelectableText).first);
-  await tester.pump();
-  await tester.pump(const Duration(milliseconds: 200));
+  await _openReaderSelectionToolbar(tester);
   await tester.tap(find.text('Simplify Text'));
   await tester.pump();
 }
 
 Future<void> _startGenerateImage(WidgetTester tester) async {
-  await tester.longPress(find.byType(SelectableText).first);
-  await tester.pump();
-  await tester.pump(const Duration(milliseconds: 200));
+  await _openReaderSelectionToolbar(tester);
   await tester.tap(find.text('Generate Image'));
   await tester.pump();
+}
+
+Future<void> _openReaderSelectionToolbar(WidgetTester tester) async {
+  final textFinder = find.byType(SelectableText).first;
+
+  await tester.ensureVisible(textFinder);
+
+  final textTopLeft = tester.getTopLeft(textFinder);
+  await tester.longPressAt(textTopLeft + const Offset(32, 24));
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 200));
 }
 
 typedef _GenerateTextHandler = Future<String> Function({
@@ -942,7 +991,8 @@ typedef _FetchModelsHandler = Future<List<OpenRouterModel>> Function({
   required bool forceRefresh,
 });
 
-typedef _GenerateImageHandler = Future<OpenRouterImageGenerationResult> Function({
+typedef _GenerateImageHandler = Future<OpenRouterImageGenerationResult>
+    Function({
   required String apiKey,
   required String modelId,
   required String prompt,
@@ -965,8 +1015,7 @@ class _FakeOpenRouterService extends OpenRouterService {
     _FetchModelsHandler? fetchModelsHandler,
     _GenerateImageHandler? generateImageHandler,
   })  : fetchModelsHandler = fetchModelsHandler ?? _defaultFetchModels,
-        generateImageHandler =
-            generateImageHandler ?? _defaultGenerateImage;
+        generateImageHandler = generateImageHandler ?? _defaultGenerateImage;
 
   static Future<List<OpenRouterModel>> _defaultFetchModels({
     required String apiKey,
