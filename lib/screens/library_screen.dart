@@ -172,12 +172,13 @@ class _LibraryScreenState extends State<LibraryScreen>
 
   Future<void> _deleteGeneratedImage(GeneratedImage generatedImage) async {
     final book = _booksById[generatedImage.bookId];
+    final imageTitle = _generatedImageDisplayName(generatedImage, book);
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Delete Image'),
         content: Text(
-          'Delete this generated image${book == null ? '' : ' from "${book.title}"'}?\n\n'
+          'Delete "$imageTitle"?\n\n'
           'The saved image file and its prompt metadata will be removed.',
         ),
         actions: [
@@ -212,8 +213,34 @@ class _LibraryScreenState extends State<LibraryScreen>
     }
   }
 
+  Future<void> _renameGeneratedImage(GeneratedImage generatedImage) async {
+    final book = _booksById[generatedImage.bookId];
+    final updatedName = await _showGeneratedImageNameEditorSheet(
+      initialName: generatedImage.name,
+      fallbackBookTitle: book?.title ?? '',
+    );
+    if (updatedName == null || !mounted) return;
+
+    final normalizedName = _normalizeGeneratedImageName(updatedName);
+
+    try {
+      await _library.renameGeneratedImage(generatedImage, normalizedName);
+      await _loadLibraryData();
+      if (mounted) {
+        _showSnackBar(
+          normalizedName == null ? 'Image name cleared' : 'Image name updated',
+        );
+      }
+    } catch (error) {
+      if (mounted) {
+        _showSnackBar('Failed to rename image: $error', isError: true);
+      }
+    }
+  }
+
   void _showGeneratedImageDetail(GeneratedImage generatedImage) {
     final book = _booksById[generatedImage.bookId];
+    final imageTitle = _generatedImageDisplayName(generatedImage, book);
 
     showModalBottomSheet<void>(
       context: context,
@@ -228,7 +255,7 @@ class _LibraryScreenState extends State<LibraryScreen>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  book?.title ?? 'Generated Image',
+                  imageTitle,
                   style: Theme.of(sheetContext).textTheme.titleMedium,
                 ),
                 const SizedBox(height: 4),
@@ -257,7 +284,7 @@ class _LibraryScreenState extends State<LibraryScreen>
                           'library-generated-image-preview',
                         ),
                         filePath: generatedImage.filePath,
-                        viewerTitle: book?.title ?? 'Generated Image',
+                        viewerTitle: imageTitle,
                         fit: BoxFit.contain,
                         height: 320,
                         borderRadius: BorderRadius.circular(20),
@@ -301,6 +328,14 @@ class _LibraryScreenState extends State<LibraryScreen>
                         onPressed: () => Navigator.of(sheetContext).pop(),
                         child: const Text('Close'),
                       ),
+                      OutlinedButton.icon(
+                        onPressed: () async {
+                          Navigator.of(sheetContext).pop();
+                          await _renameGeneratedImage(generatedImage);
+                        },
+                        icon: const Icon(Icons.edit_outlined),
+                        label: const Text('Rename'),
+                      ),
                       FilledButton.tonalIcon(
                         onPressed: () async {
                           Navigator.of(sheetContext).pop();
@@ -315,6 +350,36 @@ class _LibraryScreenState extends State<LibraryScreen>
               ],
             ),
           ),
+        );
+      },
+    );
+  }
+
+  String? _normalizeGeneratedImageName(String rawName) {
+    final normalizedName = rawName.trim();
+    if (normalizedName.isEmpty) {
+      return null;
+    }
+
+    return normalizedName;
+  }
+
+  String _generatedImageDisplayName(GeneratedImage generatedImage, Book? book) {
+    return generatedImage.displayName(book?.title ?? '');
+  }
+
+  Future<String?> _showGeneratedImageNameEditorSheet({
+    required String? initialName,
+    required String fallbackBookTitle,
+  }) async {
+    return showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        return _GeneratedImageNameEditorSheet(
+          initialName: initialName,
+          fallbackBookTitle: fallbackBookTitle,
         );
       },
     );
@@ -435,8 +500,9 @@ class _LibraryScreenState extends State<LibraryScreen>
             final book = _booksById[generatedImage.bookId];
             return _GeneratedImageCard(
               generatedImage: generatedImage,
-              bookTitle: book?.title ?? 'Unknown Book',
+              title: _generatedImageDisplayName(generatedImage, book),
               onTap: () => _showGeneratedImageDetail(generatedImage),
+              onRename: () => _renameGeneratedImage(generatedImage),
               onDelete: () => _deleteGeneratedImage(generatedImage),
             );
           },
@@ -702,14 +768,16 @@ class _BookCard extends StatelessWidget {
 class _GeneratedImageCard extends StatelessWidget {
   const _GeneratedImageCard({
     required this.generatedImage,
-    required this.bookTitle,
+    required this.title,
     this.onTap,
+    this.onRename,
     this.onDelete,
   });
 
   final GeneratedImage generatedImage;
-  final String bookTitle;
+  final String title;
   final VoidCallback? onTap;
+  final VoidCallback? onRename;
   final VoidCallback? onDelete;
 
   @override
@@ -740,7 +808,7 @@ class _GeneratedImageCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      bookTitle,
+                      title,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.titleMedium?.copyWith(
@@ -768,11 +836,17 @@ class _GeneratedImageCard extends StatelessWidget {
               PopupMenuButton<String>(
                 tooltip: 'Image options',
                 onSelected: (value) {
-                  if (value == 'delete') {
+                  if (value == 'rename') {
+                    onRename?.call();
+                  } else if (value == 'delete') {
                     onDelete?.call();
                   }
                 },
                 itemBuilder: (_) => const [
+                  PopupMenuItem<String>(
+                    value: 'rename',
+                    child: Text('Rename'),
+                  ),
                   PopupMenuItem<String>(
                     value: 'delete',
                     child: Text('Delete'),
@@ -781,6 +855,92 @@ class _GeneratedImageCard extends StatelessWidget {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _GeneratedImageNameEditorSheet extends StatefulWidget {
+  const _GeneratedImageNameEditorSheet({
+    required this.initialName,
+    required this.fallbackBookTitle,
+  });
+
+  final String? initialName;
+  final String fallbackBookTitle;
+
+  @override
+  State<_GeneratedImageNameEditorSheet> createState() =>
+      _GeneratedImageNameEditorSheetState();
+}
+
+class _GeneratedImageNameEditorSheetState
+    extends State<_GeneratedImageNameEditorSheet> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.initialName ?? '');
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: SingleChildScrollView(
+        padding: EdgeInsets.only(
+          left: 16,
+          right: 16,
+          top: 8,
+          bottom: MediaQuery.viewInsetsOf(context).bottom + 16,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Rename Image',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 6),
+            Text(
+              widget.fallbackBookTitle.trim().isEmpty
+                  ? 'Leave blank to use the default generated image title.'
+                  : 'Leave blank to use "${widget.fallbackBookTitle}".',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _controller,
+              textInputAction: TextInputAction.done,
+              decoration: const InputDecoration(
+                border: OutlineInputBorder(),
+                labelText: 'Image Name',
+              ),
+              onSubmitted: (value) => Navigator.of(context).pop(value),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('Cancel'),
+                ),
+                const Spacer(),
+                FilledButton(
+                  onPressed: () => Navigator.of(context).pop(_controller.text),
+                  child: const Text('Save'),
+                ),
+              ],
+            ),
+          ],
         ),
       ),
     );

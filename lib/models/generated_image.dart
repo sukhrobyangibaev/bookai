@@ -5,6 +5,7 @@ class GeneratedImage {
   final String featureMode;
   final String sourceText;
   final String promptText;
+  final String? name;
   final String filePath;
   final DateTime createdAt;
 
@@ -15,6 +16,7 @@ class GeneratedImage {
     required this.featureMode,
     required this.sourceText,
     required this.promptText,
+    this.name,
     required this.filePath,
     required this.createdAt,
   });
@@ -26,6 +28,7 @@ class GeneratedImage {
     String? featureMode,
     String? sourceText,
     String? promptText,
+    Object? name = _generatedImageNameUnset,
     String? filePath,
     DateTime? createdAt,
   }) {
@@ -36,9 +39,26 @@ class GeneratedImage {
       featureMode: featureMode ?? this.featureMode,
       sourceText: sourceText ?? this.sourceText,
       promptText: promptText ?? this.promptText,
+      name: identical(name, _generatedImageNameUnset)
+          ? this.name
+          : name as String?,
       filePath: filePath ?? this.filePath,
       createdAt: createdAt ?? this.createdAt,
     );
+  }
+
+  String displayName(String fallbackBookTitle) {
+    final normalizedName = name?.trim() ?? '';
+    if (normalizedName.isNotEmpty) {
+      return normalizedName;
+    }
+
+    final normalizedFallback = fallbackBookTitle.trim();
+    if (normalizedFallback.isNotEmpty) {
+      return normalizedFallback;
+    }
+
+    return 'Generated Image';
   }
 
   Map<String, dynamic> toMap() {
@@ -49,6 +69,7 @@ class GeneratedImage {
       'featureMode': featureMode,
       'sourceText': sourceText,
       'promptText': promptText,
+      'name': name,
       'filePath': filePath,
       'createdAt': createdAt.toIso8601String(),
     };
@@ -62,6 +83,7 @@ class GeneratedImage {
       featureMode: map['featureMode'] as String,
       sourceText: map['sourceText'] as String,
       promptText: map['promptText'] as String,
+      name: map['name'] as String?,
       filePath: map['filePath'] as String,
       createdAt: DateTime.parse(map['createdAt'] as String),
     );
@@ -77,6 +99,7 @@ class GeneratedImage {
         other.featureMode == featureMode &&
         other.sourceText == sourceText &&
         other.promptText == promptText &&
+        other.name == name &&
         other.filePath == filePath &&
         other.createdAt == createdAt;
   }
@@ -89,7 +112,10 @@ class GeneratedImage {
         featureMode,
         sourceText,
         promptText,
+        name,
         filePath,
         createdAt,
       );
 }
+
+const Object _generatedImageNameUnset = Object();

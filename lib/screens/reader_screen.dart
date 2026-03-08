@@ -843,12 +843,12 @@ class _ReaderScreenState extends State<ReaderScreen> {
       return;
     }
 
-    final editedPrompt = await _showImagePromptEditorSheet(
+    final editedImageDraft = await _showImagePromptEditorSheet(
       initialPrompt: generatedPrompt,
     );
-    if (!mounted || editedPrompt == null) return;
+    if (!mounted || editedImageDraft == null) return;
 
-    final normalizedPrompt = editedPrompt.trim();
+    final normalizedPrompt = editedImageDraft.promptText.trim();
     if (normalizedPrompt.isEmpty) {
       _showAutoDismissSnackBar(
         const SnackBar(
@@ -858,6 +858,9 @@ class _ReaderScreenState extends State<ReaderScreen> {
       );
       return;
     }
+    final normalizedName = _normalizeGeneratedImageName(
+      editedImageDraft.name,
+    );
 
     final imageModel = await _lookupOpenRouterModelMetadata(
       apiKey: request.apiKey,
@@ -907,6 +910,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
       final persisted = await _persistGeneratedImage(
         selection: request.selection,
         promptText: normalizedPrompt,
+        name: normalizedName,
         imageDataUrl: imageResult.imageUrls.first,
       );
       if (persisted == null) {
@@ -1062,6 +1066,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
   Future<GeneratedImage?> _persistGeneratedImage({
     required _GenerateImageSelection selection,
     required String promptText,
+    required String? name,
     required String imageDataUrl,
   }) async {
     final bookId = widget.book.id;
@@ -1079,6 +1084,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
           featureMode: selection.featureMode,
           sourceText: selection.sourceText,
           promptText: promptText,
+          name: name,
           filePath: savedFile.path,
           createdAt: DateTime.now(),
         ),
@@ -1125,11 +1131,21 @@ class _ReaderScreenState extends State<ReaderScreen> {
     }
   }
 
-  Future<String?> _showImagePromptEditorSheet({
+  String? _normalizeGeneratedImageName(String rawName) {
+    final normalizedName = rawName.trim();
+    if (normalizedName.isEmpty) {
+      return null;
+    }
+
+    return normalizedName;
+  }
+
+  Future<_GeneratedImageDraft?> _showImagePromptEditorSheet({
     required String initialPrompt,
   }) async {
-    final controller = TextEditingController(text: initialPrompt);
-    final prompt = await showModalBottomSheet<String>(
+    final promptController = TextEditingController(text: initialPrompt);
+    final nameController = TextEditingController();
+    final prompt = await showModalBottomSheet<_GeneratedImageDraft>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
@@ -1157,12 +1173,22 @@ class _ReaderScreenState extends State<ReaderScreen> {
                 ),
                 const SizedBox(height: 12),
                 TextField(
-                  controller: controller,
+                  controller: promptController,
                   maxLines: 10,
                   minLines: 6,
                   decoration: const InputDecoration(
                     border: OutlineInputBorder(),
                     labelText: 'Image Prompt',
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: nameController,
+                  textInputAction: TextInputAction.done,
+                  decoration: const InputDecoration(
+                    border: OutlineInputBorder(),
+                    labelText: 'Image Name (Optional)',
+                    helperText: 'Leave blank to use the book name.',
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -1175,7 +1201,10 @@ class _ReaderScreenState extends State<ReaderScreen> {
                     const Spacer(),
                     FilledButton(
                       onPressed: () => Navigator.of(sheetContext).pop(
-                        controller.text,
+                        _GeneratedImageDraft(
+                          promptText: promptController.text,
+                          name: nameController.text,
+                        ),
                       ),
                       child: const Text('Generate'),
                     ),
@@ -1187,7 +1216,8 @@ class _ReaderScreenState extends State<ReaderScreen> {
         );
       },
     );
-    controller.dispose();
+    promptController.dispose();
+    nameController.dispose();
     return prompt;
   }
 
@@ -1208,7 +1238,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Generated Image',
+                  generatedImage.displayName(widget.book.title),
                   style: Theme.of(sheetContext).textTheme.titleMedium,
                 ),
                 const SizedBox(height: 4),
@@ -1231,6 +1261,9 @@ class _ReaderScreenState extends State<ReaderScreen> {
                               'reader-generated-image-preview',
                             ),
                             filePath: generatedImage.filePath,
+                            viewerTitle: generatedImage.displayName(
+                              widget.book.title,
+                            ),
                             fit: BoxFit.contain,
                             height: 320,
                             borderRadius: BorderRadius.circular(18),
@@ -2540,6 +2573,16 @@ class _GenerateImagePromptRequest {
     required this.imageModelId,
     required this.prompt,
     required this.selection,
+  });
+}
+
+class _GeneratedImageDraft {
+  final String promptText;
+  final String name;
+
+  const _GeneratedImageDraft({
+    required this.promptText,
+    required this.name,
   });
 }
 

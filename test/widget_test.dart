@@ -183,7 +183,7 @@ void main() {
 
       await tester.tap(find.text('Images'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Generated scene prompt'));
+      await tester.tap(find.text('Image Test Book'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
 
@@ -252,6 +252,150 @@ void main() {
         find.byKey(const ValueKey<String>('library-generated-image-preview')),
         findsOneWidget,
       );
+    });
+
+    testWidgets('library images prefer custom names over book titles',
+        (WidgetTester tester) async {
+      SharedPreferences.setMockInitialValues({});
+
+      await tester.runAsync(() async {
+        final imageFile = File(p.join(tempDir.path, 'named-generated.png'));
+        await imageFile.writeAsBytes(base64Decode(_transparentPngBase64));
+
+        final book = await DatabaseService.instance.insertBook(
+          Book(
+            title: 'Fallback Book Title',
+            author: 'Test Author',
+            filePath: p.join(tempDir.path, 'named_image.epub'),
+            totalChapters: 1,
+            createdAt: DateTime(2024, 1, 2),
+          ),
+        );
+
+        await DatabaseService.instance.addGeneratedImage(
+          GeneratedImage(
+            bookId: book.id!,
+            chapterIndex: 0,
+            featureMode: 'selected_text',
+            sourceText: 'A moonlit scene.',
+            promptText: 'Generated scene prompt',
+            name: 'Moonlit Harbor',
+            filePath: imageFile.path,
+            createdAt: DateTime(2024, 1, 2, 12),
+          ),
+        );
+      });
+
+      final controller = SettingsController();
+      await tester.runAsync(() => controller.load());
+
+      await tester.pumpWidget(BookAiApp(settingsController: controller));
+
+      for (int i = 0; i < 10; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 50)),
+        );
+        await tester.pump();
+      }
+
+      await tester.tap(find.text('Images'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Moonlit Harbor'), findsOneWidget);
+      expect(find.text('Fallback Book Title'), findsNothing);
+
+      await tester.tap(find.text('Moonlit Harbor'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      expect(find.text('Moonlit Harbor'), findsWidgets);
+      expect(find.text('Fallback Book Title'), findsNothing);
+    });
+
+    testWidgets('library rename updates and clears generated image names',
+        (WidgetTester tester) async {
+      SharedPreferences.setMockInitialValues({});
+
+      await tester.runAsync(() async {
+        final imageFile = File(p.join(tempDir.path, 'rename-generated.png'));
+        await imageFile.writeAsBytes(base64Decode(_transparentPngBase64));
+
+        final book = await DatabaseService.instance.insertBook(
+          Book(
+            title: 'Fallback Image Title',
+            author: 'Test Author',
+            filePath: p.join(tempDir.path, 'rename_image.epub'),
+            totalChapters: 1,
+            createdAt: DateTime(2024, 1, 3),
+          ),
+        );
+
+        await DatabaseService.instance.addGeneratedImage(
+          GeneratedImage(
+            bookId: book.id!,
+            chapterIndex: 0,
+            featureMode: 'selected_text',
+            sourceText: 'A stormy harbor.',
+            promptText: 'Storm prompt',
+            name: 'Original Name',
+            filePath: imageFile.path,
+            createdAt: DateTime(2024, 1, 3, 12),
+          ),
+        );
+      });
+
+      final controller = SettingsController();
+      await tester.runAsync(() => controller.load());
+
+      await tester.pumpWidget(BookAiApp(settingsController: controller));
+
+      for (int i = 0; i < 10; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 50)),
+        );
+        await tester.pump();
+      }
+
+      await tester.tap(find.text('Images'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Original Name'), findsOneWidget);
+
+      await tester.tap(find.byTooltip('Image options'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Rename'));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(TextField), 'Renamed Image');
+      await tester.tap(find.text('Save'));
+      for (int i = 0; i < 10; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 50)),
+        );
+        await tester.pump();
+      }
+      await tester.pumpAndSettle();
+
+      expect(find.text('Renamed Image'), findsOneWidget);
+      expect(find.text('Original Name'), findsNothing);
+
+      await tester.tap(find.byTooltip('Image options'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Rename'));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(TextField), '');
+      await tester.tap(find.text('Save'));
+      for (int i = 0; i < 10; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 50)),
+        );
+        await tester.pump();
+      }
+      await tester.pumpAndSettle();
+
+      expect(find.text('Fallback Image Title'), findsOneWidget);
+      expect(find.text('Renamed Image'), findsNothing);
     });
   });
 }

@@ -516,6 +516,15 @@ void main() {
         find.textContaining('A quiet watercolor portrait'),
         findsOneWidget,
       );
+      expect(
+        find.byWidgetPredicate(
+          (widget) =>
+              widget is TextField &&
+              widget.decoration?.labelText == 'Image Name (Optional)',
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('Leave blank to use the book name.'), findsOneWidget);
 
       await tester.tap(find.text('Generate'));
       await tester.pump();

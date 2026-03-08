@@ -34,7 +34,7 @@ class DatabaseService {
   Future<Database> openDatabaseAt(String path) {
     return openDatabase(
       path,
-      version: 5,
+      version: 6,
       onConfigure: _onConfigure,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
@@ -115,6 +115,9 @@ class DatabaseService {
     if (oldVersion < 5) {
       await _createGeneratedImagesTable(db);
     }
+    if (oldVersion < 6) {
+      await _ensureGeneratedImagesNameColumn(db);
+    }
   }
 
   Future<void> _createResumeMarkersTable(Database db) async {
@@ -154,6 +157,7 @@ class DatabaseService {
         featureMode  TEXT    NOT NULL,
         sourceText   TEXT    NOT NULL,
         promptText   TEXT    NOT NULL,
+        name         TEXT,
         filePath     TEXT    NOT NULL,
         createdAt    TEXT    NOT NULL,
         FOREIGN KEY (bookId) REFERENCES books(id) ON DELETE CASCADE
@@ -167,6 +171,14 @@ class DatabaseService {
       'CREATE INDEX IF NOT EXISTS idx_generated_images_createdAt '
       'ON generated_images(createdAt DESC)',
     );
+  }
+
+  Future<void> _ensureGeneratedImagesNameColumn(Database db) async {
+    final columns = await db.rawQuery('PRAGMA table_info(generated_images)');
+    final hasNameColumn = columns.any((column) => column['name'] == 'name');
+    if (!hasNameColumn) {
+      await db.execute('ALTER TABLE generated_images ADD COLUMN name TEXT');
+    }
   }
 
   // ── Books ─────────────────────────────────────────────────────────────────
@@ -357,6 +369,17 @@ class DatabaseService {
       orderBy: 'createdAt DESC',
     );
     return rows.map(GeneratedImage.fromMap).toList();
+  }
+
+  Future<void> updateGeneratedImageName(
+      int generatedImageId, String? name) async {
+    final db = await database;
+    await db.update(
+      'generated_images',
+      {'name': name},
+      where: 'id = ?',
+      whereArgs: [generatedImageId],
+    );
   }
 
   Future<void> deleteGeneratedImage(int generatedImageId) async {

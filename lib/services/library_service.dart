@@ -167,6 +167,18 @@ class LibraryService {
   Future<List<GeneratedImage>> getAllGeneratedImages() =>
       _db.getAllGeneratedImages();
 
+  Future<void> renameGeneratedImage(
+    GeneratedImage generatedImage,
+    String? name,
+  ) async {
+    final id = generatedImage.id;
+    if (id == null) {
+      throw StateError('Cannot rename a generated image without an id.');
+    }
+
+    await _db.updateGeneratedImageName(id, name);
+  }
+
   Future<void> deleteGeneratedImage(GeneratedImage generatedImage) async {
     final id = generatedImage.id;
     if (id != null) {

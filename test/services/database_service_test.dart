@@ -101,6 +101,7 @@ void main() {
         featureMode: 'selected_text',
         sourceText: 'The moon over the harbor.',
         promptText: 'A moonlit harbor in watercolor.',
+        name: 'Moonlit Harbor',
         filePath: '/tmp/generated.png',
         createdAt: DateTime.utc(2025, 1, 5),
       ),
@@ -115,10 +116,42 @@ void main() {
     expect(await service.getGeneratedImagesByBookId(book.id!), isEmpty);
   });
 
-  test('openDatabaseAt migrates version 4 databases to version 5', () async {
+  test('updates generated image name', () async {
+    final book = await service.insertBook(
+      Book(
+        title: 'Rename Book',
+        author: 'Author',
+        filePath: '/tmp/rename.epub',
+        totalChapters: 1,
+        createdAt: DateTime.utc(2025, 1, 7),
+      ),
+    );
+
+    final savedImage = await service.addGeneratedImage(
+      GeneratedImage(
+        bookId: book.id!,
+        chapterIndex: 0,
+        featureMode: 'selected_text',
+        sourceText: 'A storm over the city.',
+        promptText: 'Storm clouds above a city skyline.',
+        filePath: '/tmp/rename.png',
+        createdAt: DateTime.utc(2025, 1, 8),
+      ),
+    );
+
+    await service.updateGeneratedImageName(savedImage.id!, 'City Storm');
+    var images = await service.getGeneratedImagesByBookId(book.id!);
+    expect(images.single.name, 'City Storm');
+
+    await service.updateGeneratedImageName(savedImage.id!, null);
+    images = await service.getGeneratedImagesByBookId(book.id!);
+    expect(images.single.name, isNull);
+  });
+
+  test('openDatabaseAt migrates version 5 databases to version 6', () async {
     final oldDb = await openDatabase(
       databasePath,
-      version: 4,
+      version: 5,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
       },
@@ -135,50 +168,36 @@ void main() {
           )
         ''');
         await db.execute('''
-          CREATE TABLE progress (
-            bookId        INTEGER PRIMARY KEY,
-            chapterIndex  INTEGER NOT NULL DEFAULT 0,
-            scrollOffset  REAL    NOT NULL DEFAULT 0.0,
-            updatedAt     TEXT    NOT NULL,
-            FOREIGN KEY (bookId) REFERENCES books(id) ON DELETE CASCADE
-          )
-        ''');
-        await db.execute('''
-          CREATE TABLE highlights (
+          CREATE TABLE generated_images (
             id           INTEGER PRIMARY KEY AUTOINCREMENT,
             bookId       INTEGER NOT NULL,
             chapterIndex INTEGER NOT NULL,
-            selectedText TEXT    NOT NULL,
-            colorHex     TEXT    NOT NULL,
+            featureMode  TEXT    NOT NULL,
+            sourceText   TEXT    NOT NULL,
+            promptText   TEXT    NOT NULL,
+            filePath     TEXT    NOT NULL,
             createdAt    TEXT    NOT NULL,
             FOREIGN KEY (bookId) REFERENCES books(id) ON DELETE CASCADE
           )
         ''');
-        await db.execute(
-          'CREATE INDEX idx_highlights_bookId ON highlights(bookId)',
-        );
-        await db.execute('''
-          CREATE TABLE resume_markers (
-            bookId         INTEGER PRIMARY KEY,
-            chapterIndex   INTEGER NOT NULL,
-            selectedText   TEXT    NOT NULL,
-            selectionStart INTEGER NOT NULL,
-            selectionEnd   INTEGER NOT NULL,
-            scrollOffset   REAL    NOT NULL DEFAULT 0.0,
-            createdAt      TEXT    NOT NULL,
-            FOREIGN KEY (bookId) REFERENCES books(id) ON DELETE CASCADE
-          )
-        ''');
-        await db.execute('''
-          CREATE TABLE chapters (
-            bookId         INTEGER NOT NULL,
-            chapterIndex   INTEGER NOT NULL,
-            title          TEXT    NOT NULL,
-            content        TEXT    NOT NULL,
-            PRIMARY KEY (bookId, chapterIndex),
-            FOREIGN KEY (bookId) REFERENCES books(id) ON DELETE CASCADE
-          )
-        ''');
+        await db.insert('books', {
+          'id': 1,
+          'title': 'Migrated Book',
+          'author': 'Author',
+          'filePath': '/tmp/migrated.epub',
+          'coverPath': null,
+          'totalChapters': 1,
+          'createdAt': DateTime.utc(2025, 1, 3).toIso8601String(),
+        });
+        await db.insert('generated_images', {
+          'bookId': 1,
+          'chapterIndex': 0,
+          'featureMode': 'resume_range',
+          'sourceText': 'Stored source',
+          'promptText': 'Stored prompt',
+          'filePath': '/tmp/generated.png',
+          'createdAt': DateTime.utc(2025, 1, 6).toIso8601String(),
+        });
       },
     );
     await oldDb.close();
@@ -186,43 +205,21 @@ void main() {
     final migrated = await service.openDatabaseAt(databasePath);
     addTearDown(() async => migrated.close());
 
-    final chapterColumns =
-        await migrated.rawQuery('PRAGMA table_info(chapters)');
-    expect(chapterColumns, isNotEmpty);
     final generatedImageColumns =
         await migrated.rawQuery('PRAGMA table_info(generated_images)');
     expect(generatedImageColumns, isNotEmpty);
+    expect(
+      generatedImageColumns.any((column) => column['name'] == 'name'),
+      isTrue,
+    );
 
-    await migrated.insert('books', {
-      'id': 1,
-      'title': 'Migrated Book',
-      'author': 'Author',
-      'filePath': '/tmp/migrated.epub',
-      'coverPath': null,
-      'totalChapters': 1,
-      'createdAt': DateTime.utc(2025, 1, 3).toIso8601String(),
-    });
-    await migrated.insert('chapters', {
-      'bookId': 1,
-      'chapterIndex': 0,
-      'title': 'Chapter 1',
-      'content': 'Stored content',
-    });
-    await migrated.insert('generated_images', {
-      'bookId': 1,
-      'chapterIndex': 0,
-      'featureMode': 'resume_range',
-      'sourceText': 'Stored source',
-      'promptText': 'Stored prompt',
-      'filePath': '/tmp/generated.png',
-      'createdAt': DateTime.utc(2025, 1, 6).toIso8601String(),
-    });
+    final migratedImages = await migrated.query('generated_images');
+    expect(migratedImages, hasLength(1));
+    expect(migratedImages.single['name'], isNull);
 
     await migrated.delete('books', where: 'id = ?', whereArgs: [1]);
 
-    final remainingChapters = await migrated.query('chapters');
     final remainingGeneratedImages = await migrated.query('generated_images');
-    expect(remainingChapters, isEmpty);
     expect(remainingGeneratedImages, isEmpty);
   });
 }
