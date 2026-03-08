@@ -77,15 +77,6 @@ class _ReaderScreenState extends State<ReaderScreen> {
   /// Duration to debounce scroll-based progress saves.
   static const _saveDebounceDuration = Duration(seconds: 2);
 
-  /// Minimum horizontal velocity (px/s) to trigger a chapter swipe.
-  static const _swipeVelocityThreshold = 300.0;
-
-  /// Minimum horizontal distance (px) to trigger a chapter swipe.
-  static const _swipeDistanceThreshold = 50.0;
-
-  /// Tracks the starting X position of a horizontal drag.
-  double _dragStartX = 0.0;
-
   /// Monotonic token used to avoid stale delayed snackbar dismissals.
   int _snackBarToken = 0;
 
@@ -249,38 +240,16 @@ class _ReaderScreenState extends State<ReaderScreen> {
     return _chapters![_currentIndex];
   }
 
+  bool get _hasPreviousChapter => _currentIndex > 0;
+
+  bool get _hasNextChapter =>
+      _chapters != null && _currentIndex < _chapters!.length - 1;
+
   // ── Progress persistence ─────────────────────────────────────────────────
 
   void _onScroll() {
     _saveTimer?.cancel();
     _saveTimer = Timer(_saveDebounceDuration, _saveProgressNow);
-  }
-
-  // ── Swipe navigation ────────────────────────────────────────────────────
-
-  void _onHorizontalDragStart(DragStartDetails details) {
-    _dragStartX = details.globalPosition.dx;
-  }
-
-  void _onHorizontalDragEnd(DragEndDetails details) {
-    if (_chapters == null || _chapters!.isEmpty) return;
-
-    final velocity = details.primaryVelocity ?? 0.0;
-    final dragDistance = (details.globalPosition.dx - _dragStartX).abs();
-
-    // Only respond to swipes that are fast enough or long enough.
-    if (velocity.abs() < _swipeVelocityThreshold &&
-        dragDistance < _swipeDistanceThreshold) {
-      return;
-    }
-
-    if (velocity < 0) {
-      // Swiped left → next chapter.
-      _goToChapter(_currentIndex + 1);
-    } else if (velocity > 0) {
-      // Swiped right → previous chapter.
-      _goToChapter(_currentIndex - 1);
-    }
   }
 
   void _saveProgressNow() {
@@ -2251,50 +2220,75 @@ class _ReaderScreenState extends State<ReaderScreen> {
             ? _resumeMarker
             : null;
 
-    return GestureDetector(
-      onHorizontalDragStart: _onHorizontalDragStart,
-      onHorizontalDragEnd: _onHorizontalDragEnd,
-      behavior: HitTestBehavior.translucent,
-      child: MobileScrollbar(
+    return MobileScrollbar(
+      controller: _scrollController,
+      child: SingleChildScrollView(
         controller: _scrollController,
-        child: SingleChildScrollView(
-          controller: _scrollController,
-          padding: EdgeInsets.fromLTRB(
-            _readerHorizontalPadding,
-            topPadding,
-            _readerHorizontalPadding,
-            _readerBottomPadding +
-                (_activeAiRequest == null ? 0 : _aiLoadingSheetReservedSpace),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                chapter.title,
-                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
+        padding: EdgeInsets.fromLTRB(
+          _readerHorizontalPadding,
+          topPadding,
+          _readerHorizontalPadding,
+          _readerBottomPadding +
+              (_activeAiRequest == null ? 0 : _aiLoadingSheetReservedSpace),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (_hasPreviousChapter) ...[
+              _buildChapterNavigationButton(
+                label: 'Previous Chapter',
+                alignment: Alignment.centerLeft,
+                onPressed: () => _goToChapter(_currentIndex - 1),
               ),
               const SizedBox(height: 16),
-              SelectableText.rich(
-                _buildHighlightedText(
-                  chapter.content,
-                  currentHighlights,
-                  currentResumeMarker,
-                ),
-                textAlign: TextAlign.justify,
-                style: buildReaderContentTextStyle(
-                  context: context,
-                  fontSize: settingsFontSize,
-                  fontFamily: settingsFontFamily,
-                ),
-                contextMenuBuilder: (context, editableTextState) {
-                  return _buildSelectionToolbar(editableTextState);
-                },
+            ],
+            Text(
+              chapter.title,
+              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+            ),
+            const SizedBox(height: 16),
+            SelectableText.rich(
+              _buildHighlightedText(
+                chapter.content,
+                currentHighlights,
+                currentResumeMarker,
+              ),
+              textAlign: TextAlign.justify,
+              style: buildReaderContentTextStyle(
+                context: context,
+                fontSize: settingsFontSize,
+                fontFamily: settingsFontFamily,
+              ),
+              contextMenuBuilder: (context, editableTextState) {
+                return _buildSelectionToolbar(editableTextState);
+              },
+            ),
+            if (_hasNextChapter) ...[
+              const SizedBox(height: 24),
+              _buildChapterNavigationButton(
+                label: 'Next Chapter',
+                alignment: Alignment.centerRight,
+                onPressed: () => _goToChapter(_currentIndex + 1),
               ),
             ],
-          ),
+          ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildChapterNavigationButton({
+    required String label,
+    required Alignment alignment,
+    required VoidCallback onPressed,
+  }) {
+    return Align(
+      alignment: alignment,
+      child: OutlinedButton(
+        onPressed: onPressed,
+        child: Text(label),
       ),
     );
   }

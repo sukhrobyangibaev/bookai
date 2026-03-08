@@ -199,6 +199,89 @@ void main() {
       expect(find.byTooltip('Hide Navigation Bar'), findsOneWidget);
     });
 
+    testWidgets(
+        'shows in-content chapter buttons and navigates between chapters',
+        (tester) async {
+      final openRouter = _FakeOpenRouterService(
+        generateTextHandler: ({
+          required apiKey,
+          required modelId,
+          required prompt,
+          temperature,
+        }) async =>
+            'Definition: vague\nTranslation: neyasny',
+      );
+
+      await _pumpReaderScreen(
+        tester,
+        openRouterService: openRouter,
+        chapters: _buildTestChapters(count: 3),
+      );
+
+      final chapterOneTitle = find.text('Chapter 1');
+      final nextChapterButton = find.text('Next Chapter');
+
+      expect(find.text('Previous Chapter'), findsNothing);
+      expect(nextChapterButton, findsOneWidget);
+      expect(
+        tester.getTopLeft(nextChapterButton).dy,
+        greaterThan(tester.getTopLeft(chapterOneTitle).dy),
+      );
+
+      await tester.ensureVisible(nextChapterButton);
+      await tester.tap(nextChapterButton);
+      await tester.pumpAndSettle();
+
+      final previousChapterButton = find.text('Previous Chapter');
+      final chapterTwoTitle = find.text('Chapter 2');
+
+      expect(previousChapterButton, findsOneWidget);
+      expect(find.text('Next Chapter'), findsOneWidget);
+      expect(
+        tester.getTopLeft(previousChapterButton).dy,
+        lessThan(tester.getTopLeft(chapterTwoTitle).dy),
+      );
+
+      await tester.ensureVisible(find.text('Next Chapter'));
+      await tester.tap(find.text('Next Chapter'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Chapter 3'), findsOneWidget);
+      expect(find.text('Previous Chapter'), findsOneWidget);
+      expect(find.text('Next Chapter'), findsNothing);
+    });
+
+    testWidgets('does not switch chapters on horizontal drag', (tester) async {
+      final openRouter = _FakeOpenRouterService(
+        generateTextHandler: ({
+          required apiKey,
+          required modelId,
+          required prompt,
+          temperature,
+        }) async =>
+            'Definition: vague\nTranslation: neyasny',
+      );
+
+      await _pumpReaderScreen(
+        tester,
+        openRouterService: openRouter,
+        chapters: _buildTestChapters(count: 2),
+      );
+
+      expect(find.text('Chapter 1'), findsOneWidget);
+      expect(find.text('Chapter 2'), findsNothing);
+
+      await tester.drag(
+        find.byType(SingleChildScrollView),
+        const Offset(-400, 0),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Chapter 1'), findsOneWidget);
+      expect(find.text('Chapter 2'), findsNothing);
+      expect(find.text('Next Chapter'), findsOneWidget);
+    });
+
     testWidgets('summary result sheet shows switch action for simplify text',
         (tester) async {
       final openRouter = _FakeOpenRouterService(
@@ -859,6 +942,7 @@ Future<void> _pumpReaderScreen(
   String fallbackModelId = 'anthropic/claude-3.7-sonnet',
   String imageModelId = 'openai/gpt-image-1',
   String? generateImagePromptModelIdOverride,
+  List<Chapter>? chapters,
   Book? savedBook,
   DatabaseService? databaseService,
   StorageService? storageService,
@@ -888,15 +972,9 @@ Future<void> _pumpReaderScreen(
 
   addTearDown(controller.dispose);
 
+  final resolvedChapters = chapters ?? _buildTestChapters();
   final chapterLoader = ChapterLoaderService(
-    parseChapters: (_) async => [
-      Chapter(
-        bookId: null,
-        index: 0,
-        title: 'Chapter 1',
-        content: List<String>.filled(120, 'Nebulous').join(' '),
-      ),
-    ],
+    parseChapters: (_) async => resolvedChapters,
     cacheChapters: (_, __) {},
   );
 
@@ -916,7 +994,7 @@ Future<void> _pumpReaderScreen(
                     title: 'Test Book',
                     author: 'Test Author',
                     filePath: '/tmp/test.epub',
-                    totalChapters: 1,
+                    totalChapters: resolvedChapters.length,
                     createdAt: DateTime(2024, 1, 1),
                   ),
               chapterLoader: chapterLoader,
@@ -942,6 +1020,20 @@ Future<void> _pumpReaderScreen(
     );
     await tester.pump();
   }
+}
+
+List<Chapter> _buildTestChapters({int count = 1}) {
+  return List<Chapter>.generate(count, (index) {
+    final chapterNumber = index + 1;
+    final repeatedText = index == 0 ? 'Nebulous' : 'Chapter $chapterNumber';
+
+    return Chapter(
+      bookId: null,
+      index: index,
+      title: 'Chapter $chapterNumber',
+      content: List<String>.filled(120, repeatedText).join(' '),
+    );
+  });
 }
 
 Future<void> _startDefineAndTranslate(WidgetTester tester) async {
