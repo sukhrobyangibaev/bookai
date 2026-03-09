@@ -196,15 +196,18 @@ class GeminiService {
       action: 'generating images',
       responseModalities: const <String>['TEXT', 'IMAGE'],
     );
+    final assistantText = _extractText(decoded);
     final imageDataUrls = _extractInlineImageDataUrls(decoded);
     if (imageDataUrls.isEmpty) {
+      if (assistantText.isNotEmpty) {
+        throw GeminiException(assistantText);
+      }
       throw const GeminiException(
-        'Gemini response did not include generated images.',
-      );
+          'Gemini response did not include generated images.');
     }
 
     return GeminiImageGenerationResult(
-      assistantText: _extractText(decoded),
+      assistantText: assistantText,
       imageDataUrls: imageDataUrls,
     );
   }

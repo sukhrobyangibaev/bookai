@@ -163,6 +163,48 @@ void main() {
       expect(result.imageDataUrls, ['data:image/png;base64,abc123']);
     });
 
+    test('generateImage surfaces Gemini text-only refusals to the caller',
+        () async {
+      final client = MockClient((request) async {
+        return http.Response(
+          jsonEncode({
+            'candidates': [
+              {
+                'content': {
+                  'parts': [
+                    {
+                      'text':
+                          "I can't generate an image of a woman collapsing onto desert sand.",
+                    },
+                  ],
+                  'role': 'model',
+                },
+                'finishReason': 'STOP',
+              },
+            ],
+          }),
+          200,
+        );
+      });
+
+      final service = GeminiService(client: client);
+
+      await expectLater(
+        service.generateImage(
+          apiKey: 'test-key',
+          modelId: 'gemini-3-pro-image-preview',
+          prompt: 'Draw the scene',
+        ),
+        throwsA(
+          isA<GeminiException>().having(
+            (error) => error.message,
+            'message',
+            "I can't generate an image of a woman collapsing onto desert sand.",
+          ),
+        ),
+      );
+    });
+
     test('generateImage parses Imagen predict responses', () async {
       final client = MockClient((request) async {
         expect(
