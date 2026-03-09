@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:bookai/app.dart';
 import 'package:bookai/models/book.dart';
@@ -17,6 +18,7 @@ import 'package:bookai/services/storage_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -221,8 +223,10 @@ void main() {
 
       final chapterOneTitle = find.text('Chapter 1');
       final nextChapterButton = find.text('Next Chapter');
+      final chapterCatchUpButton = find.text('Chapter Catch-Up');
 
       expect(find.text('Previous Chapter'), findsNothing);
+      expect(chapterCatchUpButton, findsOneWidget);
       expect(nextChapterButton, findsOneWidget);
       expect(
         tester.getTopLeft(nextChapterButton).dy,
@@ -237,6 +241,7 @@ void main() {
       final chapterTwoTitle = find.text('Chapter 2');
 
       expect(previousChapterButton, findsOneWidget);
+      expect(find.text('Chapter Catch-Up'), findsOneWidget);
       expect(find.text('Next Chapter'), findsOneWidget);
       expect(
         tester.getTopLeft(previousChapterButton).dy,
@@ -248,8 +253,176 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Chapter 3'), findsOneWidget);
+      expect(find.text('Chapter Catch-Up'), findsOneWidget);
       expect(find.text('Previous Chapter'), findsOneWidget);
       expect(find.text('Next Chapter'), findsNothing);
+    });
+
+    testWidgets(
+        'chapter catch-up uses the entire current chapter without resume range',
+        (tester) async {
+      const chapterText =
+          'First scene. Second scene. Final reveal of the chapter.';
+      final spyResumeSummaryService = _SpyResumeSummaryService(
+        forcedRange: const ResumeSummaryRange(
+          startOffset: 0,
+          endOffset: 11,
+          sourceText: 'Forced range',
+          shouldUpdateResumeMarker: true,
+        ),
+      );
+      final openRouter = _FakeOpenRouterService(
+        generateTextHandler: ({
+          required apiKey,
+          required modelId,
+          required prompt,
+          temperature,
+        }) async =>
+            'Catch-up summary.',
+      );
+
+      await _pumpReaderScreen(
+        tester,
+        openRouterService: openRouter,
+        resumeSummaryService: spyResumeSummaryService,
+        chapters: const [
+          Chapter(
+            bookId: null,
+            index: 0,
+            title: 'Chapter 1',
+            content: chapterText,
+          ),
+        ],
+      );
+
+      await _startChapterCatchUp(tester);
+      await tester.pumpAndSettle();
+
+      expect(spyResumeSummaryService.computeRangeCallCount, 0);
+      expect(spyResumeSummaryService.lastSourceText, chapterText);
+      expect(openRouter.lastPrompt, contains('Passage:\n$chapterText'));
+      expect(find.text('Summary'), findsOneWidget);
+      expect(find.text('Catch-up summary.'), findsOneWidget);
+      expect(find.byTooltip('Copy'), findsOneWidget);
+      expect(find.byTooltip('Regenerate with Fallback'), findsOneWidget);
+      expect(find.byTooltip('Simplify Text'), findsOneWidget);
+    });
+
+    testWidgets('chapter catch-up shows snackbar for blank chapters',
+        (tester) async {
+      final openRouter = _FakeOpenRouterService(
+        generateTextHandler: ({
+          required apiKey,
+          required modelId,
+          required prompt,
+          temperature,
+        }) async =>
+            'Catch-up summary.',
+      );
+
+      await _pumpReaderScreen(
+        tester,
+        openRouterService: openRouter,
+        chapters: const [
+          Chapter(
+            bookId: null,
+            index: 0,
+            title: 'Chapter 1',
+            content: '   \n\t  ',
+          ),
+        ],
+      );
+
+      await _startChapterCatchUp(tester);
+      await tester.pump();
+
+      expect(openRouter.generateTextCallCount, 0);
+      expect(
+        find.text('This chapter has no text to summarize.'),
+        findsOneWidget,
+      );
+      await tester.pump(const Duration(seconds: 2));
+    });
+
+    testWidgets('chapter catch-up does not update the saved resume marker',
+        (tester) async {
+      final tempDir = (await tester.runAsync(
+        () => Directory.systemTemp.createTemp('bookai_reader_screen_test_'),
+      ))!;
+      addTearDown(() async {
+        if (await tempDir.exists()) {
+          await tempDir.delete(recursive: true);
+        }
+      });
+
+      final databaseService = DatabaseService.instance;
+      final databasePath = p.join(tempDir.path, 'reader_screen_test.db');
+      await tester.runAsync(
+        () => databaseService.resetForTesting(databasePath: databasePath),
+      );
+      addTearDown(() async {
+        await databaseService.resetForTesting();
+      });
+
+      final savedBook = (await tester.runAsync(
+        () => databaseService.insertBook(
+          Book(
+            title: 'Persisted Book',
+            author: 'Author',
+            filePath: '/tmp/persisted-reader.epub',
+            totalChapters: 1,
+            createdAt: DateTime.utc(2025, 1, 1),
+          ),
+        ),
+      ))!;
+      final savedMarker = ResumeMarker(
+        bookId: savedBook.id!,
+        chapterIndex: 0,
+        selectedText: 'Saved marker text',
+        selectionStart: 2,
+        selectionEnd: 8,
+        scrollOffset: 0,
+        createdAt: DateTime.utc(2025, 1, 2),
+      );
+      await tester.runAsync(
+        () => databaseService.upsertResumeMarker(savedMarker),
+      );
+
+      final openRouter = _FakeOpenRouterService(
+        generateTextHandler: ({
+          required apiKey,
+          required modelId,
+          required prompt,
+          temperature,
+        }) async =>
+            'Catch-up summary.',
+      );
+
+      await _pumpReaderScreen(
+        tester,
+        openRouterService: openRouter,
+        databaseService: databaseService,
+        savedBook: savedBook,
+        chapters: const [
+          Chapter(
+            bookId: null,
+            index: 0,
+            title: 'Chapter 1',
+            content: 'Stored content for summary.',
+          ),
+        ],
+      );
+      await tester.pump(const Duration(seconds: 2));
+
+      await _startChapterCatchUp(tester);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
+
+      final markerAfterCatchUp = await tester.runAsync(
+        () => databaseService.getResumeMarkerByBookId(savedBook.id!),
+      );
+      expect(openRouter.generateTextCallCount, 1);
+      expect(markerAfterCatchUp, savedMarker);
     });
 
     testWidgets('does not switch chapters on horizontal drag', (tester) async {
@@ -1291,6 +1464,13 @@ Future<void> _startSimplifyText(
 Future<void> _startGenerateImage(WidgetTester tester) async {
   await _openReaderSelectionToolbar(tester);
   await tester.tap(find.text('Generate Image'));
+  await tester.pump();
+}
+
+Future<void> _startChapterCatchUp(WidgetTester tester) async {
+  final button = find.text('Chapter Catch-Up');
+  await tester.ensureVisible(button);
+  await tester.tap(button);
   await tester.pump();
 }
 

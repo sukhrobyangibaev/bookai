@@ -358,6 +358,8 @@ class _ReaderScreenState extends State<ReaderScreen> {
           featureId: featureId,
         );
         break;
+      case _AiSourceMode.wholeChapter:
+        return;
     }
   }
 
@@ -430,6 +432,33 @@ class _ReaderScreenState extends State<ReaderScreen> {
 
     final requestSpec = _buildTextFeatureRequestSpec(
       featureId: featureId,
+      textFeatureSelection: textFeatureSelection,
+    );
+    if (requestSpec == null) return;
+
+    await _startAiFeatureRequest(requestSpec);
+  }
+
+  Future<void> _summarizeCurrentChapter() async {
+    final chapter = _currentChapter;
+    if (chapter == null) return;
+
+    final textFeatureSelection = _buildWholeChapterAiSelection(
+      chapterContent: chapter.content,
+      chapterTitle: chapter.title,
+    );
+    if (textFeatureSelection == null) {
+      _showAutoDismissSnackBar(
+        const SnackBar(
+          content: Text('This chapter has no text to summarize.'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+
+    final requestSpec = _buildTextFeatureRequestSpec(
+      featureId: AiFeatureIds.resumeSummary,
       textFeatureSelection: textFeatureSelection,
     );
     if (requestSpec == null) return;
@@ -642,6 +671,8 @@ class _ReaderScreenState extends State<ReaderScreen> {
       case _AiSourceMode.resumeRange:
         await _generateImageFromResumeRange(editableTextState);
         break;
+      case _AiSourceMode.wholeChapter:
+        return;
     }
   }
 
@@ -1557,6 +1588,24 @@ class _ReaderScreenState extends State<ReaderScreen> {
     );
   }
 
+  _TextAiSelection? _buildWholeChapterAiSelection({
+    required String chapterContent,
+    required String chapterTitle,
+  }) {
+    final sourceText = chapterContent.trim();
+    if (sourceText.isEmpty) return null;
+
+    return _TextAiSelection(
+      sourceMode: _AiSourceMode.wholeChapter,
+      sourceText: sourceText,
+      chapterTitle: chapterTitle,
+      selectedText: chapterContent,
+      selectionStart: 0,
+      selectionEnd: chapterContent.length,
+      shouldUpdateResumeMarker: false,
+    );
+  }
+
   Future<void> _startAiResultFlow({
     required Future<String> generationFuture,
     required _AiRequestSpec requestSpec,
@@ -2403,16 +2452,32 @@ class _ReaderScreenState extends State<ReaderScreen> {
                 return _buildSelectionToolbar(editableTextState);
               },
             ),
-            if (_hasNextChapter) ...[
-              const SizedBox(height: 24),
-              _buildChapterNavigationButton(
-                label: 'Next Chapter',
-                alignment: Alignment.centerRight,
-                onPressed: () => _goToChapter(_currentIndex + 1),
-              ),
-            ],
+            const SizedBox(height: 24),
+            _buildChapterEndActions(),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildChapterEndActions() {
+    return Align(
+      alignment: Alignment.centerRight,
+      child: Wrap(
+        spacing: 12,
+        runSpacing: 12,
+        alignment: WrapAlignment.end,
+        children: [
+          OutlinedButton(
+            onPressed: _summarizeCurrentChapter,
+            child: const Text('Chapter Catch-Up'),
+          ),
+          if (_hasNextChapter)
+            OutlinedButton(
+              onPressed: () => _goToChapter(_currentIndex + 1),
+              child: const Text('Next Chapter'),
+            ),
+        ],
       ),
     );
   }
@@ -2646,6 +2711,7 @@ class _TextAiSelection {
 enum _AiSourceMode {
   selectedText,
   resumeRange,
+  wholeChapter,
 }
 
 class _GenerateImageFeatureModes {
