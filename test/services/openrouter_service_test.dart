@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:bookai/models/openrouter_model.dart';
 import 'package:bookai/services/openrouter_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -27,11 +28,19 @@ void main() {
                 'description': 'OpenAI model',
                 'context_length': 128000,
                 'output_modalities': ['text'],
+                'pricing': {
+                  'prompt': '0.00000015',
+                  'completion': '0.0000006',
+                },
               },
               {
                 'id': 'anthropic/claude-3.7-sonnet',
                 'name': 'Claude 3.7 Sonnet',
                 'output_modalities': ['image', 'text'],
+                'pricing': {
+                  'prompt': '0.000003',
+                  'completion': '0.000015',
+                },
               },
             ],
           }),
@@ -47,6 +56,13 @@ void main() {
       expect(models.last.id, 'openai/gpt-4o-mini');
       expect(models.last.contextLength, 128000);
       expect(models.first.supportsImageOutput, isTrue);
+      expect(models.last.pricing?.prompt, 0.00000015);
+      expect(
+        models.last.pricing?.settingsLabel(
+          OpenRouterModelPriceDisplayMode.textPreferred,
+        ),
+        'Input: \$0.15/M tok · Output: \$0.6/M tok',
+      );
     });
 
     test('fetchModels throws on non-2xx status', () async {

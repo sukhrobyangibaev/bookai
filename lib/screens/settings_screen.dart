@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 
 import '../app.dart';
 import '../models/ai_feature.dart';
@@ -25,14 +26,18 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   late final TextEditingController _apiKeyController;
   late final OpenRouterService _openRouterService;
+  late final FocusNode _apiKeyFocusNode;
   final ScrollController _scrollController = ScrollController();
   bool _obscureApiKey = true;
   SettingsController? _controllerForSync;
+  Future<List<OpenRouterModel>>? _settingsModelsFuture;
+  String _settingsModelsApiKey = '';
 
   @override
   void initState() {
     super.initState();
     _apiKeyController = TextEditingController();
+    _apiKeyFocusNode = FocusNode()..addListener(_handleApiKeyFocusChange);
     _openRouterService = widget.openRouterService ?? OpenRouterService();
   }
 
@@ -52,6 +57,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   void dispose() {
     _controllerForSync?.removeListener(_syncApiKeyField);
+    _apiKeyFocusNode
+      ..removeListener(_handleApiKeyFocusChange)
+      ..dispose();
     _apiKeyController.dispose();
     _scrollController.dispose();
     super.dispose();
@@ -62,13 +70,106 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (controller == null) return;
 
     final apiKey = controller.openRouterApiKey;
-    if (_apiKeyController.text == apiKey) return;
+    if (_apiKeyController.text != apiKey) {
+      _apiKeyController.value = _apiKeyController.value.copyWith(
+        text: apiKey,
+        selection: TextSelection.collapsed(offset: apiKey.length),
+        composing: TextRange.empty,
+      );
+    }
 
-    _apiKeyController.value = _apiKeyController.value.copyWith(
-      text: apiKey,
-      selection: TextSelection.collapsed(offset: apiKey.length),
-      composing: TextRange.empty,
-    );
+    _syncSettingsModelsForApiKey(apiKey);
+  }
+
+  void _handleApiKeyFocusChange() {
+    if (_apiKeyFocusNode.hasFocus) return;
+    _syncSettingsModelsForApiKey(_controllerForSync?.openRouterApiKey ?? '');
+  }
+
+  void _clearSettingsModelsCache({bool notify = true}) {
+    final hasCache =
+        _settingsModelsFuture != null || _settingsModelsApiKey != '';
+    _settingsModelsFuture = null;
+    _settingsModelsApiKey = '';
+
+    if (notify && hasCache) {
+      _notifyModelsStateChanged();
+    }
+  }
+
+  void _notifyModelsStateChanged() {
+    if (!mounted) return;
+
+    final phase = SchedulerBinding.instance.schedulerPhase;
+    if (phase == SchedulerPhase.idle ||
+        phase == SchedulerPhase.postFrameCallbacks) {
+      setState(() {});
+      return;
+    }
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      setState(() {});
+    });
+  }
+
+  void _syncSettingsModelsForApiKey(String apiKey) {
+    final normalizedApiKey = apiKey.trim();
+
+    if (_apiKeyFocusNode.hasFocus) {
+      if (normalizedApiKey != _settingsModelsApiKey) {
+        _clearSettingsModelsCache();
+      }
+      return;
+    }
+
+    if (normalizedApiKey.isEmpty) {
+      _clearSettingsModelsCache();
+      return;
+    }
+
+    if (_settingsModelsFuture != null &&
+        _settingsModelsApiKey == normalizedApiKey) {
+      return;
+    }
+
+    _loadSettingsModels(apiKey: normalizedApiKey);
+  }
+
+  Future<List<OpenRouterModel>> _loadSettingsModels({
+    required String apiKey,
+    bool forceRefresh = false,
+  }) {
+    final normalizedApiKey = apiKey.trim();
+    if (normalizedApiKey.isEmpty) {
+      _clearSettingsModelsCache();
+      return Future.value(const <OpenRouterModel>[]);
+    }
+
+    if (!forceRefresh &&
+        _settingsModelsFuture != null &&
+        _settingsModelsApiKey == normalizedApiKey) {
+      return _settingsModelsFuture!;
+    }
+
+    late final Future<List<OpenRouterModel>> sharedFuture;
+    sharedFuture = _openRouterService
+        .fetchModels(
+      apiKey: normalizedApiKey,
+      forceRefresh: forceRefresh,
+    )
+        .catchError((Object error) {
+      if (identical(_settingsModelsFuture, sharedFuture) &&
+          _settingsModelsApiKey == normalizedApiKey) {
+        _clearSettingsModelsCache();
+      }
+      throw error;
+    });
+
+    _settingsModelsApiKey = normalizedApiKey;
+    _settingsModelsFuture = sharedFuture;
+    _notifyModelsStateChanged();
+    return sharedFuture;
   }
 
   Future<String?> _pickModelId({
@@ -79,6 +180,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     String title = 'Choose OpenRouter Model',
   }) async {
     String? pickedModelId;
+    final normalizedApiKey = apiKey.trim();
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -87,8 +189,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
         return FractionallySizedBox(
           heightFactor: 0.92,
           child: _OpenRouterModelPickerSheet(
-            service: _openRouterService,
-            apiKey: apiKey,
+            loadModels: ({bool forceRefresh = false}) => _loadSettingsModels(
+              apiKey: normalizedApiKey,
+              forceRefresh: forceRefresh,
+            ),
             selectedModelId: selectedModelId,
             requiredOutputModality: requiredOutputModality,
             title: title,
@@ -142,6 +246,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
     if (pickedModelId == null) return;
     await controller.setOpenRouterFallbackModelId(pickedModelId);
+  }
+
+  String _selectedModelSubtitle({
+    required String modelId,
+    required String emptyLabel,
+    required Map<String, OpenRouterModel> modelsById,
+    required OpenRouterModelPriceDisplayMode priceDisplayMode,
+  }) {
+    if (modelId.isEmpty) return emptyLabel;
+
+    final priceLabel = modelsById[modelId]?.settingsPriceLabel(
+      priceDisplayMode,
+    );
+    if (priceLabel == null) return modelId;
+    return '$modelId\n$priceLabel';
   }
 
   Future<void> _showFeatureConfigSheet(
@@ -450,142 +569,163 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Widget _buildAiSection(BuildContext context, SettingsController controller) {
     final selectedModelId = controller.openRouterModelId;
-    final selectedModelLabel =
-        selectedModelId.isEmpty ? 'No model selected' : selectedModelId;
     final fallbackModelId = controller.openRouterFallbackModelId;
-    final fallbackModelLabel = fallbackModelId.isEmpty
-        ? 'No fallback model selected'
-        : fallbackModelId;
     final imageModelId = controller.openRouterImageModelId;
-    final imageModelLabel =
-        imageModelId.isEmpty ? 'No image model selected' : imageModelId;
+    final modelsFuture = _settingsModelsFuture;
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'AI',
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
-          const SizedBox(height: 8),
-          TextField(
-            controller: _apiKeyController,
-            obscureText: _obscureApiKey,
-            autocorrect: false,
-            enableSuggestions: false,
-            textInputAction: TextInputAction.done,
-            onChanged: controller.setOpenRouterApiKey,
-            decoration: InputDecoration(
-              labelText: 'OpenRouter API Key',
-              hintText: 'sk-or-v1-...',
-              border: const OutlineInputBorder(),
-              helperText: 'Stored locally on this device.',
-              suffixIcon: IconButton(
-                onPressed: () {
-                  setState(() {
-                    _obscureApiKey = !_obscureApiKey;
-                  });
-                },
-                icon: Icon(
-                  _obscureApiKey
-                      ? Icons.visibility_outlined
-                      : Icons.visibility_off_outlined,
+    return FutureBuilder<List<OpenRouterModel>>(
+      future: modelsFuture,
+      builder: (context, snapshot) {
+        final modelsById = <String, OpenRouterModel>{
+          for (final model in snapshot.data ?? const <OpenRouterModel>[])
+            model.id: model,
+        };
+        final selectedModelLabel = _selectedModelSubtitle(
+          modelId: selectedModelId,
+          emptyLabel: 'No model selected',
+          modelsById: modelsById,
+          priceDisplayMode: OpenRouterModelPriceDisplayMode.textPreferred,
+        );
+        final fallbackModelLabel = _selectedModelSubtitle(
+          modelId: fallbackModelId,
+          emptyLabel: 'No fallback model selected',
+          modelsById: modelsById,
+          priceDisplayMode: OpenRouterModelPriceDisplayMode.textPreferred,
+        );
+        final imageModelLabel = _selectedModelSubtitle(
+          modelId: imageModelId,
+          emptyLabel: 'No image model selected',
+          modelsById: modelsById,
+          priceDisplayMode: OpenRouterModelPriceDisplayMode.imagePreferred,
+        );
+
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'AI',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _apiKeyController,
+                focusNode: _apiKeyFocusNode,
+                obscureText: _obscureApiKey,
+                autocorrect: false,
+                enableSuggestions: false,
+                textInputAction: TextInputAction.done,
+                onChanged: controller.setOpenRouterApiKey,
+                decoration: InputDecoration(
+                  labelText: 'OpenRouter API Key',
+                  hintText: 'sk-or-v1-...',
+                  border: const OutlineInputBorder(),
+                  helperText: 'Stored locally on this device.',
+                  suffixIcon: IconButton(
+                    onPressed: () {
+                      setState(() {
+                        _obscureApiKey = !_obscureApiKey;
+                      });
+                    },
+                    icon: Icon(
+                      _obscureApiKey
+                          ? Icons.visibility_outlined
+                          : Icons.visibility_off_outlined,
+                    ),
+                    tooltip: _obscureApiKey ? 'Show key' : 'Hide key',
+                  ),
                 ),
-                tooltip: _obscureApiKey ? 'Show key' : 'Hide key',
               ),
-            ),
-          ),
-          const SizedBox(height: 8),
-          ListTile(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('Default Model'),
-            subtitle: Text(
-              selectedModelLabel,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-            ),
-            trailing: const Icon(Icons.search),
-            onTap: () => _showModelPicker(context, controller),
-          ),
-          ListTile(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('Fallback Model'),
-            subtitle: Text(
-              fallbackModelLabel,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-            ),
-            trailing: const Icon(Icons.search),
-            onTap: () => _showFallbackModelPicker(context, controller),
-          ),
-          ListTile(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('Image Model'),
-            subtitle: Text(
-              imageModelLabel,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-            ),
-            trailing: const Icon(Icons.image_search_outlined),
-            onTap: () => _showImageModelPicker(context, controller),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'AI Features',
-            style: Theme.of(context).textTheme.titleSmall,
-          ),
-          const SizedBox(height: 4),
-          ...aiFeatures.map((feature) {
-            final config = controller.aiFeatureConfig(feature.id);
-            final usesGlobalModel = config.modelIdOverride.trim().isEmpty;
-            final modelLabel = usesGlobalModel
-                ? (selectedModelId.isEmpty
-                    ? 'Prompt model: Global default not set'
-                    : 'Prompt model: Global default $selectedModelId')
-                : 'Prompt model: Override ${config.modelIdOverride}';
-            final imageModelHint = feature.id == AiFeatureIds.generateImage
-                ? '\nImage model: ${imageModelId.isEmpty ? 'Not set' : imageModelId}'
-                : '';
-            final promptPreview = config.promptTemplate
-                .replaceAll('\n', ' ')
-                .replaceAll(RegExp(r'\s+'), ' ')
-                .trim();
+              const SizedBox(height: 8),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Default Model'),
+                subtitle: Text(
+                  selectedModelLabel,
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                trailing: const Icon(Icons.search),
+                onTap: () => _showModelPicker(context, controller),
+              ),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Fallback Model'),
+                subtitle: Text(
+                  fallbackModelLabel,
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                trailing: const Icon(Icons.search),
+                onTap: () => _showFallbackModelPicker(context, controller),
+              ),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Image Model'),
+                subtitle: Text(
+                  imageModelLabel,
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                trailing: const Icon(Icons.image_search_outlined),
+                onTap: () => _showImageModelPicker(context, controller),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'AI Features',
+                style: Theme.of(context).textTheme.titleSmall,
+              ),
+              const SizedBox(height: 4),
+              ...aiFeatures.map((feature) {
+                final config = controller.aiFeatureConfig(feature.id);
+                final usesGlobalModel = config.modelIdOverride.trim().isEmpty;
+                final modelLabel = usesGlobalModel
+                    ? (selectedModelId.isEmpty
+                        ? 'Prompt model: Global default not set'
+                        : 'Prompt model: Global default $selectedModelId')
+                    : 'Prompt model: Override ${config.modelIdOverride}';
+                final imageModelHint = feature.id == AiFeatureIds.generateImage
+                    ? '\nImage model: ${imageModelId.isEmpty ? 'Not set' : imageModelId}'
+                    : '';
+                final promptPreview = config.promptTemplate
+                    .replaceAll('\n', ' ')
+                    .replaceAll(RegExp(r'\s+'), ' ')
+                    .trim();
 
-            return ListTile(
-              contentPadding: EdgeInsets.zero,
-              title: Text(feature.title),
-              subtitle: Text(
-                '$modelLabel$imageModelHint\nPrompt: $promptPreview',
-                maxLines: 4,
-                overflow: TextOverflow.ellipsis,
-              ),
-              trailing: const Icon(Icons.tune),
-              onTap: () => _showFeatureConfigSheet(
-                context,
-                controller,
-                feature,
-              ),
-            );
-          }),
-        ],
-      ),
+                return ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(feature.title),
+                  subtitle: Text(
+                    '$modelLabel$imageModelHint\nPrompt: $promptPreview',
+                    maxLines: 4,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  trailing: const Icon(Icons.tune),
+                  onTap: () => _showFeatureConfigSheet(
+                    context,
+                    controller,
+                    feature,
+                  ),
+                );
+              }),
+            ],
+          ),
+        );
+      },
     );
   }
 }
 
 class _OpenRouterModelPickerSheet extends StatefulWidget {
-  final OpenRouterService service;
-  final String apiKey;
+  final Future<List<OpenRouterModel>> Function({bool forceRefresh}) loadModels;
   final String selectedModelId;
   final String? requiredOutputModality;
   final String title;
   final ValueChanged<String> onModelSelected;
 
   const _OpenRouterModelPickerSheet({
-    required this.service,
-    required this.apiKey,
+    required this.loadModels,
     required this.selectedModelId,
     required this.title,
     required this.onModelSelected,
@@ -616,10 +756,7 @@ class _OpenRouterModelPickerSheetState
   }
 
   Future<List<OpenRouterModel>> _loadModels({bool forceRefresh = false}) {
-    return widget.service.fetchModels(
-      apiKey: widget.apiKey,
-      forceRefresh: forceRefresh,
-    );
+    return widget.loadModels(forceRefresh: forceRefresh);
   }
 
   void _retry() {
@@ -677,6 +814,15 @@ class _OpenRouterModelPickerSheetState
     if (model.supportsImageOutput) return 1;
     if (model.isLikelyImageModel) return 2;
     return 3;
+  }
+
+  OpenRouterModelPriceDisplayMode get _priceDisplayMode {
+    final requiredOutputModality =
+        widget.requiredOutputModality?.trim().toLowerCase();
+    if (requiredOutputModality == 'image') {
+      return OpenRouterModelPriceDisplayMode.imagePreferred;
+    }
+    return OpenRouterModelPriceDisplayMode.textPreferred;
   }
 
   @override
@@ -772,7 +918,10 @@ class _OpenRouterModelPickerSheetState
                                           .primaryContainer
                                           .withAlpha(80),
                                       title: Text(model.displayName),
-                                      subtitle: _ModelSubtitle(model: model),
+                                      subtitle: _ModelSubtitle(
+                                        model: model,
+                                        priceDisplayMode: _priceDisplayMode,
+                                      ),
                                       trailing: isSelected
                                           ? Icon(
                                               Icons.check,
@@ -802,8 +951,12 @@ class _OpenRouterModelPickerSheetState
 
 class _ModelSubtitle extends StatelessWidget {
   final OpenRouterModel model;
+  final OpenRouterModelPriceDisplayMode priceDisplayMode;
 
-  const _ModelSubtitle({required this.model});
+  const _ModelSubtitle({
+    required this.model,
+    required this.priceDisplayMode,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -819,6 +972,7 @@ class _ModelSubtitle extends StatelessWidget {
     ];
     final idText =
         metadata.isEmpty ? model.id : '${model.id} · ${metadata.join(' · ')}';
+    final priceText = model.settingsPriceLabel(priceDisplayMode);
     final description = model.description;
 
     return Column(
@@ -830,6 +984,15 @@ class _ModelSubtitle extends StatelessWidget {
           overflow: TextOverflow.ellipsis,
           style: Theme.of(context).textTheme.bodySmall,
         ),
+        if (priceText != null)
+          Text(
+            priceText,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+          ),
         if (description != null)
           Text(
             description,
