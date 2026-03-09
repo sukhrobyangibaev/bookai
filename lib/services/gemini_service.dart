@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:http/http.dart' as http;
 
@@ -29,11 +30,35 @@ class GeminiImageGenerationResult {
 class GeminiService {
   static final Uri _modelsUri =
       Uri.parse('https://generativelanguage.googleapis.com/v1beta/models');
+  static const List<Map<String, String>> _relaxedSafetySettings =
+      <Map<String, String>>[
+    {
+      'category': 'HARM_CATEGORY_HARASSMENT',
+      'threshold': 'BLOCK_NONE',
+    },
+    {
+      'category': 'HARM_CATEGORY_HATE_SPEECH',
+      'threshold': 'BLOCK_NONE',
+    },
+    {
+      'category': 'HARM_CATEGORY_SEXUALLY_EXPLICIT',
+      'threshold': 'BLOCK_NONE',
+    },
+    {
+      'category': 'HARM_CATEGORY_DANGEROUS_CONTENT',
+      'threshold': 'BLOCK_NONE',
+    },
+  ];
 
   final http.Client _client;
   final DateTime Function() _clock;
   final Duration _cacheTtl;
   final Duration _requestTimeout;
+  final Duration _retryBaseDelay;
+  final Future<void> Function(Duration) _sleep;
+  final math.Random _random;
+
+  static const int _maxAttempts = 2;
 
   List<AiModelInfo>? _cachedModels;
   DateTime? _cachedAt;
@@ -43,11 +68,17 @@ class GeminiService {
     http.Client? client,
     DateTime Function()? clock,
     Duration cacheTtl = const Duration(minutes: 10),
-    Duration requestTimeout = const Duration(seconds: 75),
+    Duration requestTimeout = const Duration(seconds: 120),
+    Duration retryBaseDelay = const Duration(milliseconds: 250),
+    Future<void> Function(Duration)? sleep,
+    math.Random? random,
   })  : _client = client ?? http.Client(),
         _clock = clock ?? DateTime.now,
         _cacheTtl = cacheTtl,
-        _requestTimeout = requestTimeout;
+        _requestTimeout = requestTimeout,
+        _retryBaseDelay = retryBaseDelay,
+        _sleep = sleep ?? Future<void>.delayed,
+        _random = random ?? math.Random();
 
   Future<List<AiModelInfo>> fetchModels({
     required String apiKey,
@@ -78,25 +109,13 @@ class GeminiService {
           'pageToken': nextPageToken,
       };
 
-      final http.Response response;
-      try {
-        response = await _client
-            .get(
-              _modelsUri.replace(queryParameters: queryParameters),
-              headers: _buildHeaders(apiKey: normalizedApiKey),
-            )
-            .timeout(_requestTimeout);
-      } on TimeoutException catch (error) {
-        throw GeminiException(
-          'Gemini timed out while loading models. Please try again.',
-          cause: error,
-        );
-      } catch (error) {
-        throw GeminiException(
-          'Failed to connect to Gemini.',
-          cause: error,
-        );
-      }
+      final response = await _sendRequest(
+        action: 'loading models',
+        send: () => _client.get(
+          _modelsUri.replace(queryParameters: queryParameters),
+          headers: _buildHeaders(apiKey: normalizedApiKey),
+        ),
+      );
 
       if (response.statusCode < 200 || response.statusCode >= 300) {
         throw GeminiException(
@@ -163,6 +182,8 @@ class GeminiService {
       prompt: prompt,
       temperature: temperature,
       action: 'generating text',
+      thinkingConfig: _thinkingConfigForTextModel(modelId),
+      safetySettings: _safetySettingsForTextModel(modelId),
     );
     final text = _extractText(decoded);
     if (text.isEmpty) {
@@ -194,7 +215,9 @@ class GeminiService {
       prompt: prompt,
       temperature: temperature,
       action: 'generating images',
-      responseModalities: const <String>['TEXT', 'IMAGE'],
+      responseModalities: _responseModalitiesForImageModel(normalizedModelId),
+      thinkingConfig: _thinkingConfigForImageModel(normalizedModelId),
+      imageConfig: _imageConfigForImageModel(normalizedModelId),
     );
     final assistantText = _extractText(decoded);
     final imageDataUrls = _extractInlineImageDataUrls(decoded);
@@ -219,6 +242,9 @@ class GeminiService {
     required String action,
     List<String>? responseModalities,
     double? temperature,
+    Map<String, dynamic>? thinkingConfig,
+    Map<String, dynamic>? imageConfig,
+    List<Map<String, String>>? safetySettings,
   }) async {
     final normalizedApiKey = apiKey.trim();
     final normalizedModelId = modelId.trim();
@@ -237,6 +263,7 @@ class GeminiService {
     final payload = <String, dynamic>{
       'contents': <Map<String, dynamic>>[
         {
+          'role': 'user',
           'parts': <Map<String, String>>[
             {'text': normalizedPrompt},
           ],
@@ -251,33 +278,30 @@ class GeminiService {
     if (temperature != null) {
       generationConfig['temperature'] = temperature;
     }
+    if (thinkingConfig != null && thinkingConfig.isNotEmpty) {
+      generationConfig['thinkingConfig'] = thinkingConfig;
+    }
+    if (imageConfig != null && imageConfig.isNotEmpty) {
+      generationConfig['imageConfig'] = imageConfig;
+    }
     if (generationConfig.isNotEmpty) {
       payload['generationConfig'] = generationConfig;
     }
-
-    final http.Response response;
-    try {
-      response = await _client
-          .post(
-            _contentUri(modelId: normalizedModelId),
-            headers: _buildHeaders(
-              apiKey: normalizedApiKey,
-              includeJsonContentType: true,
-            ),
-            body: jsonEncode(payload),
-          )
-          .timeout(_requestTimeout);
-    } on TimeoutException catch (error) {
-      throw GeminiException(
-        'Gemini timed out while $action. Please try again.',
-        cause: error,
-      );
-    } catch (error) {
-      throw GeminiException(
-        'Failed to connect to Gemini.',
-        cause: error,
-      );
+    if (safetySettings != null && safetySettings.isNotEmpty) {
+      payload['safetySettings'] = safetySettings;
     }
+
+    final response = await _sendRequest(
+      action: action,
+      send: () => _client.post(
+        _contentUri(modelId: normalizedModelId),
+        headers: _buildHeaders(
+          apiKey: normalizedApiKey,
+          includeJsonContentType: true,
+        ),
+        body: jsonEncode(payload),
+      ),
+    );
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw GeminiException(
@@ -318,29 +342,17 @@ class GeminiService {
       },
     };
 
-    final http.Response response;
-    try {
-      response = await _client
-          .post(
-            _predictUri(modelId: modelId),
-            headers: _buildHeaders(
-              apiKey: normalizedApiKey,
-              includeJsonContentType: true,
-            ),
-            body: jsonEncode(payload),
-          )
-          .timeout(_requestTimeout);
-    } on TimeoutException catch (error) {
-      throw GeminiException(
-        'Gemini timed out while generating images. Please try again.',
-        cause: error,
-      );
-    } catch (error) {
-      throw GeminiException(
-        'Failed to connect to Gemini.',
-        cause: error,
-      );
-    }
+    final response = await _sendRequest(
+      action: 'generating images',
+      send: () => _client.post(
+        _predictUri(modelId: modelId),
+        headers: _buildHeaders(
+          apiKey: normalizedApiKey,
+          includeJsonContentType: true,
+        ),
+        body: jsonEncode(payload),
+      ),
+    );
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw GeminiException(
@@ -405,6 +417,107 @@ class GeminiService {
     return Uri.parse(
       'https://generativelanguage.googleapis.com/v1beta/models/$modelId:predict',
     );
+  }
+
+  Future<http.Response> _sendRequest({
+    required String action,
+    required Future<http.Response> Function() send,
+  }) async {
+    for (var attempt = 1; attempt <= _maxAttempts; attempt++) {
+      try {
+        final response = await send().timeout(_requestTimeout);
+        if (_isRetriableStatusCode(response.statusCode) &&
+            attempt < _maxAttempts) {
+          await _sleepBeforeRetry(attempt);
+          continue;
+        }
+        return response;
+      } on TimeoutException catch (error) {
+        if (attempt < _maxAttempts) {
+          await _sleepBeforeRetry(attempt);
+          continue;
+        }
+        throw GeminiException(
+          'Gemini timed out while $action. Please try again.',
+          cause: error,
+        );
+      } catch (error) {
+        throw GeminiException(
+          'Failed to connect to Gemini.',
+          cause: error,
+        );
+      }
+    }
+
+    throw GeminiException('Gemini timed out while $action. Please try again.');
+  }
+
+  bool _isRetriableStatusCode(int statusCode) {
+    return statusCode == 429 || statusCode >= 500;
+  }
+
+  Future<void> _sleepBeforeRetry(int attempt) async {
+    final baseDelayMs = _retryBaseDelay.inMilliseconds;
+    if (baseDelayMs <= 0) return;
+
+    final exponentialMultiplier = 1 << (attempt - 1);
+    final jitterFactor = 0.85 + (_random.nextDouble() * 0.3);
+    final rawDelayMs =
+        (baseDelayMs * exponentialMultiplier * jitterFactor).round();
+    final cappedDelayMs = math.min(
+      rawDelayMs,
+      math.max(1, _requestTimeout.inMilliseconds ~/ 4),
+    );
+    if (cappedDelayMs <= 0) return;
+
+    await _sleep(Duration(milliseconds: cappedDelayMs));
+  }
+
+  Map<String, dynamic>? _thinkingConfigForTextModel(String modelId) {
+    final normalized = modelId.trim().toLowerCase();
+    if (_isGemini25FlashTextModelId(normalized)) {
+      return const <String, dynamic>{'thinkingBudget': 0};
+    }
+    if (_isGemini3FlashPreviewTextModelId(normalized)) {
+      return const <String, dynamic>{'thinkingLevel': 'minimal'};
+    }
+    if (_isGemini31ProPreviewTextModelId(normalized)) {
+      return const <String, dynamic>{'thinkingLevel': 'low'};
+    }
+    return null;
+  }
+
+  List<Map<String, String>>? _safetySettingsForTextModel(String modelId) {
+    final normalized = modelId.trim().toLowerCase();
+    if (_isGemini3FlashPreviewTextModelId(normalized) ||
+        _isGemini31ProPreviewTextModelId(normalized)) {
+      return _relaxedSafetySettings;
+    }
+    return null;
+  }
+
+  Map<String, dynamic>? _thinkingConfigForImageModel(String modelId) {
+    final normalized = modelId.trim().toLowerCase();
+    if (_isGemini31FlashImagePreviewModelId(normalized)) {
+      return const <String, dynamic>{'thinkingLevel': 'minimal'};
+    }
+    return null;
+  }
+
+  Map<String, dynamic>? _imageConfigForImageModel(String modelId) {
+    final normalized = modelId.trim().toLowerCase();
+    if (_isGemini31FlashImagePreviewModelId(normalized)) {
+      return const <String, dynamic>{'imageSize': '1K'};
+    }
+    return null;
+  }
+
+  List<String> _responseModalitiesForImageModel(String modelId) {
+    final normalized = modelId.trim().toLowerCase();
+    if (_isGemini31FlashImagePreviewModelId(normalized)) {
+      return const <String>['IMAGE', 'TEXT'];
+    }
+    return const <String>['TEXT', 'IMAGE'];
   }
 
   Map<String, dynamic> _decodePayload(String body) {
@@ -665,6 +778,30 @@ class GeminiService {
     return normalized.contains('flash-image') ||
         normalized.contains('image-generation') ||
         normalized.contains('image-preview');
+  }
+
+  bool _isGemini25FlashTextModelId(String id) {
+    final normalized = id.trim().toLowerCase();
+    return normalized.startsWith('gemini-2.5-flash') &&
+        !normalized.contains('flash-lite') &&
+        !_isGeminiImageModelId(normalized);
+  }
+
+  bool _isGemini3FlashPreviewTextModelId(String id) {
+    final normalized = id.trim().toLowerCase();
+    return normalized.startsWith('gemini-3-flash-preview') &&
+        !_isGeminiImageModelId(normalized);
+  }
+
+  bool _isGemini31ProPreviewTextModelId(String id) {
+    final normalized = id.trim().toLowerCase();
+    return (normalized.startsWith('gemini-3.1-pro-preview') ||
+            normalized.startsWith('gemini-3-pro-preview')) &&
+        !_isGeminiImageModelId(normalized);
+  }
+
+  bool _isGemini31FlashImagePreviewModelId(String id) {
+    return id.trim().toLowerCase().startsWith('gemini-3.1-flash-image-preview');
   }
 
   bool _isImagenModelId(String id) {
