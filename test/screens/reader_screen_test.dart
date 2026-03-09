@@ -77,6 +77,48 @@ void main() {
       await tester.pumpAndSettle();
     });
 
+    testWidgets('canceling the loading sheet hides it and ignores late results',
+        (tester) async {
+      final completer = Completer<String>();
+      final openRouter = _FakeOpenRouterService(
+        generateTextHandler: ({
+          required apiKey,
+          required modelId,
+          required prompt,
+          temperature,
+        }) =>
+            completer.future,
+      );
+
+      await _pumpReaderScreen(
+        tester,
+        openRouterService: openRouter,
+      );
+
+      await _startDefineAndTranslate(tester);
+
+      expect(
+        find.byKey(const ValueKey<String>('reader-ai-loading-sheet')),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.byTooltip('Cancel AI Request'));
+      await tester.pump();
+
+      expect(
+        find.byKey(const ValueKey<String>('reader-ai-loading-sheet')),
+        findsNothing,
+      );
+      expect(find.text('AI request canceled.'), findsOneWidget);
+      await tester.pump(const Duration(seconds: 2));
+
+      completer.complete('Definition: late\nTranslation: ignored');
+      await tester.pumpAndSettle();
+
+      expect(find.text('Define & Translate'), findsNothing);
+      expect(find.text('Definition: late\nTranslation: ignored'), findsNothing);
+    });
+
     testWidgets('opens the full result sheet automatically when AI completes',
         (tester) async {
       final completer = Completer<String>();

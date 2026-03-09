@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:bookai/models/ai_model_info.dart';
@@ -216,6 +217,30 @@ void main() {
             (error) => error.message,
             'message',
             contains('Bad request'),
+          ),
+        ),
+      );
+    });
+
+    test('times out hung requests with a Gemini-specific message', () async {
+      final completer = Completer<http.Response>();
+      final client = MockClient((request) => completer.future);
+      final service = GeminiService(
+        client: client,
+        requestTimeout: const Duration(milliseconds: 10),
+      );
+
+      await expectLater(
+        service.generateImage(
+          apiKey: 'test-key',
+          modelId: 'gemini-3-pro-image-preview',
+          prompt: 'Draw a lighthouse',
+        ),
+        throwsA(
+          isA<GeminiException>().having(
+            (error) => error.message,
+            'message',
+            contains('timed out while generating images'),
           ),
         ),
       );

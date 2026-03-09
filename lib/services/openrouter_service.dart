@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -37,6 +38,7 @@ class OpenRouterService {
   final http.Client _client;
   final DateTime Function() _clock;
   final Duration _cacheTtl;
+  final Duration _requestTimeout;
 
   List<OpenRouterModel>? _cachedModels;
   DateTime? _cachedAt;
@@ -46,9 +48,11 @@ class OpenRouterService {
     http.Client? client,
     DateTime Function()? clock,
     Duration cacheTtl = const Duration(minutes: 10),
+    Duration requestTimeout = const Duration(seconds: 75),
   })  : _client = client ?? http.Client(),
         _clock = clock ?? DateTime.now,
-        _cacheTtl = cacheTtl;
+        _cacheTtl = cacheTtl,
+        _requestTimeout = requestTimeout;
 
   Future<List<OpenRouterModel>> fetchModels({
     String? apiKey,
@@ -67,9 +71,16 @@ class OpenRouterService {
 
     final http.Response response;
     try {
-      response = await _client.get(
-        _modelsUri,
-        headers: _buildHeaders(apiKey: normalizedApiKey),
+      response = await _client
+          .get(
+            _modelsUri,
+            headers: _buildHeaders(apiKey: normalizedApiKey),
+          )
+          .timeout(_requestTimeout);
+    } on TimeoutException catch (error) {
+      throw OpenRouterException(
+        'OpenRouter timed out while loading models. Please try again.',
+        cause: error,
       );
     } catch (error) {
       throw OpenRouterException(
@@ -240,13 +251,20 @@ class OpenRouterService {
       if (kDebugMode) {
         _debugLog('Request payload: ${jsonEncode(payload)}');
       }
-      response = await _client.post(
-        _chatCompletionsUri,
-        headers: _buildHeaders(
-          apiKey: normalizedApiKey,
-          includeJsonContentType: true,
-        ),
-        body: jsonEncode(payload),
+      response = await _client
+          .post(
+            _chatCompletionsUri,
+            headers: _buildHeaders(
+              apiKey: normalizedApiKey,
+              includeJsonContentType: true,
+            ),
+            body: jsonEncode(payload),
+          )
+          .timeout(_requestTimeout);
+    } on TimeoutException catch (error) {
+      throw OpenRouterException(
+        'OpenRouter timed out while $action. Please try again.',
+        cause: error,
       );
     } catch (error) {
       throw OpenRouterException(

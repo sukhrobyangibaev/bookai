@@ -1287,6 +1287,22 @@ class _ReaderScreenState extends State<ReaderScreen> {
     }
   }
 
+  void _cancelActiveAiRequest() {
+    if (!mounted || _activeAiRequest == null) return;
+
+    setState(() {
+      _aiRequestToken += 1;
+      _activeAiRequest = null;
+    });
+
+    _showAutoDismissSnackBar(
+      const SnackBar(
+        content: Text('AI request canceled.'),
+        duration: Duration(seconds: 2),
+      ),
+    );
+  }
+
   String? _normalizeGeneratedImageName(String rawName) {
     final normalizedName = rawName.trim();
     if (normalizedName.isEmpty) {
@@ -2364,6 +2380,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
           if (_activeAiRequest != null)
             _AiLoadingSheet(
               loadingText: _activeAiRequest!.requestSpec.loadingText,
+              onCancel: _cancelActiveAiRequest,
             ),
           if (!_isNavbarVisible) _buildHiddenNavPill(),
         ],
@@ -2976,8 +2993,12 @@ class _AiLoadingSheet extends StatelessWidget {
       ValueKey<String>('reader-ai-loading-progress');
 
   final String loadingText;
+  final VoidCallback onCancel;
 
-  const _AiLoadingSheet({required this.loadingText});
+  const _AiLoadingSheet({
+    required this.loadingText,
+    required this.onCancel,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -3000,11 +3021,24 @@ class _AiLoadingSheet extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    loadingText,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.bodyMedium,
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          loadingText,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodyMedium,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      IconButton(
+                        onPressed: onCancel,
+                        tooltip: 'Cancel AI Request',
+                        visualDensity: VisualDensity.compact,
+                        icon: const Icon(Icons.close),
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 10),
                   const LinearProgressIndicator(

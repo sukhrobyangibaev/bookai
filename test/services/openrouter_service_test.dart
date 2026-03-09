@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:bookai/models/openrouter_model.dart';
@@ -280,6 +281,31 @@ void main() {
                 'message',
                 contains('not available for your account'),
               ),
+        ),
+      );
+    });
+
+    test('times out hung requests with an OpenRouter-specific message',
+        () async {
+      final completer = Completer<http.Response>();
+      final client = MockClient((request) => completer.future);
+      final service = OpenRouterService(
+        client: client,
+        requestTimeout: const Duration(milliseconds: 10),
+      );
+
+      await expectLater(
+        service.generateImage(
+          apiKey: 'test-key',
+          modelId: 'openai/gpt-image-1',
+          prompt: 'Draw a lighthouse',
+        ),
+        throwsA(
+          isA<OpenRouterException>().having(
+            (error) => error.message,
+            'message',
+            contains('timed out while generating images'),
+          ),
         ),
       );
     });
