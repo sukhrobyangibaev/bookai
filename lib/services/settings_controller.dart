@@ -2,6 +2,8 @@ import 'package:flutter/foundation.dart';
 
 import '../models/ai_feature.dart';
 import '../models/ai_feature_config.dart';
+import '../models/ai_model_selection.dart';
+import '../models/ai_provider.dart';
 import '../models/reader_settings.dart';
 import 'settings_service.dart';
 
@@ -15,6 +17,11 @@ class SettingsController extends ChangeNotifier {
   AppThemeMode get themeMode => _settings.themeMode;
   ReaderFontFamily get fontFamily => _settings.fontFamily;
   String get openRouterApiKey => _settings.openRouterApiKey;
+  String get geminiApiKey => _settings.geminiApiKey;
+  AiModelSelection get defaultModelSelection => _settings.defaultModelSelection;
+  AiModelSelection get fallbackModelSelection =>
+      _settings.fallbackModelSelection;
+  AiModelSelection get imageModelSelection => _settings.imageModelSelection;
   String get openRouterModelId => _settings.openRouterModelId;
   String get openRouterFallbackModelId => _settings.openRouterFallbackModelId;
   String get openRouterImageModelId => _settings.openRouterImageModelId;
@@ -58,28 +65,54 @@ class SettingsController extends ChangeNotifier {
     await _service.saveOpenRouterApiKey(normalized);
   }
 
-  Future<void> setOpenRouterModelId(String modelId) async {
-    final normalized = modelId.trim();
-    if (_settings.openRouterModelId == normalized) return;
-    _settings = _settings.copyWith(openRouterModelId: normalized);
+  Future<void> setGeminiApiKey(String apiKey) async {
+    final normalized = apiKey.trim();
+    if (_settings.geminiApiKey == normalized) return;
+    _settings = _settings.copyWith(geminiApiKey: normalized);
     notifyListeners();
-    await _service.saveOpenRouterModelId(normalized);
+    await _service.saveGeminiApiKey(normalized);
   }
 
-  Future<void> setOpenRouterFallbackModelId(String modelId) async {
-    final normalized = modelId.trim();
-    if (_settings.openRouterFallbackModelId == normalized) return;
-    _settings = _settings.copyWith(openRouterFallbackModelId: normalized);
+  Future<void> setDefaultModelSelection(AiModelSelection selection) async {
+    final normalized = _normalizeSelection(selection);
+    if (_settings.defaultModelSelection == normalized) return;
+    _settings = _settings.copyWith(defaultModelSelection: normalized);
     notifyListeners();
-    await _service.saveOpenRouterFallbackModelId(normalized);
+    await _service.saveDefaultModelSelection(normalized);
   }
 
-  Future<void> setOpenRouterImageModelId(String modelId) async {
-    final normalized = modelId.trim();
-    if (_settings.openRouterImageModelId == normalized) return;
-    _settings = _settings.copyWith(openRouterImageModelId: normalized);
+  Future<void> setOpenRouterModelId(String modelId) {
+    return setDefaultModelSelection(
+      AiModelSelection.legacyOpenRouter(modelId),
+    );
+  }
+
+  Future<void> setFallbackModelSelection(AiModelSelection selection) async {
+    final normalized = _normalizeSelection(selection);
+    if (_settings.fallbackModelSelection == normalized) return;
+    _settings = _settings.copyWith(fallbackModelSelection: normalized);
     notifyListeners();
-    await _service.saveOpenRouterImageModelId(normalized);
+    await _service.saveFallbackModelSelection(normalized);
+  }
+
+  Future<void> setOpenRouterFallbackModelId(String modelId) {
+    return setFallbackModelSelection(
+      AiModelSelection.legacyOpenRouter(modelId),
+    );
+  }
+
+  Future<void> setImageModelSelection(AiModelSelection selection) async {
+    final normalized = _normalizeSelection(selection);
+    if (_settings.imageModelSelection == normalized) return;
+    _settings = _settings.copyWith(imageModelSelection: normalized);
+    notifyListeners();
+    await _service.saveImageModelSelection(normalized);
+  }
+
+  Future<void> setOpenRouterImageModelId(String modelId) {
+    return setImageModelSelection(
+      AiModelSelection.legacyOpenRouter(modelId),
+    );
   }
 
   AiFeatureConfig aiFeatureConfig(String featureId) {
@@ -88,10 +121,23 @@ class SettingsController extends ChangeNotifier {
         const AiFeatureConfig(promptTemplate: '');
   }
 
+  AiModelSelection effectiveModelSelectionForFeature(String featureId) {
+    final override = aiFeatureConfig(featureId).modelOverride;
+    if (override.isConfigured) return override;
+    return defaultModelSelection;
+  }
+
   String effectiveModelIdForFeature(String featureId) {
-    final override = aiFeatureConfig(featureId).modelIdOverride.trim();
-    if (override.isNotEmpty) return override;
-    return openRouterModelId.trim();
+    return effectiveModelSelectionForFeature(featureId).normalizedModelId;
+  }
+
+  String apiKeyForProvider(AiProvider provider) {
+    switch (provider) {
+      case AiProvider.openRouter:
+        return openRouterApiKey.trim();
+      case AiProvider.gemini:
+        return geminiApiKey.trim();
+    }
   }
 
   Future<void> setAiFeatureConfig(
@@ -101,12 +147,12 @@ class SettingsController extends ChangeNotifier {
     final feature = aiFeatureById(featureId);
     if (feature == null) return;
 
-    final normalizedModelId = config.modelIdOverride.trim();
+    final normalizedModelOverride = _normalizeSelection(config.modelOverride);
     final promptTemplate = config.promptTemplate.trim().isEmpty
         ? feature.defaultPromptTemplate
         : config.promptTemplate;
     final nextConfig = config.copyWith(
-      modelIdOverride: normalizedModelId,
+      modelOverride: normalizedModelOverride,
       promptTemplate: promptTemplate,
     );
 
@@ -130,5 +176,17 @@ class SettingsController extends ChangeNotifier {
     final next =
         current.copyWith(promptTemplate: feature.defaultPromptTemplate);
     await setAiFeatureConfig(featureId, next);
+  }
+
+  AiModelSelection _normalizeSelection(AiModelSelection selection) {
+    final modelId = selection.normalizedModelId;
+    if (selection.provider == null || modelId.isEmpty) {
+      return AiModelSelection.none;
+    }
+
+    return AiModelSelection(
+      provider: selection.provider,
+      modelId: modelId,
+    );
   }
 }

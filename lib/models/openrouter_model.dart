@@ -1,3 +1,6 @@
+import 'ai_model_info.dart';
+import 'ai_provider.dart';
+
 enum OpenRouterModelPriceDisplayMode { textPreferred, imagePreferred }
 
 class OpenRouterModelPricing {
@@ -269,5 +272,22 @@ class OpenRouterModel {
       if (a[i] != b[i]) return false;
     }
     return true;
+  }
+}
+
+extension OpenRouterModelX on OpenRouterModel {
+  AiModelInfo toAiModelInfo() {
+    return AiModelInfo(
+      provider: AiProvider.openRouter,
+      id: id,
+      displayName: displayName,
+      description: description,
+      contextLength: contextLength,
+      outputModalities: outputModalities,
+      textPriceLabel:
+          settingsPriceLabel(OpenRouterModelPriceDisplayMode.textPreferred),
+      imagePriceLabel:
+          settingsPriceLabel(OpenRouterModelPriceDisplayMode.imagePreferred),
+    );
   }
 }

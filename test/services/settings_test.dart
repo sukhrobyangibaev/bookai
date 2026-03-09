@@ -1,10 +1,12 @@
 import 'package:bookai/models/ai_feature.dart';
 import 'package:bookai/models/ai_feature_config.dart';
+import 'package:bookai/models/ai_model_selection.dart';
+import 'package:bookai/models/ai_provider.dart';
+import 'package:bookai/models/reader_settings.dart';
+import 'package:bookai/services/settings_controller.dart';
+import 'package:bookai/services/settings_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:bookai/models/reader_settings.dart';
-import 'package:bookai/services/settings_service.dart';
-import 'package:bookai/services/settings_controller.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -16,250 +18,176 @@ void main() {
       final service = SettingsService();
       final settings = await service.load();
 
-      expect(settings.fontSize, ReaderSettings.defaults.fontSize);
-      expect(settings.themeMode, ReaderSettings.defaults.themeMode);
-      expect(settings.fontFamily, ReaderSettings.defaults.fontFamily);
-      expect(
-          settings.openRouterApiKey, ReaderSettings.defaults.openRouterApiKey);
-      expect(
-        settings.openRouterModelId,
-        ReaderSettings.defaults.openRouterModelId,
-      );
-      expect(
-        settings.openRouterFallbackModelId,
-        ReaderSettings.defaults.openRouterFallbackModelId,
-      );
-      expect(
-        settings.aiFeatureConfigs[AiFeatureIds.resumeSummary],
-        const AiFeatureConfig(
-          promptTemplate: defaultResumeSummaryPromptTemplate,
-        ),
-      );
-      expect(
-        settings.aiFeatureConfigs[AiFeatureIds.defineAndTranslate],
-        const AiFeatureConfig(
-          promptTemplate: defaultDefineAndTranslatePromptTemplate,
-        ),
-      );
-      expect(
-        settings.aiFeatureConfigs[AiFeatureIds.simplifyText],
-        const AiFeatureConfig(
-          promptTemplate: defaultSimplifyTextPromptTemplate,
-        ),
-      );
+      expect(settings, ReaderSettings.defaults);
     });
 
-    test('load returns stored values', () async {
+    test('load returns provider-aware stored values', () async {
       SharedPreferences.setMockInitialValues({
         'reader_font_size': 24.0,
         'reader_theme_mode': 'dark',
         'reader_font_family': 'literata',
-        'reader_openrouter_api_key': 'stored-key',
-        'reader_openrouter_model_id': 'openai/gpt-4.1-mini',
-        'reader_openrouter_fallback_model_id': 'anthropic/claude-3.7-sonnet',
+        'reader_openrouter_api_key': 'or-key',
+        'reader_gemini_api_key': 'gem-key',
+        'reader_ai_default_provider': 'gemini',
+        'reader_ai_default_model_id': 'gemini-2.5-flash',
+        'reader_ai_fallback_provider': 'openRouter',
+        'reader_ai_fallback_model_id': 'openai/gpt-4o-mini',
+        'reader_ai_image_provider': 'gemini',
+        'reader_ai_image_model_id': 'imagen-4.0-generate-001',
         'reader_ai_feature_configs':
-            '{"resume_summary":{"modelIdOverride":"openai/gpt-4o-mini","promptTemplate":"Use {source_text}"}}',
+            '{"resume_summary":{"modelOverride":{"provider":"openRouter","modelId":"openai/gpt-4.1-mini"},"promptTemplate":"Use {source_text}"}}',
       });
 
-      final service = SettingsService();
-      final settings = await service.load();
+      final settings = await SettingsService().load();
 
       expect(settings.fontSize, 24.0);
       expect(settings.themeMode, AppThemeMode.dark);
       expect(settings.fontFamily, ReaderFontFamily.literata);
-      expect(settings.openRouterApiKey, 'stored-key');
-      expect(settings.openRouterModelId, 'openai/gpt-4.1-mini');
+      expect(settings.openRouterApiKey, 'or-key');
+      expect(settings.geminiApiKey, 'gem-key');
       expect(
-        settings.openRouterFallbackModelId,
-        'anthropic/claude-3.7-sonnet',
+        settings.defaultModelSelection,
+        const AiModelSelection(
+          provider: AiProvider.gemini,
+          modelId: 'gemini-2.5-flash',
+        ),
+      );
+      expect(
+        settings.fallbackModelSelection,
+        const AiModelSelection(
+          provider: AiProvider.openRouter,
+          modelId: 'openai/gpt-4o-mini',
+        ),
+      );
+      expect(
+        settings.imageModelSelection,
+        const AiModelSelection(
+          provider: AiProvider.gemini,
+          modelId: 'imagen-4.0-generate-001',
+        ),
       );
       expect(
         settings.aiFeatureConfigs[AiFeatureIds.resumeSummary],
         const AiFeatureConfig(
-          modelIdOverride: 'openai/gpt-4o-mini',
+          modelOverride: AiModelSelection(
+            provider: AiProvider.openRouter,
+            modelId: 'openai/gpt-4.1-mini',
+          ),
           promptTemplate: 'Use {source_text}',
         ),
       );
-      expect(
-        settings.aiFeatureConfigs[AiFeatureIds.defineAndTranslate],
-        const AiFeatureConfig(
-          promptTemplate: defaultDefineAndTranslatePromptTemplate,
-        ),
-      );
-      expect(
-        settings.aiFeatureConfigs[AiFeatureIds.simplifyText],
-        const AiFeatureConfig(
-          promptTemplate: defaultSimplifyTextPromptTemplate,
-        ),
-      );
     });
 
-    test('load falls back to default for unknown theme mode string', () async {
+    test('load migrates legacy OpenRouter model ids and feature overrides',
+        () async {
       SharedPreferences.setMockInitialValues({
-        'reader_font_size': 20.0,
-        'reader_theme_mode': 'invalid_theme',
+        'reader_openrouter_api_key': 'legacy-key',
+        'reader_openrouter_model_id': 'openai/gpt-4.1-mini',
+        'reader_openrouter_fallback_model_id': 'anthropic/claude-3.7-sonnet',
+        'reader_openrouter_image_model_id': 'openai/gpt-image-1',
+        'reader_ai_feature_configs':
+            '{"resume_summary":{"modelIdOverride":"openai/gpt-4o-mini","promptTemplate":"Legacy {source_text}"}}',
       });
 
-      final service = SettingsService();
-      final settings = await service.load();
+      final settings = await SettingsService().load();
 
-      expect(settings.fontSize, 20.0);
-      expect(settings.themeMode, AppThemeMode.light);
-    });
-
-    test('load falls back to default for unknown font family string', () async {
-      SharedPreferences.setMockInitialValues({
-        'reader_font_family': 'invalid_font_family',
-      });
-
-      final service = SettingsService();
-      final settings = await service.load();
-
-      expect(settings.fontFamily, ReaderFontFamily.system);
-    });
-
-    test('saveOpenRouterApiKey persists value', () async {
-      SharedPreferences.setMockInitialValues({});
-
-      final service = SettingsService();
-      await service.saveOpenRouterApiKey('secret-key');
-
-      final prefs = await SharedPreferences.getInstance();
-      expect(prefs.getString('reader_openrouter_api_key'), 'secret-key');
-    });
-
-    test('saveOpenRouterModelId persists value', () async {
-      SharedPreferences.setMockInitialValues({});
-
-      final service = SettingsService();
-      await service.saveOpenRouterModelId('anthropic/claude-3.7-sonnet');
-
-      final prefs = await SharedPreferences.getInstance();
       expect(
-        prefs.getString('reader_openrouter_model_id'),
-        'anthropic/claude-3.7-sonnet',
+        settings.defaultModelSelection,
+        const AiModelSelection(
+          provider: AiProvider.openRouter,
+          modelId: 'openai/gpt-4.1-mini',
+        ),
+      );
+      expect(
+        settings.fallbackModelSelection,
+        const AiModelSelection(
+          provider: AiProvider.openRouter,
+          modelId: 'anthropic/claude-3.7-sonnet',
+        ),
+      );
+      expect(
+        settings.imageModelSelection,
+        const AiModelSelection(
+          provider: AiProvider.openRouter,
+          modelId: 'openai/gpt-image-1',
+        ),
+      );
+      expect(
+        settings.aiFeatureConfigs[AiFeatureIds.resumeSummary]?.modelOverride,
+        const AiModelSelection(
+          provider: AiProvider.openRouter,
+          modelId: 'openai/gpt-4o-mini',
+        ),
       );
     });
 
-    test('saveOpenRouterFallbackModelId persists value', () async {
+    test('save provider-aware selections and keys persist through load',
+        () async {
       SharedPreferences.setMockInitialValues({});
 
       final service = SettingsService();
-      await service.saveOpenRouterFallbackModelId('openai/gpt-4.1-mini');
-
-      final prefs = await SharedPreferences.getInstance();
-      expect(
-        prefs.getString('reader_openrouter_fallback_model_id'),
-        'openai/gpt-4.1-mini',
+      await service.saveOpenRouterApiKey('or-key');
+      await service.saveGeminiApiKey('gem-key');
+      await service.saveDefaultModelSelection(
+        const AiModelSelection(
+          provider: AiProvider.gemini,
+          modelId: 'gemini-2.5-flash',
+        ),
       );
-    });
-
-    test('saveAiFeatureConfigs persists JSON', () async {
-      SharedPreferences.setMockInitialValues({});
-
-      final service = SettingsService();
-      await service.saveAiFeatureConfigs(const {
-        AiFeatureIds.resumeSummary: AiFeatureConfig(
-          modelIdOverride: 'openai/gpt-4o-mini',
-          promptTemplate: 'Summarize {source_text}',
+      await service.saveFallbackModelSelection(
+        const AiModelSelection(
+          provider: AiProvider.openRouter,
+          modelId: 'openai/gpt-4o-mini',
         ),
-        AiFeatureIds.simplifyText: AiFeatureConfig(
-          promptTemplate: 'Rewrite {source_text} with simpler words.',
-        ),
-        AiFeatureIds.defineAndTranslate: AiFeatureConfig(
-          promptTemplate: 'Define {source_text} and translate it into Spanish.',
-        ),
-      });
-
-      final prefs = await SharedPreferences.getInstance();
-      final raw = prefs.getString('reader_ai_feature_configs');
-      expect(raw, isNotNull);
-      expect(raw, contains('resume_summary'));
-      expect(raw, contains('simplify_text'));
-      expect(raw, contains('define_and_translate'));
-      expect(raw, contains('openai/gpt-4o-mini'));
-    });
-
-    test('saveFontSize persists value', () async {
-      SharedPreferences.setMockInitialValues({});
-
-      final service = SettingsService();
-      await service.saveFontSize(22.0);
-
-      final prefs = await SharedPreferences.getInstance();
-      expect(prefs.getDouble('reader_font_size'), 22.0);
-    });
-
-    test('saveThemeMode persists value', () async {
-      SharedPreferences.setMockInitialValues({});
-
-      final service = SettingsService();
-      await service.saveThemeMode(AppThemeMode.sepia);
-
-      final prefs = await SharedPreferences.getInstance();
-      expect(prefs.getString('reader_theme_mode'), 'sepia');
-    });
-
-    test('saveFontFamily persists value', () async {
-      SharedPreferences.setMockInitialValues({});
-
-      final service = SettingsService();
-      await service.saveFontFamily(ReaderFontFamily.atkinsonHyperlegible);
-
-      final prefs = await SharedPreferences.getInstance();
-      expect(
-        prefs.getString('reader_font_family'),
-        'atkinsonHyperlegible',
       );
-    });
-
-    test('roundtrip save then load preserves values', () async {
-      SharedPreferences.setMockInitialValues({});
-
-      final service = SettingsService();
-      await service.saveFontSize(14.0);
-      await service.saveThemeMode(AppThemeMode.dark);
-      await service.saveFontFamily(ReaderFontFamily.bitter);
-      await service.saveOpenRouterApiKey('key-roundtrip');
-      await service.saveOpenRouterModelId('openai/gpt-4o-mini');
-      await service.saveOpenRouterFallbackModelId(
-        'anthropic/claude-3.7-sonnet',
+      await service.saveImageModelSelection(
+        const AiModelSelection(
+          provider: AiProvider.gemini,
+          modelId: 'imagen-4.0-generate-001',
+        ),
       );
       await service.saveAiFeatureConfigs(const {
         AiFeatureIds.resumeSummary: AiFeatureConfig(
-          modelIdOverride: 'openai/gpt-4.1-mini',
+          modelOverride: AiModelSelection(
+            provider: AiProvider.gemini,
+            modelId: 'gemini-2.5-flash',
+          ),
           promptTemplate: 'Roundtrip {source_text}',
         ),
       });
 
       final loaded = await service.load();
-
-      expect(loaded.fontSize, 14.0);
-      expect(loaded.themeMode, AppThemeMode.dark);
-      expect(loaded.fontFamily, ReaderFontFamily.bitter);
-      expect(loaded.openRouterApiKey, 'key-roundtrip');
-      expect(loaded.openRouterModelId, 'openai/gpt-4o-mini');
+      expect(loaded.openRouterApiKey, 'or-key');
+      expect(loaded.geminiApiKey, 'gem-key');
       expect(
-        loaded.openRouterFallbackModelId,
-        'anthropic/claude-3.7-sonnet',
+        loaded.defaultModelSelection,
+        const AiModelSelection(
+          provider: AiProvider.gemini,
+          modelId: 'gemini-2.5-flash',
+        ),
+      );
+      expect(
+        loaded.fallbackModelSelection,
+        const AiModelSelection(
+          provider: AiProvider.openRouter,
+          modelId: 'openai/gpt-4o-mini',
+        ),
+      );
+      expect(
+        loaded.imageModelSelection,
+        const AiModelSelection(
+          provider: AiProvider.gemini,
+          modelId: 'imagen-4.0-generate-001',
+        ),
       );
       expect(
         loaded.aiFeatureConfigs[AiFeatureIds.resumeSummary],
         const AiFeatureConfig(
-          modelIdOverride: 'openai/gpt-4.1-mini',
+          modelOverride: AiModelSelection(
+            provider: AiProvider.gemini,
+            modelId: 'gemini-2.5-flash',
+          ),
           promptTemplate: 'Roundtrip {source_text}',
-        ),
-      );
-      expect(
-        loaded.aiFeatureConfigs[AiFeatureIds.defineAndTranslate],
-        const AiFeatureConfig(
-          promptTemplate: defaultDefineAndTranslatePromptTemplate,
-        ),
-      );
-      expect(
-        loaded.aiFeatureConfigs[AiFeatureIds.simplifyText],
-        const AiFeatureConfig(
-          promptTemplate: defaultSimplifyTextPromptTemplate,
         ),
       );
     });
@@ -267,468 +195,162 @@ void main() {
 
   group('SettingsController', () {
     test('starts with default settings', () {
-      SharedPreferences.setMockInitialValues({});
-
       final controller = SettingsController();
-
-      expect(controller.fontSize, ReaderSettings.defaults.fontSize);
-      expect(controller.themeMode, ReaderSettings.defaults.themeMode);
-      expect(controller.fontFamily, ReaderSettings.defaults.fontFamily);
-      expect(controller.openRouterApiKey,
-          ReaderSettings.defaults.openRouterApiKey);
-      expect(
-        controller.openRouterModelId,
-        ReaderSettings.defaults.openRouterModelId,
-      );
-      expect(
-        controller.openRouterFallbackModelId,
-        ReaderSettings.defaults.openRouterFallbackModelId,
-      );
+      expect(controller.settings, ReaderSettings.defaults);
     });
 
-    test('load() reads persisted settings and notifies', () async {
+    test('load reads persisted provider-aware settings and notifies', () async {
       SharedPreferences.setMockInitialValues({
-        'reader_font_size': 26.0,
-        'reader_theme_mode': 'sepia',
-        'reader_font_family': 'atkinsonHyperlegible',
-        'reader_openrouter_api_key': 'abc',
-        'reader_openrouter_model_id': 'openai/gpt-4.1',
-        'reader_openrouter_fallback_model_id': 'openai/gpt-4.1-mini',
-        'reader_ai_feature_configs':
-            '{"resume_summary":{"modelIdOverride":"openai/gpt-4.1-mini","promptTemplate":"Loaded {source_text}"}}',
+        'reader_openrouter_api_key': 'or-key',
+        'reader_gemini_api_key': 'gem-key',
+        'reader_ai_default_provider': 'gemini',
+        'reader_ai_default_model_id': 'gemini-2.5-flash',
+        'reader_ai_fallback_provider': 'openRouter',
+        'reader_ai_fallback_model_id': 'openai/gpt-4o-mini',
       });
 
       final controller = SettingsController();
-
-      int notifyCount = 0;
-      controller.addListener(() => notifyCount++);
+      var notified = 0;
+      controller.addListener(() => notified += 1);
 
       await controller.load();
 
-      expect(controller.fontSize, 26.0);
-      expect(controller.themeMode, AppThemeMode.sepia);
-      expect(controller.fontFamily, ReaderFontFamily.atkinsonHyperlegible);
-      expect(controller.openRouterApiKey, 'abc');
-      expect(controller.openRouterModelId, 'openai/gpt-4.1');
-      expect(controller.openRouterFallbackModelId, 'openai/gpt-4.1-mini');
+      expect(notified, 1);
+      expect(controller.openRouterApiKey, 'or-key');
+      expect(controller.geminiApiKey, 'gem-key');
       expect(
-        controller.aiFeatureConfig(AiFeatureIds.resumeSummary),
-        const AiFeatureConfig(
-          modelIdOverride: 'openai/gpt-4.1-mini',
-          promptTemplate: 'Loaded {source_text}',
+        controller.defaultModelSelection,
+        const AiModelSelection(
+          provider: AiProvider.gemini,
+          modelId: 'gemini-2.5-flash',
         ),
       );
       expect(
-        controller.aiFeatureConfig(AiFeatureIds.defineAndTranslate),
-        const AiFeatureConfig(
-          promptTemplate: defaultDefineAndTranslatePromptTemplate,
+        controller.fallbackModelSelection,
+        const AiModelSelection(
+          provider: AiProvider.openRouter,
+          modelId: 'openai/gpt-4o-mini',
+        ),
+      );
+    });
+
+    test('setters normalize, persist, and notify', () async {
+      SharedPreferences.setMockInitialValues({});
+
+      final controller = SettingsController();
+      var notified = 0;
+      controller.addListener(() => notified += 1);
+
+      await controller.setOpenRouterApiKey('  or-key  ');
+      await controller.setGeminiApiKey('  gem-key  ');
+      await controller.setDefaultModelSelection(
+        const AiModelSelection(
+          provider: AiProvider.gemini,
+          modelId: ' gemini-2.5-flash ',
+        ),
+      );
+      await controller.setFallbackModelSelection(
+        const AiModelSelection(
+          provider: AiProvider.openRouter,
+          modelId: ' openai/gpt-4o-mini ',
+        ),
+      );
+      await controller.setImageModelSelection(
+        const AiModelSelection(
+          provider: AiProvider.gemini,
+          modelId: ' imagen-4.0-generate-001 ',
+        ),
+      );
+
+      expect(notified, 5);
+      expect(controller.openRouterApiKey, 'or-key');
+      expect(controller.geminiApiKey, 'gem-key');
+      expect(
+        controller.defaultModelSelection,
+        const AiModelSelection(
+          provider: AiProvider.gemini,
+          modelId: 'gemini-2.5-flash',
         ),
       );
       expect(
-        controller.aiFeatureConfig(AiFeatureIds.simplifyText),
-        const AiFeatureConfig(
-          promptTemplate: defaultSimplifyTextPromptTemplate,
+        controller.fallbackModelSelection,
+        const AiModelSelection(
+          provider: AiProvider.openRouter,
+          modelId: 'openai/gpt-4o-mini',
         ),
       );
-      expect(notifyCount, 1);
-    });
-
-    test('setFontSize updates value and notifies', () async {
-      SharedPreferences.setMockInitialValues({});
-
-      final controller = SettingsController();
-
-      int notifyCount = 0;
-      controller.addListener(() => notifyCount++);
-
-      await controller.setFontSize(20.0);
-
-      expect(controller.fontSize, 20.0);
-      expect(notifyCount, 1);
-    });
-
-    test('setFontSize skips if value unchanged', () async {
-      SharedPreferences.setMockInitialValues({});
-
-      final controller = SettingsController();
-      // Default is 18.0
-      int notifyCount = 0;
-      controller.addListener(() => notifyCount++);
-
-      await controller.setFontSize(18.0);
-
-      expect(notifyCount, 0);
-    });
-
-    test('setThemeMode updates value and notifies', () async {
-      SharedPreferences.setMockInitialValues({});
-
-      final controller = SettingsController();
-
-      int notifyCount = 0;
-      controller.addListener(() => notifyCount++);
-
-      await controller.setThemeMode(AppThemeMode.dark);
-
-      expect(controller.themeMode, AppThemeMode.dark);
-      expect(notifyCount, 1);
-    });
-
-    test('setFontFamily updates value and notifies', () async {
-      SharedPreferences.setMockInitialValues({});
-
-      final controller = SettingsController();
-
-      int notifyCount = 0;
-      controller.addListener(() => notifyCount++);
-
-      await controller.setFontFamily(ReaderFontFamily.literata);
-
-      expect(controller.fontFamily, ReaderFontFamily.literata);
-      expect(notifyCount, 1);
-    });
-
-    test('setFontFamily skips if value unchanged', () async {
-      SharedPreferences.setMockInitialValues({});
-
-      final controller = SettingsController();
-      int notifyCount = 0;
-      controller.addListener(() => notifyCount++);
-
-      await controller.setFontFamily(ReaderFontFamily.system);
-
-      expect(notifyCount, 0);
-    });
-
-    test('setThemeMode skips if value unchanged', () async {
-      SharedPreferences.setMockInitialValues({});
-
-      final controller = SettingsController();
-      // Default is light
-      int notifyCount = 0;
-      controller.addListener(() => notifyCount++);
-
-      await controller.setThemeMode(AppThemeMode.light);
-
-      expect(notifyCount, 0);
-    });
-
-    test('setOpenRouterApiKey updates value and notifies', () async {
-      SharedPreferences.setMockInitialValues({});
-
-      final controller = SettingsController();
-
-      int notifyCount = 0;
-      controller.addListener(() => notifyCount++);
-
-      await controller.setOpenRouterApiKey('abc123');
-
-      expect(controller.openRouterApiKey, 'abc123');
-      expect(notifyCount, 1);
-    });
-
-    test('setOpenRouterApiKey trims and skips unchanged', () async {
-      SharedPreferences.setMockInitialValues({});
-
-      final controller = SettingsController();
-      await controller.setOpenRouterApiKey('trimmed');
-
-      int notifyCount = 0;
-      controller.addListener(() => notifyCount++);
-
-      await controller.setOpenRouterApiKey('  trimmed  ');
-
-      expect(controller.openRouterApiKey, 'trimmed');
-      expect(notifyCount, 0);
-    });
-
-    test('setOpenRouterModelId updates value and notifies', () async {
-      SharedPreferences.setMockInitialValues({});
-
-      final controller = SettingsController();
-
-      int notifyCount = 0;
-      controller.addListener(() => notifyCount++);
-
-      await controller.setOpenRouterModelId('openai/gpt-4.1-mini');
-
-      expect(controller.openRouterModelId, 'openai/gpt-4.1-mini');
-      expect(notifyCount, 1);
-    });
-
-    test('setOpenRouterModelId skips unchanged value', () async {
-      SharedPreferences.setMockInitialValues({});
-
-      final controller = SettingsController();
-      await controller.setOpenRouterModelId('openai/gpt-4.1-mini');
-
-      int notifyCount = 0;
-      controller.addListener(() => notifyCount++);
-
-      await controller.setOpenRouterModelId('openai/gpt-4.1-mini');
-
-      expect(notifyCount, 0);
-    });
-
-    test('setOpenRouterFallbackModelId updates value and notifies', () async {
-      SharedPreferences.setMockInitialValues({});
-
-      final controller = SettingsController();
-
-      int notifyCount = 0;
-      controller.addListener(() => notifyCount++);
-
-      await controller.setOpenRouterFallbackModelId('openai/gpt-4.1-mini');
-
-      expect(controller.openRouterFallbackModelId, 'openai/gpt-4.1-mini');
-      expect(notifyCount, 1);
-    });
-
-    test('setOpenRouterFallbackModelId trims and skips unchanged', () async {
-      SharedPreferences.setMockInitialValues({});
-
-      final controller = SettingsController();
-      await controller.setOpenRouterFallbackModelId('openai/gpt-4.1-mini');
-
-      int notifyCount = 0;
-      controller.addListener(() => notifyCount++);
-
-      await controller.setOpenRouterFallbackModelId('  openai/gpt-4.1-mini  ');
-
-      expect(controller.openRouterFallbackModelId, 'openai/gpt-4.1-mini');
-      expect(notifyCount, 0);
-    });
-
-    test('setFontSize persists value through service', () async {
-      SharedPreferences.setMockInitialValues({});
-
-      final controller = SettingsController();
-      await controller.setFontSize(28.0);
-
-      // Verify it was persisted
-      final prefs = await SharedPreferences.getInstance();
-      expect(prefs.getDouble('reader_font_size'), 28.0);
-    });
-
-    test('setThemeMode persists value through service', () async {
-      SharedPreferences.setMockInitialValues({});
-
-      final controller = SettingsController();
-      await controller.setThemeMode(AppThemeMode.sepia);
-
-      final prefs = await SharedPreferences.getInstance();
-      expect(prefs.getString('reader_theme_mode'), 'sepia');
-    });
-
-    test('setFontFamily persists value through service', () async {
-      SharedPreferences.setMockInitialValues({});
-
-      final controller = SettingsController();
-      await controller.setFontFamily(ReaderFontFamily.bitter);
-
-      final prefs = await SharedPreferences.getInstance();
-      expect(prefs.getString('reader_font_family'), 'bitter');
-    });
-
-    test('setOpenRouterApiKey persists value through service', () async {
-      SharedPreferences.setMockInitialValues({});
-
-      final controller = SettingsController();
-      await controller.setOpenRouterApiKey('saved-key');
-
-      final prefs = await SharedPreferences.getInstance();
-      expect(prefs.getString('reader_openrouter_api_key'), 'saved-key');
-    });
-
-    test('setOpenRouterModelId persists value through service', () async {
-      SharedPreferences.setMockInitialValues({});
-
-      final controller = SettingsController();
-      await controller
-          .setOpenRouterModelId('meta-llama/llama-3.3-70b-instruct');
-
-      final prefs = await SharedPreferences.getInstance();
       expect(
-        prefs.getString('reader_openrouter_model_id'),
-        'meta-llama/llama-3.3-70b-instruct',
+        controller.imageModelSelection,
+        const AiModelSelection(
+          provider: AiProvider.gemini,
+          modelId: 'imagen-4.0-generate-001',
+        ),
       );
     });
 
-    test('setOpenRouterFallbackModelId persists value through service',
+    test('effectiveModelSelectionForFeature falls back to global model',
         () async {
       SharedPreferences.setMockInitialValues({});
 
       final controller = SettingsController();
-      await controller
-          .setOpenRouterFallbackModelId('anthropic/claude-3.7-sonnet');
+      await controller.setDefaultModelSelection(
+        const AiModelSelection(
+          provider: AiProvider.gemini,
+          modelId: 'gemini-2.5-flash',
+        ),
+      );
 
-      final prefs = await SharedPreferences.getInstance();
       expect(
-        prefs.getString('reader_openrouter_fallback_model_id'),
-        'anthropic/claude-3.7-sonnet',
+        controller
+            .effectiveModelSelectionForFeature(AiFeatureIds.resumeSummary),
+        const AiModelSelection(
+          provider: AiProvider.gemini,
+          modelId: 'gemini-2.5-flash',
+        ),
       );
     });
 
-    test('setAiFeatureConfig updates value and persists it', () async {
+    test('effectiveModelSelectionForFeature prefers feature override',
+        () async {
       SharedPreferences.setMockInitialValues({});
 
       final controller = SettingsController();
+      await controller.setDefaultModelSelection(
+        const AiModelSelection(
+          provider: AiProvider.openRouter,
+          modelId: 'openai/gpt-4o-mini',
+        ),
+      );
       await controller.setAiFeatureConfig(
         AiFeatureIds.resumeSummary,
         const AiFeatureConfig(
-          modelIdOverride: 'openai/gpt-4.1-mini',
-          promptTemplate: 'Custom {source_text}',
-        ),
-      );
-
-      expect(
-        controller.aiFeatureConfig(AiFeatureIds.resumeSummary),
-        const AiFeatureConfig(
-          modelIdOverride: 'openai/gpt-4.1-mini',
-          promptTemplate: 'Custom {source_text}',
-        ),
-      );
-
-      final prefs = await SharedPreferences.getInstance();
-      final raw = prefs.getString('reader_ai_feature_configs');
-      expect(raw, contains('openai/gpt-4.1-mini'));
-      expect(raw, contains('Custom {source_text}'));
-    });
-
-    test('setAiFeatureConfig supports define and translate feature', () async {
-      SharedPreferences.setMockInitialValues({});
-
-      final controller = SettingsController();
-      await controller.setAiFeatureConfig(
-        AiFeatureIds.defineAndTranslate,
-        const AiFeatureConfig(
-          modelIdOverride: 'openai/gpt-4o-mini',
-          promptTemplate: 'Explain {source_text} and translate it into German.',
-        ),
-      );
-
-      expect(
-        controller.aiFeatureConfig(AiFeatureIds.defineAndTranslate),
-        const AiFeatureConfig(
-          modelIdOverride: 'openai/gpt-4o-mini',
-          promptTemplate: 'Explain {source_text} and translate it into German.',
-        ),
-      );
-    });
-
-    test('setAiFeatureConfig supports simplify text feature', () async {
-      SharedPreferences.setMockInitialValues({});
-
-      final controller = SettingsController();
-      await controller.setAiFeatureConfig(
-        AiFeatureIds.simplifyText,
-        const AiFeatureConfig(
-          modelIdOverride: 'openai/gpt-4.1-mini',
-          promptTemplate:
-              'Rewrite {source_text} so it is easier to understand.',
-        ),
-      );
-
-      expect(
-        controller.aiFeatureConfig(AiFeatureIds.simplifyText),
-        const AiFeatureConfig(
-          modelIdOverride: 'openai/gpt-4.1-mini',
-          promptTemplate:
-              'Rewrite {source_text} so it is easier to understand.',
-        ),
-      );
-    });
-
-    test('effectiveModelIdForFeature falls back to global model', () async {
-      SharedPreferences.setMockInitialValues({});
-
-      final controller = SettingsController();
-      await controller.setOpenRouterModelId('openai/gpt-4o-mini');
-
-      expect(
-        controller.effectiveModelIdForFeature(AiFeatureIds.resumeSummary),
-        'openai/gpt-4o-mini',
-      );
-    });
-
-    test('effectiveModelIdForFeature prefers feature override', () async {
-      SharedPreferences.setMockInitialValues({});
-
-      final controller = SettingsController();
-      await controller.setOpenRouterModelId('openai/gpt-4o-mini');
-      await controller.setAiFeatureConfig(
-        AiFeatureIds.resumeSummary,
-        const AiFeatureConfig(
-          modelIdOverride: 'anthropic/claude-3.7-sonnet',
+          modelOverride: AiModelSelection(
+            provider: AiProvider.gemini,
+            modelId: 'gemini-2.5-flash',
+          ),
           promptTemplate: 'Use {source_text}',
         ),
       );
 
       expect(
-        controller.effectiveModelIdForFeature(AiFeatureIds.resumeSummary),
-        'anthropic/claude-3.7-sonnet',
+        controller
+            .effectiveModelSelectionForFeature(AiFeatureIds.resumeSummary),
+        const AiModelSelection(
+          provider: AiProvider.gemini,
+          modelId: 'gemini-2.5-flash',
+        ),
       );
     });
 
-    test('resetAiFeaturePromptToDefault restores prompt template', () async {
+    test('apiKeyForProvider returns provider-specific keys', () async {
       SharedPreferences.setMockInitialValues({});
 
       final controller = SettingsController();
-      await controller.setAiFeatureConfig(
-        AiFeatureIds.resumeSummary,
-        const AiFeatureConfig(promptTemplate: 'Temporary {source_text}'),
-      );
+      await controller.setOpenRouterApiKey('or-key');
+      await controller.setGeminiApiKey('gem-key');
 
-      await controller.resetAiFeaturePromptToDefault(
-        AiFeatureIds.resumeSummary,
-      );
-
-      expect(
-        controller.aiFeatureConfig(AiFeatureIds.resumeSummary).promptTemplate,
-        defaultResumeSummaryPromptTemplate,
-      );
-    });
-
-    test('settings getter returns current ReaderSettings', () async {
-      SharedPreferences.setMockInitialValues({});
-
-      final controller = SettingsController();
-      await controller.setFontSize(22.0);
-      await controller.setThemeMode(AppThemeMode.dark);
-      await controller.setFontFamily(ReaderFontFamily.literata);
-      await controller.setOpenRouterApiKey('getter-key');
-      await controller.setOpenRouterModelId('openai/gpt-4o-mini');
-      await controller.setOpenRouterFallbackModelId(
-        'anthropic/claude-3.7-sonnet',
-      );
-
-      expect(controller.settings.fontSize, 22.0);
-      expect(controller.settings.themeMode, AppThemeMode.dark);
-      expect(controller.settings.fontFamily, ReaderFontFamily.literata);
-      expect(controller.settings.openRouterApiKey, 'getter-key');
-      expect(controller.settings.openRouterModelId, 'openai/gpt-4o-mini');
-      expect(
-        controller.settings.openRouterFallbackModelId,
-        'anthropic/claude-3.7-sonnet',
-      );
-      expect(
-        controller.settings.aiFeatureConfigs[AiFeatureIds.resumeSummary],
-        const AiFeatureConfig(
-          promptTemplate: defaultResumeSummaryPromptTemplate,
-        ),
-      );
-      expect(
-        controller.settings.aiFeatureConfigs[AiFeatureIds.defineAndTranslate],
-        const AiFeatureConfig(
-          promptTemplate: defaultDefineAndTranslatePromptTemplate,
-        ),
-      );
-      expect(
-        controller.settings.aiFeatureConfigs[AiFeatureIds.simplifyText],
-        const AiFeatureConfig(
-          promptTemplate: defaultSimplifyTextPromptTemplate,
-        ),
-      );
+      expect(controller.apiKeyForProvider(AiProvider.openRouter), 'or-key');
+      expect(controller.apiKeyForProvider(AiProvider.gemini), 'gem-key');
     });
   });
 }

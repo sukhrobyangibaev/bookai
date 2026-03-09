@@ -1,5 +1,7 @@
 import 'ai_feature.dart';
 import 'ai_feature_config.dart';
+import 'ai_model_selection.dart';
+import 'ai_provider.dart';
 
 enum AppThemeMode { light, dark, sepia }
 
@@ -25,9 +27,10 @@ class ReaderSettings {
   final AppThemeMode themeMode;
   final ReaderFontFamily fontFamily;
   final String openRouterApiKey;
-  final String openRouterModelId;
-  final String openRouterFallbackModelId;
-  final String openRouterImageModelId;
+  final String geminiApiKey;
+  final AiModelSelection defaultModelSelection;
+  final AiModelSelection fallbackModelSelection;
+  final AiModelSelection imageModelSelection;
   final Map<String, AiFeatureConfig> aiFeatureConfigs;
 
   const ReaderSettings({
@@ -35,9 +38,10 @@ class ReaderSettings {
     required this.themeMode,
     this.fontFamily = ReaderFontFamily.system,
     this.openRouterApiKey = '',
-    this.openRouterModelId = '',
-    this.openRouterFallbackModelId = '',
-    this.openRouterImageModelId = '',
+    this.geminiApiKey = '',
+    this.defaultModelSelection = AiModelSelection.none,
+    this.fallbackModelSelection = AiModelSelection.none,
+    this.imageModelSelection = AiModelSelection.none,
     this.aiFeatureConfigs = defaultAiFeatureConfigs,
   });
 
@@ -46,9 +50,10 @@ class ReaderSettings {
     themeMode: AppThemeMode.light,
     fontFamily: ReaderFontFamily.system,
     openRouterApiKey: '',
-    openRouterModelId: '',
-    openRouterFallbackModelId: '',
-    openRouterImageModelId: '',
+    geminiApiKey: '',
+    defaultModelSelection: AiModelSelection.none,
+    fallbackModelSelection: AiModelSelection.none,
+    imageModelSelection: AiModelSelection.none,
   );
 
   ReaderSettings copyWith({
@@ -56,9 +61,10 @@ class ReaderSettings {
     AppThemeMode? themeMode,
     ReaderFontFamily? fontFamily,
     String? openRouterApiKey,
-    String? openRouterModelId,
-    String? openRouterFallbackModelId,
-    String? openRouterImageModelId,
+    String? geminiApiKey,
+    AiModelSelection? defaultModelSelection,
+    AiModelSelection? fallbackModelSelection,
+    AiModelSelection? imageModelSelection,
     Map<String, AiFeatureConfig>? aiFeatureConfigs,
   }) {
     return ReaderSettings(
@@ -66,14 +72,30 @@ class ReaderSettings {
       themeMode: themeMode ?? this.themeMode,
       fontFamily: fontFamily ?? this.fontFamily,
       openRouterApiKey: openRouterApiKey ?? this.openRouterApiKey,
-      openRouterModelId: openRouterModelId ?? this.openRouterModelId,
-      openRouterFallbackModelId:
-          openRouterFallbackModelId ?? this.openRouterFallbackModelId,
-      openRouterImageModelId:
-          openRouterImageModelId ?? this.openRouterImageModelId,
+      geminiApiKey: geminiApiKey ?? this.geminiApiKey,
+      defaultModelSelection:
+          defaultModelSelection ?? this.defaultModelSelection,
+      fallbackModelSelection:
+          fallbackModelSelection ?? this.fallbackModelSelection,
+      imageModelSelection: imageModelSelection ?? this.imageModelSelection,
       aiFeatureConfigs: aiFeatureConfigs ?? this.aiFeatureConfigs,
     );
   }
+
+  String get openRouterModelId =>
+      defaultModelSelection.provider == AiProvider.openRouter
+          ? defaultModelSelection.normalizedModelId
+          : '';
+
+  String get openRouterFallbackModelId =>
+      fallbackModelSelection.provider == AiProvider.openRouter
+          ? fallbackModelSelection.normalizedModelId
+          : '';
+
+  String get openRouterImageModelId =>
+      imageModelSelection.provider == AiProvider.openRouter
+          ? imageModelSelection.normalizedModelId
+          : '';
 
   Map<String, dynamic> toMap() {
     return {
@@ -81,9 +103,10 @@ class ReaderSettings {
       'themeMode': themeMode.name,
       'fontFamily': fontFamily.name,
       'openRouterApiKey': openRouterApiKey,
-      'openRouterModelId': openRouterModelId,
-      'openRouterFallbackModelId': openRouterFallbackModelId,
-      'openRouterImageModelId': openRouterImageModelId,
+      'geminiApiKey': geminiApiKey,
+      'defaultModelSelection': defaultModelSelection.toMap(),
+      'fallbackModelSelection': fallbackModelSelection.toMap(),
+      'imageModelSelection': imageModelSelection.toMap(),
       'aiFeatureConfigs':
           aiFeatureConfigs.map((key, value) => MapEntry(key, value.toMap())),
     };
@@ -106,12 +129,31 @@ class ReaderSettings {
       themeMode: themeMode,
       fontFamily: fontFamily,
       openRouterApiKey: map['openRouterApiKey'] as String? ?? '',
-      openRouterModelId: map['openRouterModelId'] as String? ?? '',
-      openRouterFallbackModelId:
-          map['openRouterFallbackModelId'] as String? ?? '',
-      openRouterImageModelId: map['openRouterImageModelId'] as String? ?? '',
+      geminiApiKey: map['geminiApiKey'] as String? ?? '',
+      defaultModelSelection: _parseSelection(
+        rawSelection: map['defaultModelSelection'],
+        legacyModelId: map['openRouterModelId'] as String?,
+      ),
+      fallbackModelSelection: _parseSelection(
+        rawSelection: map['fallbackModelSelection'],
+        legacyModelId: map['openRouterFallbackModelId'] as String?,
+      ),
+      imageModelSelection: _parseSelection(
+        rawSelection: map['imageModelSelection'],
+        legacyModelId: map['openRouterImageModelId'] as String?,
+      ),
       aiFeatureConfigs: _parseAiFeatureConfigs(map['aiFeatureConfigs']),
     );
+  }
+
+  static AiModelSelection _parseSelection({
+    required dynamic rawSelection,
+    required String? legacyModelId,
+  }) {
+    if (rawSelection is Map) {
+      return AiModelSelection.fromMap(Map<String, dynamic>.from(rawSelection));
+    }
+    return AiModelSelection.legacyOpenRouter(legacyModelId ?? '');
   }
 
   static Map<String, AiFeatureConfig> _parseAiFeatureConfigs(dynamic raw) {
@@ -154,9 +196,10 @@ class ReaderSettings {
     return 'ReaderSettings(fontSize: $fontSize, themeMode: $themeMode, '
         'fontFamily: $fontFamily, '
         'openRouterApiKey: ${openRouterApiKey.isEmpty ? '<empty>' : '<redacted>'}, '
-        'openRouterModelId: $openRouterModelId, '
-        'openRouterFallbackModelId: $openRouterFallbackModelId, '
-        'openRouterImageModelId: $openRouterImageModelId, '
+        'geminiApiKey: ${geminiApiKey.isEmpty ? '<empty>' : '<redacted>'}, '
+        'defaultModelSelection: $defaultModelSelection, '
+        'fallbackModelSelection: $fallbackModelSelection, '
+        'imageModelSelection: $imageModelSelection, '
         'aiFeatureConfigs: ${aiFeatureConfigs.length})';
   }
 
@@ -168,9 +211,10 @@ class ReaderSettings {
         other.themeMode == themeMode &&
         other.fontFamily == fontFamily &&
         other.openRouterApiKey == openRouterApiKey &&
-        other.openRouterModelId == openRouterModelId &&
-        other.openRouterFallbackModelId == openRouterFallbackModelId &&
-        other.openRouterImageModelId == openRouterImageModelId &&
+        other.geminiApiKey == geminiApiKey &&
+        other.defaultModelSelection == defaultModelSelection &&
+        other.fallbackModelSelection == fallbackModelSelection &&
+        other.imageModelSelection == imageModelSelection &&
         _configsEqual(other.aiFeatureConfigs, aiFeatureConfigs);
   }
 
@@ -180,9 +224,10 @@ class ReaderSettings {
         themeMode,
         fontFamily,
         openRouterApiKey,
-        openRouterModelId,
-        openRouterFallbackModelId,
-        openRouterImageModelId,
+        geminiApiKey,
+        defaultModelSelection,
+        fallbackModelSelection,
+        imageModelSelection,
         Object.hashAllUnordered(
           aiFeatureConfigs.entries.map(
             (entry) => Object.hash(entry.key, entry.value),

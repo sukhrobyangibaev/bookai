@@ -5,17 +5,21 @@ import 'package:flutter/services.dart';
 
 import '../app.dart';
 import '../models/ai_feature.dart';
+import '../models/ai_model_info.dart';
+import '../models/ai_model_selection.dart';
+import '../models/ai_provider.dart';
 import '../models/book.dart';
 import '../models/chapter.dart';
 import '../models/generated_image.dart';
 import '../models/highlight.dart';
-import '../models/openrouter_model.dart';
 import '../models/reading_progress.dart';
 import '../models/resume_marker.dart';
 import '../services/chapter_loader_service.dart';
 import '../services/database_service.dart';
+import '../services/gemini_service.dart';
 import '../services/openrouter_service.dart';
 import '../services/resume_summary_service.dart';
+import '../services/settings_controller.dart';
 import '../services/storage_service.dart';
 import '../theme/reader_typography.dart';
 import '../widgets/generated_image_viewer.dart';
@@ -28,6 +32,7 @@ class ReaderScreen extends StatefulWidget {
   final ChapterLoaderService? chapterLoader;
   final DatabaseService? databaseService;
   final OpenRouterService? openRouterService;
+  final GeminiService? geminiService;
   final ResumeSummaryService? resumeSummaryService;
   final StorageService? storageService;
 
@@ -37,6 +42,7 @@ class ReaderScreen extends StatefulWidget {
     this.chapterLoader,
     this.databaseService,
     this.openRouterService,
+    this.geminiService,
     this.resumeSummaryService,
     this.storageService,
   });
@@ -49,6 +55,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
   late final ChapterLoaderService _chapterLoader;
   late final DatabaseService _db;
   late final OpenRouterService _openRouter;
+  late final GeminiService _gemini;
   late final ResumeSummaryService _resumeSummaryService;
   late final StorageService _storage;
   final _scrollController = ScrollController();
@@ -102,6 +109,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
     _chapterLoader = widget.chapterLoader ?? ChapterLoaderService.instance;
     _db = widget.databaseService ?? DatabaseService.instance;
     _openRouter = widget.openRouterService ?? OpenRouterService();
+    _gemini = widget.geminiService ?? GeminiService();
     _resumeSummaryService =
         widget.resumeSummaryService ?? const ResumeSummaryService();
     _storage = widget.storageService ?? StorageService.instance;
@@ -508,25 +516,21 @@ class _ReaderScreenState extends State<ReaderScreen> {
     if (featureSpec == null) return null;
 
     final settings = SettingsControllerScope.of(context);
-    final apiKey = settings.openRouterApiKey.trim();
-    if (apiKey.isEmpty) {
-      _showAutoDismissSnackBar(
-        const SnackBar(
-          content: Text('Add your OpenRouter API key in Settings first.'),
-          duration: Duration(seconds: 2),
-        ),
-      );
-      return null;
-    }
-
-    final modelId = settings.effectiveModelIdForFeature(featureId);
-    if (modelId.isEmpty) {
+    final modelSelection =
+        settings.effectiveModelSelectionForFeature(featureId);
+    if (!modelSelection.isConfigured) {
       _showAutoDismissSnackBar(
         const SnackBar(
           content: Text('Select a default AI model in Settings first.'),
           duration: Duration(seconds: 2),
         ),
       );
+      return null;
+    }
+    if (!_ensureApiKeyConfigured(
+      settings: settings,
+      selection: modelSelection,
+    )) {
       return null;
     }
 
@@ -552,8 +556,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
       chapterTitle: textFeatureSelection.chapterTitle,
     );
     return _AiRequestSpec(
-      apiKey: apiKey,
-      modelId: modelId,
+      modelSelection: modelSelection,
       prompt: prompt,
       title: featureSpec.title,
       loadingText: featureSpec.loadingText,
@@ -593,27 +596,22 @@ class _ReaderScreenState extends State<ReaderScreen> {
     );
 
     final settings = SettingsControllerScope.of(context);
-    final apiKey = settings.openRouterApiKey.trim();
-    if (apiKey.isEmpty) {
-      _showAutoDismissSnackBar(
-        const SnackBar(
-          content: Text('Add your OpenRouter API key in Settings first.'),
-          duration: Duration(seconds: 2),
-        ),
-      );
-      return;
-    }
-
-    final modelId = settings.effectiveModelIdForFeature(
+    final modelSelection = settings.effectiveModelSelectionForFeature(
       AiFeatureIds.defineAndTranslate,
     );
-    if (modelId.isEmpty) {
+    if (!modelSelection.isConfigured) {
       _showAutoDismissSnackBar(
         const SnackBar(
           content: Text('Select a default AI model in Settings first.'),
           duration: Duration(seconds: 2),
         ),
       );
+      return;
+    }
+    if (!_ensureApiKeyConfigured(
+      settings: settings,
+      selection: modelSelection,
+    )) {
       return;
     }
 
@@ -643,8 +641,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
     );
     await _startAiFeatureRequest(
       _AiRequestSpec(
-        apiKey: apiKey,
-        modelId: modelId,
+        modelSelection: modelSelection,
         prompt: prompt,
         title: defineAndTranslateFeature.title,
         loadingText: 'Generating definition and translation...',
@@ -783,21 +780,10 @@ class _ReaderScreenState extends State<ReaderScreen> {
     _GenerateImageSelection selection,
   ) {
     final settings = SettingsControllerScope.of(context);
-    final apiKey = settings.openRouterApiKey.trim();
-    if (apiKey.isEmpty) {
-      _showAutoDismissSnackBar(
-        const SnackBar(
-          content: Text('Add your OpenRouter API key in Settings first.'),
-          duration: Duration(seconds: 2),
-        ),
-      );
-      return null;
-    }
-
-    final promptModelId = settings.effectiveModelIdForFeature(
+    final promptModelSelection = settings.effectiveModelSelectionForFeature(
       AiFeatureIds.generateImage,
     );
-    if (promptModelId.isEmpty) {
+    if (!promptModelSelection.isConfigured) {
       _showAutoDismissSnackBar(
         const SnackBar(
           content: Text('Select a default AI model in Settings first.'),
@@ -806,15 +792,27 @@ class _ReaderScreenState extends State<ReaderScreen> {
       );
       return null;
     }
+    if (!_ensureApiKeyConfigured(
+      settings: settings,
+      selection: promptModelSelection,
+    )) {
+      return null;
+    }
 
-    final imageModelId = settings.openRouterImageModelId.trim();
-    if (imageModelId.isEmpty) {
+    final imageModelSelection = settings.imageModelSelection;
+    if (!imageModelSelection.isConfigured) {
       _showAutoDismissSnackBar(
         const SnackBar(
           content: Text('Select an image AI model in Settings first.'),
           duration: Duration(seconds: 2),
         ),
       );
+      return null;
+    }
+    if (!_ensureApiKeyConfigured(
+      settings: settings,
+      selection: imageModelSelection,
+    )) {
       return null;
     }
 
@@ -842,9 +840,8 @@ class _ReaderScreenState extends State<ReaderScreen> {
     );
 
     return _GenerateImagePromptRequest(
-      apiKey: apiKey,
-      promptModelId: promptModelId,
-      imageModelId: imageModelId,
+      promptModelSelection: promptModelSelection,
+      imageModelSelection: imageModelSelection,
       prompt: prompt,
       selection: selection,
     );
@@ -856,9 +853,8 @@ class _ReaderScreenState extends State<ReaderScreen> {
     final request = _buildGenerateImagePromptRequest(selection);
     if (request == null) return;
 
-    final promptModel = await _lookupOpenRouterModelMetadata(
-      apiKey: request.apiKey,
-      modelId: request.promptModelId,
+    final promptModel = await _lookupModelMetadata(
+      selection: request.promptModelSelection,
       loadingText: 'Checking prompt model...',
     );
     if (!mounted) return;
@@ -875,9 +871,8 @@ class _ReaderScreenState extends State<ReaderScreen> {
     try {
       final result = await _runAiLoadingTask<String>(
         loadingText: 'Generating image prompt...',
-        task: () => _openRouter.generateText(
-          apiKey: request.apiKey,
-          modelId: request.promptModelId,
+        task: () => _generateTextForSelection(
+          selection: request.promptModelSelection,
           prompt: request.prompt,
         ),
       );
@@ -918,9 +913,8 @@ class _ReaderScreenState extends State<ReaderScreen> {
       editedImageDraft.name,
     );
 
-    final imageModel = await _lookupOpenRouterModelMetadata(
-      apiKey: request.apiKey,
-      modelId: request.imageModelId,
+    final imageModel = await _lookupModelMetadata(
+      selection: request.imageModelSelection,
       loadingText: 'Checking image model...',
     );
     if (!mounted) return;
@@ -935,11 +929,10 @@ class _ReaderScreenState extends State<ReaderScreen> {
       return;
     }
 
-    OpenRouterImageGenerationResult imageResult;
+    _AiImageGenerationResult imageResult;
     try {
-      final result = await _generateImageWithBestEffortModalities(
-        apiKey: request.apiKey,
-        modelId: request.imageModelId,
+      final result = await _generateImageForSelection(
+        selection: request.imageModelSelection,
         prompt: normalizedPrompt,
         imageModel: imageModel,
       );
@@ -953,10 +946,10 @@ class _ReaderScreenState extends State<ReaderScreen> {
       return;
     }
 
-    if (imageResult.imageUrls.isEmpty) {
+    if (imageResult.imageDataUrls.isEmpty) {
       await _showAiBasicErrorSheet(
         title: 'Generate Image',
-        message: 'OpenRouter did not return an image.',
+        message: 'The selected provider did not return an image.',
       );
       return;
     }
@@ -967,7 +960,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
         selection: request.selection,
         promptText: normalizedPrompt,
         name: normalizedName,
-        imageDataUrl: imageResult.imageUrls.first,
+        imageDataUrl: imageResult.imageDataUrls.first,
       );
       if (persisted == null) {
         await _showAiBasicErrorSheet(
@@ -995,20 +988,19 @@ class _ReaderScreenState extends State<ReaderScreen> {
     );
   }
 
-  Future<OpenRouterModel?> _lookupOpenRouterModelMetadata({
-    required String apiKey,
-    required String modelId,
+  Future<AiModelInfo?> _lookupModelMetadata({
+    required AiModelSelection selection,
     required String loadingText,
   }) async {
     try {
-      final models = await _runAiLoadingTask<List<OpenRouterModel>>(
+      final models = await _runAiLoadingTask<List<AiModelInfo>>(
         loadingText: loadingText,
-        task: () => _openRouter.fetchModels(apiKey: apiKey),
+        task: () => _fetchModelInfosForSelection(selection),
       );
       if (models == null) return null;
 
       for (final model in models) {
-        if (model.id == modelId) {
+        if (model.id == selection.normalizedModelId) {
           return model;
         }
       }
@@ -1021,7 +1013,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
     return null;
   }
 
-  bool _modelCannotGenerateText(OpenRouterModel model) {
+  bool _modelCannotGenerateText(AiModelInfo model) {
     if (model.hasOutputModalityMetadata) {
       return !model.supportsTextOutput;
     }
@@ -1029,13 +1021,39 @@ class _ReaderScreenState extends State<ReaderScreen> {
     return _looksLikeImageOnlyModelId(model.id);
   }
 
-  Future<OpenRouterImageGenerationResult?>
-      _generateImageWithBestEffortModalities({
-    required String apiKey,
-    required String modelId,
+  Future<_AiImageGenerationResult?> _generateImageForSelection({
+    required AiModelSelection selection,
     required String prompt,
-    OpenRouterModel? imageModel,
+    AiModelInfo? imageModel,
   }) async {
+    final provider = selection.provider;
+    final modelId = selection.normalizedModelId;
+    if (provider == null || modelId.isEmpty) {
+      throw const OpenRouterException('Image model is not configured.');
+    }
+
+    final settings = SettingsControllerScope.of(context);
+    final apiKey = settings.apiKeyForProvider(provider);
+    if (apiKey.trim().isEmpty) {
+      throw _missingApiKeyExceptionForProvider(provider);
+    }
+
+    if (provider == AiProvider.gemini) {
+      final result = await _runAiLoadingTask<GeminiImageGenerationResult>(
+        loadingText: 'Generating image...',
+        task: () => _gemini.generateImage(
+          apiKey: apiKey,
+          modelId: modelId,
+          prompt: prompt,
+        ),
+      );
+      if (result == null) return null;
+      return _AiImageGenerationResult(
+        assistantText: result.assistantText,
+        imageDataUrls: result.imageDataUrls,
+      );
+    }
+
     final attempts = <List<String>>[];
     final preferred = _preferredImageModalities(
       modelId: modelId,
@@ -1058,7 +1076,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
     Object? lastError;
     for (final modalities in attempts) {
       try {
-        return await _runAiLoadingTask<OpenRouterImageGenerationResult>(
+        final result = await _runAiLoadingTask<OpenRouterImageGenerationResult>(
           loadingText: 'Generating image...',
           task: () => _openRouter.generateImage(
             apiKey: apiKey,
@@ -1066,6 +1084,11 @@ class _ReaderScreenState extends State<ReaderScreen> {
             prompt: prompt,
             modalities: modalities,
           ),
+        );
+        if (result == null) return null;
+        return _AiImageGenerationResult(
+          assistantText: result.assistantText,
+          imageDataUrls: result.imageUrls,
         );
       } catch (error) {
         lastError = error;
@@ -1079,7 +1102,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
 
   List<String> _preferredImageModalities({
     required String modelId,
-    OpenRouterModel? imageModel,
+    AiModelInfo? imageModel,
   }) {
     if (imageModel != null && imageModel.hasOutputModalityMetadata) {
       return imageModel.supportsTextOutput
@@ -1109,6 +1132,84 @@ class _ReaderScreenState extends State<ReaderScreen> {
       if (normalized.contains(marker)) return true;
     }
     return false;
+  }
+
+  bool _ensureApiKeyConfigured({
+    required SettingsController settings,
+    required AiModelSelection selection,
+  }) {
+    final provider = selection.provider;
+    if (provider == null) return false;
+    if (settings.apiKeyForProvider(provider).trim().isNotEmpty) {
+      return true;
+    }
+
+    _showAutoDismissSnackBar(
+      SnackBar(
+        content: Text(_missingApiKeyMessageForProvider(provider)),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+    return false;
+  }
+
+  Future<List<AiModelInfo>> _fetchModelInfosForSelection(
+    AiModelSelection selection,
+  ) {
+    final provider = selection.provider;
+    if (provider == null) {
+      return Future.value(const <AiModelInfo>[]);
+    }
+
+    final settings = SettingsControllerScope.of(context);
+    final apiKey = settings.apiKeyForProvider(provider);
+    switch (provider) {
+      case AiProvider.openRouter:
+        return _openRouter.fetchModelInfos(apiKey: apiKey);
+      case AiProvider.gemini:
+        return _gemini.fetchModels(apiKey: apiKey);
+    }
+  }
+
+  Future<String> _generateTextForSelection({
+    required AiModelSelection selection,
+    required String prompt,
+  }) {
+    final provider = selection.provider;
+    final modelId = selection.normalizedModelId;
+    if (provider == null || modelId.isEmpty) {
+      throw const OpenRouterException('Model is not configured.');
+    }
+
+    final settings = SettingsControllerScope.of(context);
+    final apiKey = settings.apiKeyForProvider(provider);
+    switch (provider) {
+      case AiProvider.openRouter:
+        return _openRouter.generateText(
+          apiKey: apiKey,
+          modelId: modelId,
+          prompt: prompt,
+        );
+      case AiProvider.gemini:
+        return _gemini.generateText(
+          apiKey: apiKey,
+          modelId: modelId,
+          prompt: prompt,
+        );
+    }
+  }
+
+  String _missingApiKeyMessageForProvider(AiProvider provider) {
+    return 'Add your ${provider.label} API key in Settings first.';
+  }
+
+  Exception _missingApiKeyExceptionForProvider(AiProvider provider) {
+    switch (provider) {
+      case AiProvider.openRouter:
+        return const OpenRouterException('OpenRouter API key is required.');
+      case AiProvider.gemini:
+        return const GeminiException('Gemini API key is required.');
+    }
   }
 
   bool _modalitiesEqual(List<String> a, List<String> b) {
@@ -1161,8 +1262,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
       token: ++_aiRequestToken,
       generationFuture: Future<String>.value(''),
       requestSpec: _AiRequestSpec(
-        apiKey: '',
-        modelId: '',
+        modelSelection: AiModelSelection.none,
         prompt: '',
         title: '',
         loadingText: loadingText,
@@ -1431,9 +1531,8 @@ class _ReaderScreenState extends State<ReaderScreen> {
   Future<void> _startAiFeatureRequest(_AiRequestSpec requestSpec) async {
     if (!_canStartAiRequest()) return;
 
-    final generationFuture = _openRouter.generateText(
-      apiKey: requestSpec.apiKey,
-      modelId: requestSpec.modelId,
+    final generationFuture = _generateTextForSelection(
+      selection: requestSpec.modelSelection,
       prompt: requestSpec.prompt,
     );
     final onSuccess = requestSpec.onSuccess;
@@ -1459,8 +1558,8 @@ class _ReaderScreenState extends State<ReaderScreen> {
   Future<void> _regenerateAiRequestWithFallback(
       _AiRequestSpec requestSpec) async {
     final settings = SettingsControllerScope.of(context);
-    final fallbackModelId = settings.openRouterFallbackModelId.trim();
-    if (fallbackModelId.isEmpty) {
+    final fallbackSelection = settings.fallbackModelSelection;
+    if (!fallbackSelection.isConfigured) {
       _showAutoDismissSnackBar(
         const SnackBar(
           content: Text('Select a fallback AI model in Settings first.'),
@@ -1469,9 +1568,15 @@ class _ReaderScreenState extends State<ReaderScreen> {
       );
       return;
     }
+    if (!_ensureApiKeyConfigured(
+      settings: settings,
+      selection: fallbackSelection,
+    )) {
+      return;
+    }
 
     await _startAiFeatureRequest(
-      requestSpec.copyWith(modelId: fallbackModelId),
+      requestSpec.copyWith(modelSelection: fallbackSelection),
     );
   }
 
@@ -1716,15 +1821,21 @@ class _ReaderScreenState extends State<ReaderScreen> {
       showDragHandle: true,
       builder: (sheetContext) {
         void regenerateWithFallback() {
-          final fallbackModelId =
-              SettingsControllerScope.of(context).openRouterFallbackModelId;
-          if (fallbackModelId.trim().isEmpty) {
+          final settings = SettingsControllerScope.of(context);
+          final fallbackSelection = settings.fallbackModelSelection;
+          if (!fallbackSelection.isConfigured) {
             _showAutoDismissSnackBar(
               const SnackBar(
                 content: Text('Select a fallback AI model in Settings first.'),
                 duration: Duration(seconds: 2),
               ),
             );
+            return;
+          }
+          if (!_ensureApiKeyConfigured(
+            settings: settings,
+            selection: fallbackSelection,
+          )) {
             return;
           }
 
@@ -2734,16 +2845,14 @@ class _GenerateImageSelection {
 }
 
 class _GenerateImagePromptRequest {
-  final String apiKey;
-  final String promptModelId;
-  final String imageModelId;
+  final AiModelSelection promptModelSelection;
+  final AiModelSelection imageModelSelection;
   final String prompt;
   final _GenerateImageSelection selection;
 
   const _GenerateImagePromptRequest({
-    required this.apiKey,
-    required this.promptModelId,
-    required this.imageModelId,
+    required this.promptModelSelection,
+    required this.imageModelSelection,
     required this.prompt,
     required this.selection,
   });
@@ -2798,8 +2907,7 @@ class _ActiveAiRequest {
 }
 
 class _AiRequestSpec {
-  final String apiKey;
-  final String modelId;
+  final AiModelSelection modelSelection;
   final String prompt;
   final String title;
   final String loadingText;
@@ -2810,8 +2918,7 @@ class _AiRequestSpec {
   final Future<void> Function()? onSuccess;
 
   const _AiRequestSpec({
-    required this.apiKey,
-    required this.modelId,
+    required this.modelSelection,
     required this.prompt,
     required this.title,
     required this.loadingText,
@@ -2823,8 +2930,7 @@ class _AiRequestSpec {
   });
 
   _AiRequestSpec copyWith({
-    String? apiKey,
-    String? modelId,
+    AiModelSelection? modelSelection,
     String? prompt,
     String? title,
     String? loadingText,
@@ -2835,8 +2941,7 @@ class _AiRequestSpec {
     Future<void> Function()? onSuccess,
   }) {
     return _AiRequestSpec(
-      apiKey: apiKey ?? this.apiKey,
-      modelId: modelId ?? this.modelId,
+      modelSelection: modelSelection ?? this.modelSelection,
       prompt: prompt ?? this.prompt,
       title: title ?? this.title,
       loadingText: loadingText ?? this.loadingText,
@@ -2847,6 +2952,16 @@ class _AiRequestSpec {
       onSuccess: onSuccess ?? this.onSuccess,
     );
   }
+}
+
+class _AiImageGenerationResult {
+  final String assistantText;
+  final List<String> imageDataUrls;
+
+  const _AiImageGenerationResult({
+    required this.assistantText,
+    required this.imageDataUrls,
+  });
 }
 
 enum _AiResultSheetAction {

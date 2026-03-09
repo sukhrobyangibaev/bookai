@@ -5,12 +5,16 @@ import 'dart:io';
 import 'package:bookai/app.dart';
 import 'package:bookai/models/book.dart';
 import 'package:bookai/models/ai_feature.dart';
+import 'package:bookai/models/ai_model_info.dart';
+import 'package:bookai/models/ai_model_selection.dart';
+import 'package:bookai/models/ai_provider.dart';
 import 'package:bookai/models/chapter.dart';
 import 'package:bookai/models/openrouter_model.dart';
 import 'package:bookai/models/resume_marker.dart';
 import 'package:bookai/screens/reader_screen.dart';
 import 'package:bookai/services/chapter_loader_service.dart';
 import 'package:bookai/services/database_service.dart';
+import 'package:bookai/services/gemini_service.dart';
 import 'package:bookai/services/openrouter_service.dart';
 import 'package:bookai/services/resume_summary_service.dart';
 import 'package:bookai/services/settings_controller.dart';
@@ -1321,16 +1325,214 @@ void main() {
       );
       await tester.pump(const Duration(seconds: 2));
     });
+
+    testWidgets('uses Gemini when the default text model provider is Gemini',
+        (tester) async {
+      final openRouter = _FakeOpenRouterService(
+        generateTextHandler: ({
+          required apiKey,
+          required modelId,
+          required prompt,
+          temperature,
+        }) async =>
+            'unused',
+      );
+      final gemini = _FakeGeminiService(
+        generateTextHandler: ({
+          required apiKey,
+          required modelId,
+          required prompt,
+          temperature,
+        }) async =>
+            'Definition: nebulous\nTranslation: tumannyy',
+      );
+
+      await _pumpReaderScreen(
+        tester,
+        openRouterService: openRouter,
+        geminiService: gemini,
+        openRouterApiKey: '',
+        geminiApiKey: 'gem-key',
+        defaultModelSelection: const AiModelSelection(
+          provider: AiProvider.gemini,
+          modelId: 'gemini-2.5-flash',
+        ),
+      );
+
+      await _startDefineAndTranslate(tester);
+      await tester.pumpAndSettle();
+
+      expect(gemini.generateTextCallCount, 1);
+      expect(openRouter.generateTextCallCount, 0);
+      expect(gemini.generateTextCalls.single.apiKey, 'gem-key');
+      expect(gemini.generateTextCalls.single.modelId, 'gemini-2.5-flash');
+      expect(
+          find.text('Definition: nebulous\nTranslation: tumannyy'), findsOne);
+    });
+
+    testWidgets('regenerate with fallback can switch from OpenRouter to Gemini',
+        (tester) async {
+      final openRouter = _FakeOpenRouterService(
+        generateTextHandler: ({
+          required apiKey,
+          required modelId,
+          required prompt,
+          temperature,
+        }) async {
+          throw const OpenRouterException('Primary failed.');
+        },
+      );
+      final gemini = _FakeGeminiService(
+        generateTextHandler: ({
+          required apiKey,
+          required modelId,
+          required prompt,
+          temperature,
+        }) async =>
+            'Recovered from Gemini',
+      );
+
+      await _pumpReaderScreen(
+        tester,
+        openRouterService: openRouter,
+        geminiService: gemini,
+        openRouterApiKey: 'or-key',
+        geminiApiKey: 'gem-key',
+        defaultModelSelection: const AiModelSelection(
+          provider: AiProvider.openRouter,
+          modelId: 'openai/gpt-4o-mini',
+        ),
+        fallbackModelSelection: const AiModelSelection(
+          provider: AiProvider.gemini,
+          modelId: 'gemini-2.5-flash',
+        ),
+      );
+
+      await _startDefineAndTranslate(tester);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Primary failed.'), findsOneWidget);
+
+      await tester.tap(find.text('Regenerate with Fallback'));
+      await tester.pumpAndSettle();
+
+      expect(openRouter.generateTextCallCount, 1);
+      expect(gemini.generateTextCallCount, 1);
+      expect(gemini.generateTextCalls.single.modelId, 'gemini-2.5-flash');
+      expect(find.text('Recovered from Gemini'), findsOneWidget);
+    });
+
+    testWidgets('generate image can use Gemini for prompt and image generation',
+        (tester) async {
+      final openRouter = _FakeOpenRouterService(
+        generateTextHandler: ({
+          required apiKey,
+          required modelId,
+          required prompt,
+          temperature,
+        }) async =>
+            'unused',
+      );
+      final gemini = _FakeGeminiService(
+        generateTextHandler: ({
+          required apiKey,
+          required modelId,
+          required prompt,
+          temperature,
+        }) async =>
+            'A calm watercolor scene by moonlight.',
+        fetchModelsHandler: ({
+          required apiKey,
+          required forceRefresh,
+        }) async =>
+            const [
+          AiModelInfo(
+            provider: AiProvider.gemini,
+            id: 'gemini-2.5-flash',
+            displayName: 'Gemini 2.5 Flash',
+            outputModalities: ['text'],
+          ),
+          AiModelInfo(
+            provider: AiProvider.gemini,
+            id: 'gemini-3-pro-image-preview',
+            displayName: 'Gemini 3 Pro Image Preview',
+            outputModalities: ['image', 'text'],
+          ),
+        ],
+        generateImageHandler: ({
+          required apiKey,
+          required modelId,
+          required prompt,
+          temperature,
+        }) async =>
+            const GeminiImageGenerationResult(
+          assistantText: 'Gemini rendered successfully.',
+          imageDataUrls: [
+            'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO6V1xQAAAAASUVORK5CYII=',
+          ],
+        ),
+      );
+
+      await _pumpReaderScreen(
+        tester,
+        openRouterService: openRouter,
+        geminiService: gemini,
+        openRouterApiKey: '',
+        geminiApiKey: 'gem-key',
+        defaultModelSelection: const AiModelSelection(
+          provider: AiProvider.gemini,
+          modelId: 'gemini-2.5-flash',
+        ),
+        imageModelSelection: const AiModelSelection(
+          provider: AiProvider.gemini,
+          modelId: 'gemini-3-pro-image-preview',
+        ),
+      );
+
+      await _startGenerateImage(tester);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Selected Text'));
+      await tester.pump();
+      for (var i = 0; i < 6; i++) {
+        await tester.pump(const Duration(milliseconds: 150));
+      }
+
+      await tester.tap(find.text('Generate'));
+      await tester.pump();
+      for (var i = 0; i < 8; i++) {
+        await tester.pump(const Duration(milliseconds: 150));
+      }
+
+      expect(gemini.generateTextCallCount, 1);
+      expect(gemini.generateImageCallCount, 1);
+      expect(openRouter.generateTextCallCount, 0);
+      expect(openRouter.generateImageCallCount, 0);
+      expect(
+        gemini.generateImageCalls.single.modelId,
+        'gemini-3-pro-image-preview',
+      );
+      expect(
+        gemini.generateImageCalls.single.prompt,
+        contains('watercolor scene'),
+      );
+    });
   });
 }
 
 Future<void> _pumpReaderScreen(
   WidgetTester tester, {
   required OpenRouterService openRouterService,
+  GeminiService? geminiService,
   ResumeSummaryService? resumeSummaryService,
   String fallbackModelId = 'anthropic/claude-3.7-sonnet',
   String imageModelId = 'openai/gpt-image-1',
   String? generateImagePromptModelIdOverride,
+  AiModelSelection? defaultModelSelection,
+  AiModelSelection? fallbackModelSelection,
+  AiModelSelection? imageModelSelection,
+  AiModelSelection? generateImagePromptModelSelectionOverride,
+  String openRouterApiKey = 'test-key',
+  String geminiApiKey = 'gem-key',
   List<Chapter>? chapters,
   Book? savedBook,
   DatabaseService? databaseService,
@@ -1338,14 +1540,43 @@ Future<void> _pumpReaderScreen(
   EdgeInsets mediaQueryPadding = EdgeInsets.zero,
 }) async {
   SharedPreferences.setMockInitialValues({
-    'reader_openrouter_api_key': 'test-key',
-    'reader_openrouter_model_id': 'openai/gpt-4o-mini',
-    'reader_openrouter_fallback_model_id': fallbackModelId,
-    'reader_openrouter_image_model_id': imageModelId,
-    if (generateImagePromptModelIdOverride != null)
+    if (openRouterApiKey.isNotEmpty)
+      'reader_openrouter_api_key': openRouterApiKey,
+    if (geminiApiKey.isNotEmpty) 'reader_gemini_api_key': geminiApiKey,
+    if (defaultModelSelection == null)
+      'reader_openrouter_model_id': 'openai/gpt-4o-mini',
+    if (fallbackModelSelection == null)
+      'reader_openrouter_fallback_model_id': fallbackModelId,
+    if (imageModelSelection == null)
+      'reader_openrouter_image_model_id': imageModelId,
+    if (defaultModelSelection != null &&
+        defaultModelSelection.provider != null &&
+        defaultModelSelection.normalizedModelId.isNotEmpty) ...{
+      'reader_ai_default_provider':
+          defaultModelSelection.provider!.storageValue,
+      'reader_ai_default_model_id': defaultModelSelection.normalizedModelId,
+    },
+    if (fallbackModelSelection != null &&
+        fallbackModelSelection.provider != null &&
+        fallbackModelSelection.normalizedModelId.isNotEmpty) ...{
+      'reader_ai_fallback_provider':
+          fallbackModelSelection.provider!.storageValue,
+      'reader_ai_fallback_model_id': fallbackModelSelection.normalizedModelId,
+    },
+    if (imageModelSelection != null &&
+        imageModelSelection.provider != null &&
+        imageModelSelection.normalizedModelId.isNotEmpty) ...{
+      'reader_ai_image_provider': imageModelSelection.provider!.storageValue,
+      'reader_ai_image_model_id': imageModelSelection.normalizedModelId,
+    },
+    if (generateImagePromptModelIdOverride != null ||
+        generateImagePromptModelSelectionOverride != null)
       'reader_ai_feature_configs': jsonEncode({
         AiFeatureIds.generateImage: {
-          'modelIdOverride': generateImagePromptModelIdOverride,
+          if (generateImagePromptModelIdOverride != null)
+            'modelIdOverride': generateImagePromptModelIdOverride,
+          if (generateImagePromptModelSelectionOverride != null)
+            'modelOverride': generateImagePromptModelSelectionOverride.toMap(),
           'promptTemplate': defaultGenerateImagePromptTemplate,
         },
       }),
@@ -1389,6 +1620,7 @@ Future<void> _pumpReaderScreen(
               chapterLoader: chapterLoader,
               databaseService: databaseService,
               openRouterService: openRouterService,
+              geminiService: geminiService,
               resumeSummaryService: resumeSummaryService,
               storageService: storageService,
             ),
@@ -1503,6 +1735,26 @@ typedef _GenerateImageHandler = Future<OpenRouterImageGenerationResult>
   required String modelId,
   required String prompt,
   required List<String> modalities,
+  double? temperature,
+});
+
+typedef _GeminiGenerateTextHandler = Future<String> Function({
+  required String apiKey,
+  required String modelId,
+  required String prompt,
+  double? temperature,
+});
+
+typedef _GeminiFetchModelsHandler = Future<List<AiModelInfo>> Function({
+  required String apiKey,
+  required bool forceRefresh,
+});
+
+typedef _GeminiGenerateImageHandler = Future<GeminiImageGenerationResult>
+    Function({
+  required String apiKey,
+  required String modelId,
+  required String prompt,
   double? temperature,
 });
 
@@ -1639,6 +1891,124 @@ class _GenerateImageCall {
     required this.modelId,
     required this.prompt,
     required this.modalities,
+  });
+}
+
+class _FakeGeminiService extends GeminiService {
+  final _GeminiGenerateTextHandler generateTextHandler;
+  final _GeminiFetchModelsHandler fetchModelsHandler;
+  final _GeminiGenerateImageHandler generateImageHandler;
+  int generateTextCallCount = 0;
+  final List<_GenerateTextCall> generateTextCalls = [];
+  int generateImageCallCount = 0;
+  final List<_GeminiGenerateImageCall> generateImageCalls = [];
+
+  _FakeGeminiService({
+    required this.generateTextHandler,
+    _GeminiFetchModelsHandler? fetchModelsHandler,
+    _GeminiGenerateImageHandler? generateImageHandler,
+  })  : fetchModelsHandler = fetchModelsHandler ?? _defaultFetchModels,
+        generateImageHandler = generateImageHandler ?? _defaultGenerateImage;
+
+  static Future<List<AiModelInfo>> _defaultFetchModels({
+    required String apiKey,
+    required bool forceRefresh,
+  }) async {
+    return const [
+      AiModelInfo(
+        provider: AiProvider.gemini,
+        id: 'gemini-2.5-flash',
+        displayName: 'Gemini 2.5 Flash',
+        outputModalities: ['text'],
+      ),
+      AiModelInfo(
+        provider: AiProvider.gemini,
+        id: 'gemini-2.5-flash-image',
+        displayName: 'Gemini 2.5 Flash Image',
+        outputModalities: ['image', 'text'],
+      ),
+    ];
+  }
+
+  static Future<GeminiImageGenerationResult> _defaultGenerateImage({
+    required String apiKey,
+    required String modelId,
+    required String prompt,
+    double? temperature,
+  }) async {
+    return const GeminiImageGenerationResult(
+      assistantText: '',
+      imageDataUrls: <String>[],
+    );
+  }
+
+  @override
+  Future<String> generateText({
+    required String apiKey,
+    required String modelId,
+    required String prompt,
+    double? temperature,
+  }) {
+    generateTextCallCount += 1;
+    generateTextCalls.add(
+      _GenerateTextCall(
+        apiKey: apiKey,
+        modelId: modelId,
+        prompt: prompt,
+      ),
+    );
+    return generateTextHandler(
+      apiKey: apiKey,
+      modelId: modelId,
+      prompt: prompt,
+      temperature: temperature,
+    );
+  }
+
+  @override
+  Future<List<AiModelInfo>> fetchModels({
+    required String apiKey,
+    bool forceRefresh = false,
+  }) {
+    return fetchModelsHandler(
+      apiKey: apiKey,
+      forceRefresh: forceRefresh,
+    );
+  }
+
+  @override
+  Future<GeminiImageGenerationResult> generateImage({
+    required String apiKey,
+    required String modelId,
+    required String prompt,
+    double? temperature,
+  }) {
+    generateImageCallCount += 1;
+    generateImageCalls.add(
+      _GeminiGenerateImageCall(
+        apiKey: apiKey,
+        modelId: modelId,
+        prompt: prompt,
+      ),
+    );
+    return generateImageHandler(
+      apiKey: apiKey,
+      modelId: modelId,
+      prompt: prompt,
+      temperature: temperature,
+    );
+  }
+}
+
+class _GeminiGenerateImageCall {
+  final String apiKey;
+  final String modelId;
+  final String prompt;
+
+  const _GeminiGenerateImageCall({
+    required this.apiKey,
+    required this.modelId,
+    required this.prompt,
   });
 }
 

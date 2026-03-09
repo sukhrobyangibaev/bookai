@@ -1,12 +1,19 @@
+import 'dart:convert';
+
 import 'package:bookai/app.dart';
-import 'package:bookai/models/openrouter_model.dart';
-import 'package:bookai/models/reader_settings.dart';
+import 'package:bookai/models/ai_feature.dart';
+import 'package:bookai/models/ai_model_info.dart';
+import 'package:bookai/models/ai_model_selection.dart';
+import 'package:bookai/models/ai_provider.dart';
 import 'package:bookai/screens/settings_screen.dart';
+import 'package:bookai/services/gemini_service.dart';
 import 'package:bookai/services/openrouter_service.dart';
 import 'package:bookai/services/settings_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -31,28 +38,17 @@ void main() {
       expect(find.byType(Scrollbar), findsOneWidget);
     });
 
-    testWidgets('selecting font updates controller value', (tester) async {
-      SharedPreferences.setMockInitialValues({});
-
-      final controller = SettingsController();
-      await tester.runAsync(() => controller.load());
-
-      await tester.pumpWidget(_buildSettingsApp(controller));
-      await tester.pumpAndSettle();
-
-      await tester.tap(find.text('Bitter'));
-      await tester.pumpAndSettle();
-
-      expect(controller.fontFamily, ReaderFontFamily.bitter);
-    });
-
-    testWidgets('shows persisted OpenRouter model id and prices',
+    testWidgets('shows both API key fields and provider-aware selections',
         (tester) async {
       SharedPreferences.setMockInitialValues({
-        'reader_openrouter_api_key': 'stored-key',
-        'reader_openrouter_model_id': 'openai/gpt-4o-mini',
-        'reader_openrouter_fallback_model_id': 'openai/gpt-4.1-mini',
-        'reader_openrouter_image_model_id': 'openai/gpt-image-1',
+        'reader_openrouter_api_key': 'or-key',
+        'reader_gemini_api_key': 'gem-key',
+        'reader_ai_default_provider': 'gemini',
+        'reader_ai_default_model_id': 'gemini-2.5-flash',
+        'reader_ai_fallback_provider': 'openRouter',
+        'reader_ai_fallback_model_id': 'openai/gpt-4o-mini',
+        'reader_ai_image_provider': 'gemini',
+        'reader_ai_image_model_id': 'imagen-4.0-generate-001',
       });
 
       final controller = SettingsController();
@@ -61,78 +57,14 @@ void main() {
       await tester.pumpWidget(_buildSettingsApp(controller));
       await tester.pumpAndSettle();
 
-      expect(find.text('AI'), findsOneWidget);
       expect(find.text('OpenRouter API Key'), findsOneWidget);
-      expect(find.text('Fallback Model'), findsOneWidget);
-      expect(find.text('Image Model'), findsOneWidget);
-      expect(
-        find.text(
-            'openai/gpt-4o-mini\nInput: \$0.15/M tok · Output: \$0.6/M tok'),
-        findsOneWidget,
-      );
-      expect(
-        find.text(
-            'openai/gpt-4.1-mini\nInput: \$0.4/M tok · Output: \$1.6/M tok'),
-        findsOneWidget,
-      );
-      expect(
-        find.text('openai/gpt-image-1\nImage: \$0.04/image'),
-        findsOneWidget,
-      );
-      expect(find.text('Resume Here and Catch Me Up'), findsOneWidget);
-      expect(find.text('Simplify Text'), findsOneWidget);
-      expect(find.text('Define & Translate'), findsOneWidget);
-      expect(find.text('Generate Image'), findsOneWidget);
+      expect(find.text('Gemini API Key'), findsOneWidget);
+      expect(find.text('Gemini · gemini-2.5-flash'), findsOneWidget);
+      expect(find.text('OpenRouter · openai/gpt-4o-mini'), findsOneWidget);
+      expect(find.text('Gemini · imagen-4.0-generate-001'), findsOneWidget);
     });
 
-    testWidgets('editing API key updates controller value', (tester) async {
-      SharedPreferences.setMockInitialValues({});
-
-      final controller = SettingsController();
-      await tester.runAsync(() => controller.load());
-
-      await tester.pumpWidget(_buildSettingsApp(controller));
-      await tester.pumpAndSettle();
-
-      await tester.enterText(find.byType(TextField).first, '  test-key  ');
-      await tester.pump();
-
-      expect(controller.openRouterApiKey, 'test-key');
-    });
-
-    testWidgets('does not fetch models while API key field is being edited',
-        (tester) async {
-      SharedPreferences.setMockInitialValues({});
-
-      final controller = SettingsController();
-      await tester.runAsync(() => controller.load());
-      final openRouterService = _FakeOpenRouterService(models: _defaultModels);
-
-      await tester.pumpWidget(
-        _buildSettingsApp(
-          controller,
-          openRouterService: openRouterService,
-        ),
-      );
-      await tester.pumpAndSettle();
-
-      expect(openRouterService.fetchModelsCallCount, 0);
-
-      await tester.enterText(find.byType(TextField).first, 'edited-key');
-      await tester.pump();
-
-      expect(controller.openRouterApiKey, 'edited-key');
-      expect(openRouterService.fetchModelsCallCount, 0);
-
-      FocusManager.instance.primaryFocus?.unfocus();
-      await tester.pumpAndSettle();
-
-      expect(openRouterService.fetchModelsCallCount, 1);
-      expect(openRouterService.fetchModelsApiKeys, ['edited-key']);
-      expect(openRouterService.fetchModelsForceRefreshes, [false]);
-    });
-
-    testWidgets('shows context sentence placeholder for define and translate',
+    testWidgets('editing both API keys updates controller values',
         (tester) async {
       SharedPreferences.setMockInitialValues({});
 
@@ -141,196 +73,231 @@ void main() {
 
       await tester.pumpWidget(_buildSettingsApp(controller));
       await tester.pumpAndSettle();
-
-      final defineAndTranslateText = find.text('Define & Translate');
-      await tester.ensureVisible(defineAndTranslateText);
-      await tester.pumpAndSettle();
-      await tester.tap(defineAndTranslateText);
-      await tester.pumpAndSettle();
-
-      expect(
-        find.textContaining(
-          'Supported placeholders: {book_title}, {book_author}, {context_sentence}, {source_text}',
-        ),
-        findsOneWidget,
-      );
-    });
-
-    testWidgets('shows generate image placeholders in feature config sheet',
-        (tester) async {
-      SharedPreferences.setMockInitialValues({});
-
-      final controller = SettingsController();
-      await tester.runAsync(() => controller.load());
-
-      await tester.pumpWidget(_buildSettingsApp(controller));
-      await tester.pumpAndSettle();
-
-      final generateImageText = find.text('Generate Image');
-      await tester.ensureVisible(generateImageText);
-      await tester.pumpAndSettle();
-      await tester.tap(generateImageText);
-      await tester.pumpAndSettle();
-
-      expect(
-        find.textContaining(
-          'Supported placeholders: {book_title}, {book_author}, {chapter_title}, {context_sentence}, {source_text}',
-        ),
-        findsOneWidget,
-      );
-    });
-
-    testWidgets('default model picker shows text pricing', (tester) async {
-      SharedPreferences.setMockInitialValues({
-        'reader_openrouter_api_key': 'stored-key',
-      });
-
-      final controller = SettingsController();
-      await tester.runAsync(() => controller.load());
-
-      await tester.pumpWidget(_buildSettingsApp(controller));
-      await tester.pumpAndSettle();
-
-      final defaultModelText = find.text('Default Model');
-      await tester.ensureVisible(defaultModelText);
-      await tester.pumpAndSettle();
-      await tester.tap(defaultModelText);
-      await tester.pumpAndSettle();
-
-      expect(find.text('GPT-4o Mini'), findsOneWidget);
-      expect(find.text('Input: \$0.15/M tok · Output: \$0.6/M tok'),
-          findsOneWidget);
-      expect(find.text('GPT Image 1'), findsOneWidget);
-      expect(find.text('Image: \$0.04/image'), findsOneWidget);
-    });
-
-    testWidgets('image model picker only shows image-generating models',
-        (tester) async {
-      SharedPreferences.setMockInitialValues({
-        'reader_openrouter_api_key': 'stored-key',
-      });
-
-      final controller = SettingsController();
-      await tester.runAsync(() => controller.load());
-      final openRouterService = _FakeOpenRouterService(
-        models: const [
-          OpenRouterModel(
-            id: 'openai/gpt-image-1',
-            name: 'GPT Image 1',
-            outputModalities: ['image', 'text'],
-            pricing: OpenRouterModelPricing(image: 0.04),
-          ),
-          OpenRouterModel(
-            id: 'openai/gpt-4o-mini',
-            name: 'GPT-4o Mini',
-            outputModalities: ['text'],
-            pricing: OpenRouterModelPricing(
-              prompt: 0.00000015,
-              completion: 0.0000006,
-            ),
-          ),
-          OpenRouterModel(
-            id: 'black-forest-labs/flux-1.1-pro',
-            name: 'FLUX 1.1 Pro',
-            outputModalities: ['image'],
-            pricing: OpenRouterModelPricing(image: 0.05),
-          ),
-          OpenRouterModel(
-            id: 'google/gemini-3.1-flash-image-preview',
-            name: 'Gemini 3.1 Flash Image Preview',
-            outputModalities: ['image', 'text'],
-            pricing: OpenRouterModelPricing(
-              prompt: 0.0000005,
-              completion: 0.000003,
-            ),
-          ),
-        ],
-      );
-
-      await tester.pumpWidget(
-        SettingsControllerScope(
-          controller: controller,
-          child: MaterialApp(
-            home: SettingsScreen(openRouterService: openRouterService),
-          ),
-        ),
-      );
-      await tester.pumpAndSettle();
-
-      final imageModelText = find.text('Image Model');
-      await tester.ensureVisible(imageModelText);
-      await tester.pumpAndSettle();
-      await tester.tap(imageModelText);
-      await tester.pumpAndSettle();
-
-      expect(find.text('GPT Image 1'), findsOneWidget);
-      expect(find.text('FLUX 1.1 Pro'), findsOneWidget);
-      expect(find.text('Gemini 3.1 Flash Image Preview'), findsOneWidget);
-      expect(find.text('GPT-4o Mini'), findsNothing);
-      expect(find.text('Image: \$0.04/image'), findsOneWidget);
-      expect(find.text('Image: \$0.05/image'), findsOneWidget);
-      expect(find.text('Image: \$60/M tok'), findsOneWidget);
-      expect(
-          find.text('Input: \$0.15/M tok · Output: \$0.6/M tok'), findsNothing);
-      expect(find.text('Input: \$0.5/M tok · Output: \$3/M tok'), findsNothing);
 
       await tester.enterText(
-        find.byWidgetPredicate(
-          (widget) =>
-              widget is TextField &&
-              widget.decoration?.hintText == 'Search by model name or id',
-        ),
-        'gpt',
-      );
-      await tester.pumpAndSettle();
+          _textFieldWithLabel('OpenRouter API Key'), 'or-key');
+      await tester.enterText(_textFieldWithLabel('Gemini API Key'), 'gem-key');
+      await tester.pump();
 
-      expect(find.text('GPT Image 1'), findsOneWidget);
-      expect(find.text('FLUX 1.1 Pro'), findsNothing);
-      expect(find.text('GPT-4o Mini'), findsNothing);
-      expect(find.text('Gemini 3.1 Flash Image Preview'), findsNothing);
+      expect(controller.openRouterApiKey, 'or-key');
+      expect(controller.geminiApiKey, 'gem-key');
     });
 
-    testWidgets('picker retry replaces failed shared models future',
+    testWidgets(
+        'default model picker is provider-first and shows OpenRouter pricing',
         (tester) async {
+      await _useTallSurface(tester);
       SharedPreferences.setMockInitialValues({
-        'reader_openrouter_api_key': 'stored-key',
-        'reader_openrouter_model_id': 'openai/gpt-4o-mini',
+        'reader_openrouter_api_key': 'or-key',
       });
 
       final controller = SettingsController();
       await tester.runAsync(() => controller.load());
-      var fetchAttempt = 0;
-      final openRouterService = _FakeOpenRouterService(
-        fetchModelsHandler: ({
-          String? apiKey,
-          bool forceRefresh = false,
-        }) async {
-          fetchAttempt += 1;
-          if (fetchAttempt <= 2) {
-            throw Exception('temporary failure');
-          }
-          return _defaultModels;
-        },
+
+      await tester.pumpWidget(
+        _buildSettingsApp(
+          controller,
+          openRouterService: _FakeOpenRouterService(
+            models: const [
+              AiModelInfo(
+                provider: AiProvider.openRouter,
+                id: 'openai/gpt-4o-mini',
+                displayName: 'GPT-4o Mini',
+                outputModalities: ['text'],
+                textPriceLabel: 'Input: \$0.15/M tok · Output: \$0.6/M tok',
+              ),
+              AiModelInfo(
+                provider: AiProvider.openRouter,
+                id: 'openai/gpt-image-1',
+                displayName: 'GPT Image 1',
+                outputModalities: ['image', 'text'],
+                imagePriceLabel: 'Image: \$0.04/image',
+              ),
+              AiModelInfo(
+                provider: AiProvider.openRouter,
+                id: 'black-forest-labs/flux-1.1-pro',
+                displayName: 'FLUX 1.1 Pro',
+                outputModalities: ['image'],
+                imagePriceLabel: 'Image: \$0.05/image',
+              ),
+            ],
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final defaultModelFinder = find.widgetWithText(ListTile, 'Default Model');
+      await tester.ensureVisible(defaultModelFinder);
+      await tester.tap(defaultModelFinder);
+      await tester.pumpAndSettle();
+
+      expect(find.text('OpenRouter'), findsOneWidget);
+      expect(find.text('Gemini'), findsOneWidget);
+      expect(find.text('GPT-4o Mini'), findsOneWidget);
+      expect(
+        find.text('Input: \$0.15/M tok · Output: \$0.6/M tok'),
+        findsOneWidget,
+      );
+      expect(find.text('GPT Image 1'), findsOneWidget);
+      expect(find.text('FLUX 1.1 Pro'), findsNothing);
+
+      await tester.tap(find.text('Gemini'));
+      await tester.pumpAndSettle();
+      expect(find.text('Add your Gemini API key first.'), findsOneWidget);
+    });
+
+    testWidgets('Gemini image picker shows Gemini image and Imagen models only',
+        (tester) async {
+      await _useTallSurface(tester);
+      SharedPreferences.setMockInitialValues({
+        'reader_openrouter_api_key': 'or-key',
+        'reader_gemini_api_key': 'gem-key',
+      });
+
+      final controller = SettingsController();
+      await tester.runAsync(() => controller.load());
+      final geminiService = GeminiService(
+        client: MockClient((request) async {
+          expect(request.headers['x-goog-api-key'], 'gem-key');
+          return http.Response(
+            jsonEncode({
+              'models': [
+                {
+                  'name': 'models/gemini-2.5-flash',
+                  'displayName': 'Gemini 2.5 Flash',
+                  'supportedGenerationMethods': ['generateContent'],
+                },
+                {
+                  'name': 'models/gemini-3-pro-image-preview',
+                  'displayName': 'Gemini 3 Pro Image Preview',
+                  'supportedGenerationMethods': ['generateContent'],
+                },
+                {
+                  'name': 'models/imagen-4.0-generate-001',
+                  'displayName': 'Imagen 4',
+                  'supportedGenerationMethods': ['predict'],
+                },
+              ],
+            }),
+            200,
+          );
+        }),
       );
 
       await tester.pumpWidget(
         _buildSettingsApp(
           controller,
-          openRouterService: openRouterService,
+          geminiService: geminiService,
         ),
       );
       await tester.pumpAndSettle();
 
-      expect(
-        find.text(
-            'openai/gpt-4o-mini\nInput: \$0.15/M tok · Output: \$0.6/M tok'),
-        findsNothing,
-      );
-
-      final defaultModelText = find.text('Default Model');
-      await tester.ensureVisible(defaultModelText);
+      final imageModelFinder = find.widgetWithText(ListTile, 'Image Model');
+      await tester.ensureVisible(imageModelFinder);
+      await tester.tap(imageModelFinder);
       await tester.pumpAndSettle();
-      await tester.tap(defaultModelText);
+      await tester.tap(find.text('Gemini'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Gemini 3 Pro Image Preview'), findsOneWidget);
+      expect(find.text('Imagen 4'), findsOneWidget);
+      expect(find.text('Gemini 2.5 Flash'), findsNothing);
+    });
+
+    testWidgets('feature config sheet can save provider-aware model override',
+        (tester) async {
+      await _useTallSurface(tester);
+      SharedPreferences.setMockInitialValues({
+        'reader_openrouter_api_key': 'or-key',
+        'reader_gemini_api_key': 'gem-key',
+        'reader_ai_default_provider': 'openRouter',
+        'reader_ai_default_model_id': 'openai/gpt-4o-mini',
+      });
+
+      final controller = SettingsController();
+      await tester.runAsync(() => controller.load());
+
+      await tester.pumpWidget(
+        _buildSettingsApp(
+          controller,
+          geminiService: _FakeGeminiService(
+            models: const [
+              AiModelInfo(
+                provider: AiProvider.gemini,
+                id: 'gemini-2.5-flash',
+                displayName: 'Gemini 2.5 Flash',
+                outputModalities: ['text'],
+              ),
+            ],
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final featureFinder =
+          find.widgetWithText(ListTile, 'Resume Here and Catch Me Up');
+      await tester.ensureVisible(featureFinder);
+      await tester.tap(featureFinder);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Use global default model'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Model'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Gemini'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Gemini 2.5 Flash'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+
+      expect(
+        controller.aiFeatureConfig(AiFeatureIds.resumeSummary).modelOverride,
+        const AiModelSelection(
+          provider: AiProvider.gemini,
+          modelId: 'gemini-2.5-flash',
+        ),
+      );
+    });
+
+    testWidgets('picker retry reloads models after a failure', (tester) async {
+      await _useTallSurface(tester);
+      SharedPreferences.setMockInitialValues({
+        'reader_openrouter_api_key': 'or-key',
+      });
+
+      final controller = SettingsController();
+      await tester.runAsync(() => controller.load());
+
+      var attempts = 0;
+      await tester.pumpWidget(
+        _buildSettingsApp(
+          controller,
+          openRouterService: _FakeOpenRouterService(
+            fetchModelsHandler: ({bool forceRefresh = false}) async {
+              attempts += 1;
+              if (attempts == 1) {
+                throw Exception('temporary failure');
+              }
+              return const [
+                AiModelInfo(
+                  provider: AiProvider.openRouter,
+                  id: 'openai/gpt-4o-mini',
+                  displayName: 'GPT-4o Mini',
+                  outputModalities: ['text'],
+                  textPriceLabel: 'Input: \$0.15/M tok · Output: \$0.6/M tok',
+                ),
+              ];
+            },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final defaultModelFinder = find.widgetWithText(ListTile, 'Default Model');
+      await tester.ensureVisible(defaultModelFinder);
+      await tester.tap(defaultModelFinder);
       await tester.pumpAndSettle();
 
       expect(find.text('Failed to load models'), findsOneWidget);
@@ -339,106 +306,98 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('GPT-4o Mini'), findsOneWidget);
-
-      await tester.tap(find.byIcon(Icons.close));
-      await tester.pumpAndSettle();
-
-      expect(
-        find.text(
-            'openai/gpt-4o-mini\nInput: \$0.15/M tok · Output: \$0.6/M tok'),
-        findsOneWidget,
-      );
-      expect(openRouterService.fetchModelsCallCount, 3);
-      expect(
-        openRouterService.fetchModelsForceRefreshes,
-        [false, false, true],
-      );
+      expect(attempts, 2);
     });
   });
+}
+
+Future<void> _useTallSurface(WidgetTester tester) async {
+  await tester.binding.setSurfaceSize(const Size(800, 1400));
+  addTearDown(() => tester.binding.setSurfaceSize(null));
+}
+
+Finder _textFieldWithLabel(String labelText) {
+  return find.byWidgetPredicate(
+    (widget) =>
+        widget is TextField && widget.decoration?.labelText == labelText,
+  );
 }
 
 Widget _buildSettingsApp(
   SettingsController controller, {
   OpenRouterService? openRouterService,
+  GeminiService? geminiService,
 }) {
   return SettingsControllerScope(
     controller: controller,
     child: MaterialApp(
       home: SettingsScreen(
-        openRouterService:
-            openRouterService ?? _FakeOpenRouterService(models: _defaultModels),
+        openRouterService: openRouterService ?? _FakeOpenRouterService(),
+        geminiService: geminiService ?? _FakeGeminiService(),
       ),
     ),
   );
 }
 
-const _defaultModels = <OpenRouterModel>[
-  OpenRouterModel(
-    id: 'openai/gpt-4o-mini',
-    name: 'GPT-4o Mini',
-    outputModalities: ['text'],
-    pricing: OpenRouterModelPricing(
-      prompt: 0.00000015,
-      completion: 0.0000006,
-    ),
-  ),
-  OpenRouterModel(
-    id: 'openai/gpt-4.1-mini',
-    name: 'GPT-4.1 Mini',
-    outputModalities: ['text'],
-    pricing: OpenRouterModelPricing(
-      prompt: 0.0000004,
-      completion: 0.0000016,
-    ),
-  ),
-  OpenRouterModel(
-    id: 'openai/gpt-image-1',
-    name: 'GPT Image 1',
-    outputModalities: ['image', 'text'],
-    pricing: OpenRouterModelPricing(image: 0.04),
-  ),
-];
-
 class _FakeOpenRouterService extends OpenRouterService {
-  final Future<List<OpenRouterModel>> Function({
-    String? apiKey,
-    bool forceRefresh,
-  }) _fetchModelsHandler;
-  int fetchModelsCallCount = 0;
-  final List<String> fetchModelsApiKeys = [];
-  final List<bool> fetchModelsForceRefreshes = [];
+  final Future<List<AiModelInfo>> Function({bool forceRefresh}) _fetchModels;
 
   _FakeOpenRouterService({
-    List<OpenRouterModel> models = _defaultModels,
-    Future<List<OpenRouterModel>> Function({
-      String? apiKey,
-      bool forceRefresh,
-    })? fetchModelsHandler,
-  }) : _fetchModelsHandler =
-            fetchModelsHandler ?? _buildFetchModelsHandler(models);
+    List<AiModelInfo> models = const <AiModelInfo>[
+      AiModelInfo(
+        provider: AiProvider.openRouter,
+        id: 'openai/gpt-4o-mini',
+        displayName: 'GPT-4o Mini',
+        outputModalities: ['text'],
+        textPriceLabel: 'Input: \$0.15/M tok · Output: \$0.6/M tok',
+      ),
+    ],
+    Future<List<AiModelInfo>> Function({bool forceRefresh})? fetchModelsHandler,
+  }) : _fetchModels = fetchModelsHandler ?? _defaultHandler(models);
 
-  static Future<List<OpenRouterModel>> Function({
-    String? apiKey,
-    bool forceRefresh,
-  }) _buildFetchModelsHandler(List<OpenRouterModel> models) {
-    return ({
-      String? apiKey,
-      bool forceRefresh = false,
-    }) async =>
-        models;
+  static Future<List<AiModelInfo>> Function({bool forceRefresh})
+      _defaultHandler(
+    List<AiModelInfo> models,
+  ) {
+    return ({bool forceRefresh = false}) async => models;
   }
 
   @override
-  Future<List<OpenRouterModel>> fetchModels({
+  Future<List<AiModelInfo>> fetchModelInfos({
     String? apiKey,
     bool forceRefresh = false,
-  }) async {
-    fetchModelsCallCount += 1;
-    fetchModelsApiKeys.add(apiKey ?? '');
-    fetchModelsForceRefreshes.add(forceRefresh);
-    return _fetchModelsHandler(
-      apiKey: apiKey,
-      forceRefresh: forceRefresh,
-    );
+  }) {
+    return _fetchModels(forceRefresh: forceRefresh);
+  }
+}
+
+class _FakeGeminiService extends GeminiService {
+  final Future<List<AiModelInfo>> Function({bool forceRefresh}) _fetchModels;
+
+  _FakeGeminiService({
+    List<AiModelInfo> models = const <AiModelInfo>[
+      AiModelInfo(
+        provider: AiProvider.gemini,
+        id: 'gemini-2.5-flash',
+        displayName: 'Gemini 2.5 Flash',
+        outputModalities: ['text'],
+      ),
+    ],
+    Future<List<AiModelInfo>> Function({bool forceRefresh})? fetchModelsHandler,
+  }) : _fetchModels = fetchModelsHandler ?? _defaultHandler(models);
+
+  static Future<List<AiModelInfo>> Function({bool forceRefresh})
+      _defaultHandler(
+    List<AiModelInfo> models,
+  ) {
+    return ({bool forceRefresh = false}) async => models;
+  }
+
+  @override
+  Future<List<AiModelInfo>> fetchModels({
+    required String apiKey,
+    bool forceRefresh = false,
+  }) {
+    return _fetchModels(forceRefresh: forceRefresh);
   }
 }

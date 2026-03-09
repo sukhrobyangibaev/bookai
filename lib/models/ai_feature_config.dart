@@ -1,25 +1,29 @@
+import 'ai_model_selection.dart';
+
 class AiFeatureConfig {
-  final String modelIdOverride;
+  final AiModelSelection modelOverride;
   final String promptTemplate;
 
   const AiFeatureConfig({
-    this.modelIdOverride = '',
+    this.modelOverride = AiModelSelection.none,
     required this.promptTemplate,
   });
 
+  String get modelIdOverride => modelOverride.normalizedModelId;
+
   AiFeatureConfig copyWith({
-    String? modelIdOverride,
+    AiModelSelection? modelOverride,
     String? promptTemplate,
   }) {
     return AiFeatureConfig(
-      modelIdOverride: modelIdOverride ?? this.modelIdOverride,
+      modelOverride: modelOverride ?? this.modelOverride,
       promptTemplate: promptTemplate ?? this.promptTemplate,
     );
   }
 
   Map<String, dynamic> toMap() {
     return {
-      'modelIdOverride': modelIdOverride,
+      'modelOverride': modelOverride.toMap(),
       'promptTemplate': promptTemplate,
     };
   }
@@ -33,15 +37,22 @@ class AiFeatureConfig {
             ? map['promptTemplate'] as String
             : defaultPromptTemplate;
 
+    final rawModelOverride = map['modelOverride'];
+    final legacyModelIdOverride =
+        (map['modelIdOverride'] as String? ?? '').trim();
+
     return AiFeatureConfig(
-      modelIdOverride: (map['modelIdOverride'] as String? ?? '').trim(),
+      modelOverride: rawModelOverride is Map
+          ? AiModelSelection.fromMap(
+              Map<String, dynamic>.from(rawModelOverride))
+          : AiModelSelection.legacyOpenRouter(legacyModelIdOverride),
       promptTemplate: promptTemplate,
     );
   }
 
   @override
   String toString() {
-    return 'AiFeatureConfig(modelIdOverride: $modelIdOverride, '
+    return 'AiFeatureConfig(modelOverride: $modelOverride, '
         'promptTemplate: $promptTemplate)';
   }
 
@@ -49,10 +60,10 @@ class AiFeatureConfig {
   bool operator ==(Object other) {
     if (identical(this, other)) return true;
     return other is AiFeatureConfig &&
-        other.modelIdOverride == modelIdOverride &&
+        other.modelOverride == modelOverride &&
         other.promptTemplate == promptTemplate;
   }
 
   @override
-  int get hashCode => Object.hash(modelIdOverride, promptTemplate);
+  int get hashCode => Object.hash(modelOverride, promptTemplate);
 }

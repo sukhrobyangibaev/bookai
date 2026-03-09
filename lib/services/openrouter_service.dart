@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
+import '../models/ai_model_info.dart';
 import '../models/openrouter_model.dart';
 
 class OpenRouterException implements Exception {
@@ -116,6 +117,17 @@ class OpenRouterService {
     _cachedAt = now;
     _cachedForApiKey = normalizedApiKey;
     return _cachedModels!;
+  }
+
+  Future<List<AiModelInfo>> fetchModelInfos({
+    String? apiKey,
+    bool forceRefresh = false,
+  }) async {
+    final models = await fetchModels(
+      apiKey: apiKey,
+      forceRefresh: forceRefresh,
+    );
+    return models.map((model) => model.toAiModelInfo()).toList(growable: false);
   }
 
   void clearCache() {

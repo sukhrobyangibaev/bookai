@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/scheduler.dart';
 
 import '../app.dart';
 import '../models/ai_feature.dart';
 import '../models/ai_feature_config.dart';
-import '../models/openrouter_model.dart';
+import '../models/ai_model_info.dart';
+import '../models/ai_model_selection.dart';
+import '../models/ai_provider.dart';
 import '../models/reader_settings.dart';
+import '../services/gemini_service.dart';
 import '../services/openrouter_service.dart';
 import '../services/settings_controller.dart';
 import '../theme/reader_typography.dart';
@@ -13,10 +15,12 @@ import '../widgets/mobile_scrollbar.dart';
 
 class SettingsScreen extends StatefulWidget {
   final OpenRouterService? openRouterService;
+  final GeminiService? geminiService;
 
   const SettingsScreen({
     super.key,
     this.openRouterService,
+    this.geminiService,
   });
 
   @override
@@ -24,21 +28,22 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  late final TextEditingController _apiKeyController;
+  late final TextEditingController _openRouterApiKeyController;
+  late final TextEditingController _geminiApiKeyController;
   late final OpenRouterService _openRouterService;
-  late final FocusNode _apiKeyFocusNode;
+  late final GeminiService _geminiService;
   final ScrollController _scrollController = ScrollController();
-  bool _obscureApiKey = true;
+  bool _obscureOpenRouterApiKey = true;
+  bool _obscureGeminiApiKey = true;
   SettingsController? _controllerForSync;
-  Future<List<OpenRouterModel>>? _settingsModelsFuture;
-  String _settingsModelsApiKey = '';
 
   @override
   void initState() {
     super.initState();
-    _apiKeyController = TextEditingController();
-    _apiKeyFocusNode = FocusNode()..addListener(_handleApiKeyFocusChange);
+    _openRouterApiKeyController = TextEditingController();
+    _geminiApiKeyController = TextEditingController();
     _openRouterService = widget.openRouterService ?? OpenRouterService();
+    _geminiService = widget.geminiService ?? GeminiService();
   }
 
   @override
@@ -47,140 +52,75 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     final controller = SettingsControllerScope.of(context);
     if (_controllerForSync != controller) {
-      _controllerForSync?.removeListener(_syncApiKeyField);
+      _controllerForSync?.removeListener(_syncApiKeyFields);
       _controllerForSync = controller;
-      _controllerForSync!.addListener(_syncApiKeyField);
-      _syncApiKeyField();
+      _controllerForSync!.addListener(_syncApiKeyFields);
+      _syncApiKeyFields();
     }
   }
 
   @override
   void dispose() {
-    _controllerForSync?.removeListener(_syncApiKeyField);
-    _apiKeyFocusNode
-      ..removeListener(_handleApiKeyFocusChange)
-      ..dispose();
-    _apiKeyController.dispose();
+    _controllerForSync?.removeListener(_syncApiKeyFields);
+    _openRouterApiKeyController.dispose();
+    _geminiApiKeyController.dispose();
     _scrollController.dispose();
     super.dispose();
   }
 
-  void _syncApiKeyField() {
+  void _syncApiKeyFields() {
     final controller = _controllerForSync;
     if (controller == null) return;
 
-    final apiKey = controller.openRouterApiKey;
-    if (_apiKeyController.text != apiKey) {
-      _apiKeyController.value = _apiKeyController.value.copyWith(
-        text: apiKey,
-        selection: TextSelection.collapsed(offset: apiKey.length),
-        composing: TextRange.empty,
-      );
-    }
-
-    _syncSettingsModelsForApiKey(apiKey);
+    _syncApiKeyController(
+      controller: _openRouterApiKeyController,
+      value: controller.openRouterApiKey,
+    );
+    _syncApiKeyController(
+      controller: _geminiApiKeyController,
+      value: controller.geminiApiKey,
+    );
   }
 
-  void _handleApiKeyFocusChange() {
-    if (_apiKeyFocusNode.hasFocus) return;
-    _syncSettingsModelsForApiKey(_controllerForSync?.openRouterApiKey ?? '');
+  void _syncApiKeyController({
+    required TextEditingController controller,
+    required String value,
+  }) {
+    if (controller.text == value) return;
+    controller.value = controller.value.copyWith(
+      text: value,
+      selection: TextSelection.collapsed(offset: value.length),
+      composing: TextRange.empty,
+    );
   }
 
-  void _clearSettingsModelsCache({bool notify = true}) {
-    final hasCache =
-        _settingsModelsFuture != null || _settingsModelsApiKey != '';
-    _settingsModelsFuture = null;
-    _settingsModelsApiKey = '';
-
-    if (notify && hasCache) {
-      _notifyModelsStateChanged();
-    }
-  }
-
-  void _notifyModelsStateChanged() {
-    if (!mounted) return;
-
-    final phase = SchedulerBinding.instance.schedulerPhase;
-    if (phase == SchedulerPhase.idle ||
-        phase == SchedulerPhase.postFrameCallbacks) {
-      setState(() {});
-      return;
-    }
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      setState(() {});
-    });
-  }
-
-  void _syncSettingsModelsForApiKey(String apiKey) {
-    final normalizedApiKey = apiKey.trim();
-
-    if (_apiKeyFocusNode.hasFocus) {
-      if (normalizedApiKey != _settingsModelsApiKey) {
-        _clearSettingsModelsCache();
-      }
-      return;
-    }
-
-    if (normalizedApiKey.isEmpty) {
-      _clearSettingsModelsCache();
-      return;
-    }
-
-    if (_settingsModelsFuture != null &&
-        _settingsModelsApiKey == normalizedApiKey) {
-      return;
-    }
-
-    _loadSettingsModels(apiKey: normalizedApiKey);
-  }
-
-  Future<List<OpenRouterModel>> _loadSettingsModels({
+  Future<List<AiModelInfo>> _loadModelsForProvider({
+    required AiProvider provider,
     required String apiKey,
     bool forceRefresh = false,
   }) {
-    final normalizedApiKey = apiKey.trim();
-    if (normalizedApiKey.isEmpty) {
-      _clearSettingsModelsCache();
-      return Future.value(const <OpenRouterModel>[]);
+    switch (provider) {
+      case AiProvider.openRouter:
+        return _openRouterService.fetchModelInfos(
+          apiKey: apiKey,
+          forceRefresh: forceRefresh,
+        );
+      case AiProvider.gemini:
+        return _geminiService.fetchModels(
+          apiKey: apiKey,
+          forceRefresh: forceRefresh,
+        );
     }
-
-    if (!forceRefresh &&
-        _settingsModelsFuture != null &&
-        _settingsModelsApiKey == normalizedApiKey) {
-      return _settingsModelsFuture!;
-    }
-
-    late final Future<List<OpenRouterModel>> sharedFuture;
-    sharedFuture = _openRouterService
-        .fetchModels(
-      apiKey: normalizedApiKey,
-      forceRefresh: forceRefresh,
-    )
-        .catchError((Object error) {
-      if (identical(_settingsModelsFuture, sharedFuture) &&
-          _settingsModelsApiKey == normalizedApiKey) {
-        _clearSettingsModelsCache();
-      }
-      throw error;
-    });
-
-    _settingsModelsApiKey = normalizedApiKey;
-    _settingsModelsFuture = sharedFuture;
-    _notifyModelsStateChanged();
-    return sharedFuture;
   }
 
-  Future<String?> _pickModelId({
+  Future<AiModelSelection?> _pickModelSelection({
     required BuildContext context,
-    required String apiKey,
-    required String selectedModelId,
-    String? requiredOutputModality,
-    String title = 'Choose OpenRouter Model',
+    required SettingsController controller,
+    required AiModelSelection selectedSelection,
+    required String title,
+    required String requiredOutputModality,
   }) async {
-    String? pickedModelId;
-    final normalizedApiKey = apiKey.trim();
+    AiModelSelection? pickedSelection;
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -188,79 +128,75 @@ class _SettingsScreenState extends State<SettingsScreen> {
       builder: (sheetContext) {
         return FractionallySizedBox(
           heightFactor: 0.92,
-          child: _OpenRouterModelPickerSheet(
-            loadModels: ({bool forceRefresh = false}) => _loadSettingsModels(
-              apiKey: normalizedApiKey,
-              forceRefresh: forceRefresh,
-            ),
-            selectedModelId: selectedModelId,
-            requiredOutputModality: requiredOutputModality,
+          child: _AiProviderModelPickerSheet(
             title: title,
-            onModelSelected: (modelId) {
-              pickedModelId = modelId;
+            selectedSelection: selectedSelection,
+            requiredOutputModality: requiredOutputModality,
+            apiKeyForProvider: controller.apiKeyForProvider,
+            loadModels: ({
+              required AiProvider provider,
+              bool forceRefresh = false,
+            }) {
+              return _loadModelsForProvider(
+                provider: provider,
+                apiKey: controller.apiKeyForProvider(provider),
+                forceRefresh: forceRefresh,
+              );
+            },
+            onModelSelected: (selection) {
+              pickedSelection = selection;
               Navigator.of(sheetContext).pop();
             },
           ),
         );
       },
     );
-    return pickedModelId;
+    return pickedSelection;
   }
 
   Future<void> _showModelPicker(
     BuildContext context,
     SettingsController controller,
   ) async {
-    final pickedModelId = await _pickModelId(
+    final selection = await _pickModelSelection(
       context: context,
-      apiKey: controller.openRouterApiKey,
-      selectedModelId: controller.openRouterModelId,
+      controller: controller,
+      selectedSelection: controller.defaultModelSelection,
+      title: 'Choose Default Model',
+      requiredOutputModality: 'text',
     );
-    if (pickedModelId == null) return;
-    await controller.setOpenRouterModelId(pickedModelId);
-  }
-
-  Future<void> _showImageModelPicker(
-    BuildContext context,
-    SettingsController controller,
-  ) async {
-    final pickedModelId = await _pickModelId(
-      context: context,
-      apiKey: controller.openRouterApiKey,
-      selectedModelId: controller.openRouterImageModelId,
-      requiredOutputModality: 'image',
-      title: 'Choose OpenRouter Image Model',
-    );
-    if (pickedModelId == null) return;
-    await controller.setOpenRouterImageModelId(pickedModelId);
+    if (selection == null) return;
+    await controller.setDefaultModelSelection(selection);
   }
 
   Future<void> _showFallbackModelPicker(
     BuildContext context,
     SettingsController controller,
   ) async {
-    final pickedModelId = await _pickModelId(
+    final selection = await _pickModelSelection(
       context: context,
-      apiKey: controller.openRouterApiKey,
-      selectedModelId: controller.openRouterFallbackModelId,
+      controller: controller,
+      selectedSelection: controller.fallbackModelSelection,
+      title: 'Choose Fallback Model',
+      requiredOutputModality: 'text',
     );
-    if (pickedModelId == null) return;
-    await controller.setOpenRouterFallbackModelId(pickedModelId);
+    if (selection == null) return;
+    await controller.setFallbackModelSelection(selection);
   }
 
-  String _selectedModelSubtitle({
-    required String modelId,
-    required String emptyLabel,
-    required Map<String, OpenRouterModel> modelsById,
-    required OpenRouterModelPriceDisplayMode priceDisplayMode,
-  }) {
-    if (modelId.isEmpty) return emptyLabel;
-
-    final priceLabel = modelsById[modelId]?.settingsPriceLabel(
-      priceDisplayMode,
+  Future<void> _showImageModelPicker(
+    BuildContext context,
+    SettingsController controller,
+  ) async {
+    final selection = await _pickModelSelection(
+      context: context,
+      controller: controller,
+      selectedSelection: controller.imageModelSelection,
+      title: 'Choose Image Model',
+      requiredOutputModality: 'image',
     );
-    if (priceLabel == null) return modelId;
-    return '$modelId\n$priceLabel';
+    if (selection == null) return;
+    await controller.setImageModelSelection(selection);
   }
 
   Future<void> _showFeatureConfigSheet(
@@ -272,8 +208,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final promptController = TextEditingController(
       text: initialConfig.promptTemplate,
     );
-    bool useGlobalModel = initialConfig.modelIdOverride.trim().isEmpty;
-    String modelIdOverride = initialConfig.modelIdOverride;
+    bool useGlobalModel = !initialConfig.modelOverride.isConfigured;
+    AiModelSelection modelOverride = initialConfig.modelOverride;
 
     await showModalBottomSheet<void>(
       context: context,
@@ -283,12 +219,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
         return StatefulBuilder(
           builder: (sheetContext, setSheetState) {
             final effectiveModelLabel = useGlobalModel
-                ? (controller.openRouterModelId.isEmpty
-                    ? 'No global default model selected'
-                    : controller.openRouterModelId)
-                : (modelIdOverride.isEmpty
-                    ? 'No model override selected'
-                    : modelIdOverride);
+                ? _selectionSubtitle(
+                    controller.defaultModelSelection,
+                    emptyLabel: 'No global default model selected',
+                  )
+                : _selectionSubtitle(
+                    modelOverride,
+                    emptyLabel: 'No model override selected',
+                  );
 
             return SafeArea(
               child: Padding(
@@ -327,21 +265,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       title: const Text('Model'),
                       subtitle: Text(
                         effectiveModelLabel,
-                        maxLines: 2,
+                        maxLines: 3,
                         overflow: TextOverflow.ellipsis,
                       ),
                       trailing: const Icon(Icons.search),
                       onTap: useGlobalModel
                           ? null
                           : () async {
-                              final selected = await _pickModelId(
+                              final selected = await _pickModelSelection(
                                 context: sheetContext,
-                                apiKey: controller.openRouterApiKey,
-                                selectedModelId: modelIdOverride,
+                                controller: controller,
+                                selectedSelection: modelOverride,
+                                title: 'Choose Prompt Model Override',
+                                requiredOutputModality: 'text',
                               );
                               if (selected == null) return;
                               setSheetState(() {
-                                modelIdOverride = selected;
+                                modelOverride = selected;
                               });
                             },
                     ),
@@ -373,8 +313,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             await controller.setAiFeatureConfig(
                               feature.id,
                               AiFeatureConfig(
-                                modelIdOverride:
-                                    useGlobalModel ? '' : modelIdOverride,
+                                modelOverride: useGlobalModel
+                                    ? AiModelSelection.none
+                                    : modelOverride,
                                 promptTemplate: promptController.text,
                               ),
                             );
@@ -395,6 +336,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
 
     promptController.dispose();
+  }
+
+  String _selectionSubtitle(
+    AiModelSelection selection, {
+    required String emptyLabel,
+  }) {
+    if (!selection.isConfigured) return emptyLabel;
+    return '${selection.provider!.label} · ${selection.normalizedModelId}';
+  }
+
+  String _featureModelLabel(
+    AiModelSelection selection, {
+    required bool usesGlobalModel,
+  }) {
+    if (usesGlobalModel) {
+      return selection.isConfigured
+          ? 'Prompt model: Global default ${selection.provider!.label} · ${selection.normalizedModelId}'
+          : 'Prompt model: Global default not set';
+    }
+
+    return selection.isConfigured
+        ? 'Prompt model: Override ${selection.provider!.label} · ${selection.normalizedModelId}'
+        : 'Prompt model: Override not set';
   }
 
   @override
@@ -474,7 +438,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Widget _buildFontSizeSection(
-      BuildContext context, SettingsController controller) {
+    BuildContext context,
+    SettingsController controller,
+  ) {
     final fontSize = controller.fontSize;
     final previewStyle = applyReaderFont(
       baseStyle: TextStyle(fontSize: fontSize, height: 1.6),
@@ -526,7 +492,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Widget _buildThemeSection(
-      BuildContext context, SettingsController controller) {
+    BuildContext context,
+    SettingsController controller,
+  ) {
     final currentMode = controller.themeMode;
 
     return Padding(
@@ -568,185 +536,198 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Widget _buildAiSection(BuildContext context, SettingsController controller) {
-    final selectedModelId = controller.openRouterModelId;
-    final fallbackModelId = controller.openRouterFallbackModelId;
-    final imageModelId = controller.openRouterImageModelId;
-    final modelsFuture = _settingsModelsFuture;
+    final defaultSelection = controller.defaultModelSelection;
+    final fallbackSelection = controller.fallbackModelSelection;
+    final imageSelection = controller.imageModelSelection;
 
-    return FutureBuilder<List<OpenRouterModel>>(
-      future: modelsFuture,
-      builder: (context, snapshot) {
-        final modelsById = <String, OpenRouterModel>{
-          for (final model in snapshot.data ?? const <OpenRouterModel>[])
-            model.id: model,
-        };
-        final selectedModelLabel = _selectedModelSubtitle(
-          modelId: selectedModelId,
-          emptyLabel: 'No model selected',
-          modelsById: modelsById,
-          priceDisplayMode: OpenRouterModelPriceDisplayMode.textPreferred,
-        );
-        final fallbackModelLabel = _selectedModelSubtitle(
-          modelId: fallbackModelId,
-          emptyLabel: 'No fallback model selected',
-          modelsById: modelsById,
-          priceDisplayMode: OpenRouterModelPriceDisplayMode.textPreferred,
-        );
-        final imageModelLabel = _selectedModelSubtitle(
-          modelId: imageModelId,
-          emptyLabel: 'No image model selected',
-          modelsById: modelsById,
-          priceDisplayMode: OpenRouterModelPriceDisplayMode.imagePreferred,
-        );
-
-        return Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'AI',
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: _apiKeyController,
-                focusNode: _apiKeyFocusNode,
-                obscureText: _obscureApiKey,
-                autocorrect: false,
-                enableSuggestions: false,
-                textInputAction: TextInputAction.done,
-                onChanged: controller.setOpenRouterApiKey,
-                decoration: InputDecoration(
-                  labelText: 'OpenRouter API Key',
-                  hintText: 'sk-or-v1-...',
-                  border: const OutlineInputBorder(),
-                  helperText: 'Stored locally on this device.',
-                  suffixIcon: IconButton(
-                    onPressed: () {
-                      setState(() {
-                        _obscureApiKey = !_obscureApiKey;
-                      });
-                    },
-                    icon: Icon(
-                      _obscureApiKey
-                          ? Icons.visibility_outlined
-                          : Icons.visibility_off_outlined,
-                    ),
-                    tooltip: _obscureApiKey ? 'Show key' : 'Hide key',
-                  ),
-                ),
-              ),
-              const SizedBox(height: 8),
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Default Model'),
-                subtitle: Text(
-                  selectedModelLabel,
-                  maxLines: 3,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                trailing: const Icon(Icons.search),
-                onTap: () => _showModelPicker(context, controller),
-              ),
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Fallback Model'),
-                subtitle: Text(
-                  fallbackModelLabel,
-                  maxLines: 3,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                trailing: const Icon(Icons.search),
-                onTap: () => _showFallbackModelPicker(context, controller),
-              ),
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Image Model'),
-                subtitle: Text(
-                  imageModelLabel,
-                  maxLines: 3,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                trailing: const Icon(Icons.image_search_outlined),
-                onTap: () => _showImageModelPicker(context, controller),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'AI Features',
-                style: Theme.of(context).textTheme.titleSmall,
-              ),
-              const SizedBox(height: 4),
-              ...aiFeatures.map((feature) {
-                final config = controller.aiFeatureConfig(feature.id);
-                final usesGlobalModel = config.modelIdOverride.trim().isEmpty;
-                final modelLabel = usesGlobalModel
-                    ? (selectedModelId.isEmpty
-                        ? 'Prompt model: Global default not set'
-                        : 'Prompt model: Global default $selectedModelId')
-                    : 'Prompt model: Override ${config.modelIdOverride}';
-                final imageModelHint = feature.id == AiFeatureIds.generateImage
-                    ? '\nImage model: ${imageModelId.isEmpty ? 'Not set' : imageModelId}'
-                    : '';
-                final promptPreview = config.promptTemplate
-                    .replaceAll('\n', ' ')
-                    .replaceAll(RegExp(r'\s+'), ' ')
-                    .trim();
-
-                return ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: Text(feature.title),
-                  subtitle: Text(
-                    '$modelLabel$imageModelHint\nPrompt: $promptPreview',
-                    maxLines: 4,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  trailing: const Icon(Icons.tune),
-                  onTap: () => _showFeatureConfigSheet(
-                    context,
-                    controller,
-                    feature,
-                  ),
-                );
-              }),
-            ],
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'AI',
+            style: Theme.of(context).textTheme.titleMedium,
           ),
-        );
-      },
+          const SizedBox(height: 8),
+          TextField(
+            controller: _openRouterApiKeyController,
+            obscureText: _obscureOpenRouterApiKey,
+            autocorrect: false,
+            enableSuggestions: false,
+            textInputAction: TextInputAction.done,
+            onChanged: controller.setOpenRouterApiKey,
+            decoration: InputDecoration(
+              labelText: 'OpenRouter API Key',
+              hintText: 'sk-or-v1-...',
+              border: const OutlineInputBorder(),
+              helperText: 'Stored locally on this device.',
+              suffixIcon: IconButton(
+                onPressed: () {
+                  setState(() {
+                    _obscureOpenRouterApiKey = !_obscureOpenRouterApiKey;
+                  });
+                },
+                icon: Icon(
+                  _obscureOpenRouterApiKey
+                      ? Icons.visibility_outlined
+                      : Icons.visibility_off_outlined,
+                ),
+                tooltip: _obscureOpenRouterApiKey ? 'Show key' : 'Hide key',
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _geminiApiKeyController,
+            obscureText: _obscureGeminiApiKey,
+            autocorrect: false,
+            enableSuggestions: false,
+            textInputAction: TextInputAction.done,
+            onChanged: controller.setGeminiApiKey,
+            decoration: InputDecoration(
+              labelText: 'Gemini API Key',
+              hintText: 'AIza...',
+              border: const OutlineInputBorder(),
+              helperText: 'Stored locally on this device.',
+              suffixIcon: IconButton(
+                onPressed: () {
+                  setState(() {
+                    _obscureGeminiApiKey = !_obscureGeminiApiKey;
+                  });
+                },
+                icon: Icon(
+                  _obscureGeminiApiKey
+                      ? Icons.visibility_outlined
+                      : Icons.visibility_off_outlined,
+                ),
+                tooltip: _obscureGeminiApiKey ? 'Show key' : 'Hide key',
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Default Model'),
+            subtitle: Text(
+              _selectionSubtitle(
+                defaultSelection,
+                emptyLabel: 'No model selected',
+              ),
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+            ),
+            trailing: const Icon(Icons.search),
+            onTap: () => _showModelPicker(context, controller),
+          ),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Fallback Model'),
+            subtitle: Text(
+              _selectionSubtitle(
+                fallbackSelection,
+                emptyLabel: 'No fallback model selected',
+              ),
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+            ),
+            trailing: const Icon(Icons.search),
+            onTap: () => _showFallbackModelPicker(context, controller),
+          ),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Image Model'),
+            subtitle: Text(
+              _selectionSubtitle(
+                imageSelection,
+                emptyLabel: 'No image model selected',
+              ),
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+            ),
+            trailing: const Icon(Icons.image_search_outlined),
+            onTap: () => _showImageModelPicker(context, controller),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'AI Features',
+            style: Theme.of(context).textTheme.titleSmall,
+          ),
+          const SizedBox(height: 4),
+          ...aiFeatures.map((feature) {
+            final config = controller.aiFeatureConfig(feature.id);
+            final usesGlobalModel = !config.modelOverride.isConfigured;
+            final modelLabel = _featureModelLabel(
+              usesGlobalModel ? defaultSelection : config.modelOverride,
+              usesGlobalModel: usesGlobalModel,
+            );
+            final imageModelHint = feature.id == AiFeatureIds.generateImage
+                ? '\nImage model: ${_selectionSubtitle(imageSelection, emptyLabel: 'Not set')}'
+                : '';
+            final promptPreview = config.promptTemplate
+                .replaceAll('\n', ' ')
+                .replaceAll(RegExp(r'\s+'), ' ')
+                .trim();
+
+            return ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: Text(feature.title),
+              subtitle: Text(
+                '$modelLabel$imageModelHint\nPrompt: $promptPreview',
+                maxLines: 4,
+                overflow: TextOverflow.ellipsis,
+              ),
+              trailing: const Icon(Icons.tune),
+              onTap: () => _showFeatureConfigSheet(
+                context,
+                controller,
+                feature,
+              ),
+            );
+          }),
+        ],
+      ),
     );
   }
 }
 
-class _OpenRouterModelPickerSheet extends StatefulWidget {
-  final Future<List<OpenRouterModel>> Function({bool forceRefresh}) loadModels;
-  final String selectedModelId;
-  final String? requiredOutputModality;
+class _AiProviderModelPickerSheet extends StatefulWidget {
+  final Future<List<AiModelInfo>> Function({
+    required AiProvider provider,
+    bool forceRefresh,
+  }) loadModels;
+  final String Function(AiProvider provider) apiKeyForProvider;
+  final AiModelSelection selectedSelection;
+  final String requiredOutputModality;
   final String title;
-  final ValueChanged<String> onModelSelected;
+  final ValueChanged<AiModelSelection> onModelSelected;
 
-  const _OpenRouterModelPickerSheet({
+  const _AiProviderModelPickerSheet({
     required this.loadModels,
-    required this.selectedModelId,
+    required this.apiKeyForProvider,
+    required this.selectedSelection,
+    required this.requiredOutputModality,
     required this.title,
     required this.onModelSelected,
-    this.requiredOutputModality,
   });
 
   @override
-  State<_OpenRouterModelPickerSheet> createState() =>
-      _OpenRouterModelPickerSheetState();
+  State<_AiProviderModelPickerSheet> createState() =>
+      _AiProviderModelPickerSheetState();
 }
 
-class _OpenRouterModelPickerSheetState
-    extends State<_OpenRouterModelPickerSheet> {
-  late Future<List<OpenRouterModel>> _modelsFuture;
+class _AiProviderModelPickerSheetState
+    extends State<_AiProviderModelPickerSheet> {
+  late AiProvider _selectedProvider;
+  Future<List<AiModelInfo>>? _modelsFuture;
   final ScrollController _scrollController = ScrollController();
   String _query = '';
 
   @override
   void initState() {
     super.initState();
-    _modelsFuture = _loadModels();
+    _selectedProvider = widget.selectedSelection.provider ?? _defaultProvider();
+    _reloadModels();
   }
 
   @override
@@ -755,29 +736,43 @@ class _OpenRouterModelPickerSheetState
     super.dispose();
   }
 
-  Future<List<OpenRouterModel>> _loadModels({bool forceRefresh = false}) {
-    return widget.loadModels(forceRefresh: forceRefresh);
+  AiProvider _defaultProvider() {
+    if (widget.apiKeyForProvider(AiProvider.openRouter).trim().isNotEmpty) {
+      return AiProvider.openRouter;
+    }
+    if (widget.apiKeyForProvider(AiProvider.gemini).trim().isNotEmpty) {
+      return AiProvider.gemini;
+    }
+    return AiProvider.openRouter;
   }
 
-  void _retry() {
+  void _reloadModels({bool forceRefresh = false}) {
+    final apiKey = widget.apiKeyForProvider(_selectedProvider).trim();
     setState(() {
-      _modelsFuture = _loadModels(forceRefresh: true);
+      _modelsFuture = apiKey.isEmpty
+          ? null
+          : widget.loadModels(
+              provider: _selectedProvider,
+              forceRefresh: forceRefresh,
+            );
     });
   }
 
-  List<OpenRouterModel> _filterModels(List<OpenRouterModel> models) {
+  List<AiModelInfo> _filterModels(List<AiModelInfo> models) {
     final requiredOutputModality =
-        widget.requiredOutputModality?.trim().toLowerCase();
+        widget.requiredOutputModality.trim().toLowerCase();
     final normalizedQuery = _query.trim().toLowerCase();
-    final filteredByOutput =
-        requiredOutputModality == null || requiredOutputModality.isEmpty
-            ? List<OpenRouterModel>.from(models)
-            : models
-                .where(
-                  (model) =>
-                      model.outputModalities.contains(requiredOutputModality),
-                )
-                .toList(growable: false);
+    final filteredByOutput = models.where((model) {
+      switch (requiredOutputModality) {
+        case 'image':
+          return model.supportsImageOutput;
+        case 'text':
+          return model.supportsTextOutput;
+        default:
+          return true;
+      }
+    }).toList(growable: false);
+
     final filteredByQuery = normalizedQuery.isEmpty
         ? filteredByOutput
         : filteredByOutput.where((model) {
@@ -791,8 +786,7 @@ class _OpenRouterModelPickerSheetState
       return filteredByQuery;
     }
 
-    final filtered = List<OpenRouterModel>.from(filteredByQuery);
-
+    final filtered = List<AiModelInfo>.from(filteredByQuery);
     filtered.sort((a, b) {
       final byRelevance = _imageModelRelevance(a).compareTo(
         _imageModelRelevance(b),
@@ -805,29 +799,26 @@ class _OpenRouterModelPickerSheetState
       if (byName != 0) return byName;
       return a.id.toLowerCase().compareTo(b.id.toLowerCase());
     });
-
     return filtered;
   }
 
-  int _imageModelRelevance(OpenRouterModel model) {
+  int _imageModelRelevance(AiModelInfo model) {
     if (model.supportsImageOutput && model.supportsTextOutput) return 0;
     if (model.supportsImageOutput) return 1;
-    if (model.isLikelyImageModel) return 2;
-    return 3;
+    return 2;
   }
 
-  OpenRouterModelPriceDisplayMode get _priceDisplayMode {
-    final requiredOutputModality =
-        widget.requiredOutputModality?.trim().toLowerCase();
-    if (requiredOutputModality == 'image') {
-      return OpenRouterModelPriceDisplayMode.imagePreferred;
-    }
-    return OpenRouterModelPriceDisplayMode.textPreferred;
+  AiModelPriceDisplayMode get _priceDisplayMode {
+    return widget.requiredOutputModality.trim().toLowerCase() == 'image'
+        ? AiModelPriceDisplayMode.imagePreferred
+        : AiModelPriceDisplayMode.textPreferred;
   }
 
   @override
   Widget build(BuildContext context) {
     final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
+    final apiKey = widget.apiKeyForProvider(_selectedProvider).trim();
+    final selectedSelection = widget.selectedSelection;
 
     return SafeArea(
       child: Padding(
@@ -853,6 +844,28 @@ class _OpenRouterModelPickerSheetState
             const Divider(height: 1),
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+              child: SegmentedButton<AiProvider>(
+                segments: const [
+                  ButtonSegment(
+                    value: AiProvider.openRouter,
+                    label: Text('OpenRouter'),
+                  ),
+                  ButtonSegment(
+                    value: AiProvider.gemini,
+                    label: Text('Gemini'),
+                  ),
+                ],
+                selected: {_selectedProvider},
+                onSelectionChanged: (selection) {
+                  final provider = selection.first;
+                  if (provider == _selectedProvider) return;
+                  _selectedProvider = provider;
+                  _reloadModels();
+                },
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
               child: TextField(
                 onChanged: (value) {
                   setState(() {
@@ -867,80 +880,103 @@ class _OpenRouterModelPickerSheetState
               ),
             ),
             Expanded(
-              child: FutureBuilder<List<OpenRouterModel>>(
-                future: _modelsFuture,
-                builder: (context, snapshot) {
-                  if (snapshot.connectionState == ConnectionState.waiting) {
-                    return const Center(child: CircularProgressIndicator());
-                  }
+              child: apiKey.isEmpty
+                  ? _MissingApiKeyMessage(provider: _selectedProvider)
+                  : FutureBuilder<List<AiModelInfo>>(
+                      future: _modelsFuture,
+                      builder: (context, snapshot) {
+                        if (snapshot.connectionState ==
+                            ConnectionState.waiting) {
+                          return const Center(
+                            child: CircularProgressIndicator(),
+                          );
+                        }
 
-                  if (snapshot.hasError) {
-                    return _ModelPickerError(
-                      message: snapshot.error.toString(),
-                      onRetry: _retry,
-                    );
-                  }
+                        if (snapshot.hasError) {
+                          return _ModelPickerError(
+                            message: snapshot.error.toString(),
+                            onRetry: () => _reloadModels(forceRefresh: true),
+                          );
+                        }
 
-                  final models = snapshot.data ?? const <OpenRouterModel>[];
-                  final filtered = _filterModels(models);
-                  final selectedModelId = widget.selectedModelId;
-                  final selectedInList = filtered.any(
-                    (model) => model.id == selectedModelId,
-                  );
+                        final models = snapshot.data ?? const <AiModelInfo>[];
+                        final filtered = _filterModels(models);
+                        final selectedInList = filtered.any(
+                          (model) =>
+                              model.id == selectedSelection.normalizedModelId &&
+                              selectedSelection.provider == _selectedProvider,
+                        );
 
-                  return Column(
-                    children: [
-                      if (selectedModelId.isNotEmpty && !selectedInList)
-                        _SelectedModelWarning(modelId: selectedModelId),
-                      Expanded(
-                        child: filtered.isEmpty
-                            ? _NoModelsFound(
-                                message: widget.requiredOutputModality == null
-                                    ? 'No models match your search.'
-                                    : 'No image-generating models match your search.',
-                              )
-                            : MobileScrollbar(
-                                controller: _scrollController,
-                                child: ListView.separated(
-                                  controller: _scrollController,
-                                  itemCount: filtered.length,
-                                  separatorBuilder: (_, __) =>
-                                      const Divider(height: 1),
-                                  itemBuilder: (context, index) {
-                                    final model = filtered[index];
-                                    final isSelected =
-                                        model.id == selectedModelId;
-
-                                    return ListTile(
-                                      selected: isSelected,
-                                      selectedTileColor: Theme.of(context)
-                                          .colorScheme
-                                          .primaryContainer
-                                          .withAlpha(80),
-                                      title: Text(model.displayName),
-                                      subtitle: _ModelSubtitle(
-                                        model: model,
-                                        priceDisplayMode: _priceDisplayMode,
-                                      ),
-                                      trailing: isSelected
-                                          ? Icon(
-                                              Icons.check,
-                                              color: Theme.of(context)
-                                                  .colorScheme
-                                                  .primary,
-                                            )
-                                          : null,
-                                      onTap: () =>
-                                          widget.onModelSelected(model.id),
-                                    );
-                                  },
-                                ),
+                        return Column(
+                          children: [
+                            if (selectedSelection.isConfigured &&
+                                selectedSelection.provider ==
+                                    _selectedProvider &&
+                                !selectedInList)
+                              _SelectedModelWarning(
+                                selection: selectedSelection,
                               ),
-                      ),
-                    ],
-                  );
-                },
-              ),
+                            Expanded(
+                              child: filtered.isEmpty
+                                  ? _NoModelsFound(
+                                      message: widget.requiredOutputModality
+                                                  .trim()
+                                                  .toLowerCase() ==
+                                              'image'
+                                          ? 'No image-generating models match your search.'
+                                          : 'No text-capable models match your search.',
+                                    )
+                                  : MobileScrollbar(
+                                      controller: _scrollController,
+                                      child: ListView.separated(
+                                        controller: _scrollController,
+                                        itemCount: filtered.length,
+                                        separatorBuilder: (_, __) =>
+                                            const Divider(height: 1),
+                                        itemBuilder: (context, index) {
+                                          final model = filtered[index];
+                                          final isSelected =
+                                              selectedSelection.provider ==
+                                                      _selectedProvider &&
+                                                  model.id ==
+                                                      selectedSelection
+                                                          .normalizedModelId;
+
+                                          return ListTile(
+                                            selected: isSelected,
+                                            selectedTileColor: Theme.of(context)
+                                                .colorScheme
+                                                .primaryContainer
+                                                .withAlpha(80),
+                                            title: Text(model.displayName),
+                                            subtitle: _ModelSubtitle(
+                                              model: model,
+                                              priceDisplayMode:
+                                                  _priceDisplayMode,
+                                            ),
+                                            trailing: isSelected
+                                                ? Icon(
+                                                    Icons.check,
+                                                    color: Theme.of(context)
+                                                        .colorScheme
+                                                        .primary,
+                                                  )
+                                                : null,
+                                            onTap: () => widget.onModelSelected(
+                                              AiModelSelection(
+                                                provider: _selectedProvider,
+                                                modelId: model.id,
+                                              ),
+                                            ),
+                                          );
+                                        },
+                                      ),
+                                    ),
+                            ),
+                          ],
+                        );
+                      },
+                    ),
             ),
           ],
         ),
@@ -950,8 +986,8 @@ class _OpenRouterModelPickerSheetState
 }
 
 class _ModelSubtitle extends StatelessWidget {
-  final OpenRouterModel model;
-  final OpenRouterModelPriceDisplayMode priceDisplayMode;
+  final AiModelInfo model;
+  final AiModelPriceDisplayMode priceDisplayMode;
 
   const _ModelSubtitle({
     required this.model,
@@ -965,7 +1001,6 @@ class _ModelSubtitle extends StatelessWidget {
     final outputsLabel = model.outputModalities.isEmpty
         ? null
         : 'Outputs: ${model.outputModalities.join(', ')}';
-
     final metadata = <String>[
       if (contextLabel != null) contextLabel,
       if (outputsLabel != null) outputsLabel,
@@ -1008,12 +1043,15 @@ class _ModelSubtitle extends StatelessWidget {
 }
 
 class _SelectedModelWarning extends StatelessWidget {
-  final String modelId;
+  final AiModelSelection selection;
 
-  const _SelectedModelWarning({required this.modelId});
+  const _SelectedModelWarning({
+    required this.selection,
+  });
 
   @override
   Widget build(BuildContext context) {
+    final providerLabel = selection.provider?.label ?? 'Unknown';
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
       child: Container(
@@ -1024,8 +1062,40 @@ class _SelectedModelWarning extends StatelessWidget {
           borderRadius: BorderRadius.circular(10),
         ),
         child: Text(
-          'Saved model: $modelId (not in current list).',
+          'Saved model: $providerLabel · ${selection.normalizedModelId} (not in current list).',
           style: Theme.of(context).textTheme.bodySmall,
+        ),
+      ),
+    );
+  }
+}
+
+class _MissingApiKeyMessage extends StatelessWidget {
+  final AiProvider provider;
+
+  const _MissingApiKeyMessage({
+    required this.provider,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.key_off_outlined,
+              size: 48,
+              color: Theme.of(context).colorScheme.outline,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'Add your ${provider.label} API key first.',
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+          ],
         ),
       ),
     );
