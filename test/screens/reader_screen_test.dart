@@ -850,6 +850,104 @@ void main() {
       expect(find.text('Follow-up failed.'), findsOneWidget);
     });
 
+    testWidgets('ask ai shows the first user question and supports follow-ups',
+        (tester) async {
+      const firstQuestion = 'Why is this passage important?';
+      final openRouter = _FakeOpenRouterService(
+        generateTextHandler: ({
+          required apiKey,
+          required modelId,
+          required prompt,
+          temperature,
+        }) async =>
+            'It sets up the main conflict.',
+        generateTextMessagesHandler: ({
+          required apiKey,
+          required modelId,
+          required messages,
+          temperature,
+        }) async {
+          expect(messages, hasLength(3));
+          expect(messages[0].role, AiChatMessageRole.user);
+          expect(
+            messages[0].content,
+            contains('Reader question:\n$firstQuestion'),
+          );
+          expect(messages[1].role, AiChatMessageRole.assistant);
+          expect(messages[2].role, AiChatMessageRole.user);
+          expect(messages[2].content, 'Explain more.');
+          return 'It shows why the next choice matters.';
+        },
+      );
+
+      await _pumpReaderScreen(
+        tester,
+        openRouterService: openRouter,
+      );
+
+      await _startAskAi(
+        tester,
+        sourceModeLabel: 'Selected Text',
+        question: firstQuestion,
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text(firstQuestion), findsOneWidget);
+      expect(find.text('It sets up the main conflict.'), findsOneWidget);
+
+      await tester.enterText(find.byType(TextField).last, 'Explain more.');
+      await tester.pump();
+      await tester.tap(find.text('Send'));
+      await tester.pump();
+      await tester.pumpAndSettle();
+
+      expect(openRouter.generateTextCallCount, 1);
+      expect(openRouter.generateTextMessagesCallCount, 1);
+      expect(find.text('Explain more.'), findsOneWidget);
+      expect(
+        find.text('It shows why the next choice matters.'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('ask ai keeps the Ask button disabled for blank questions',
+        (tester) async {
+      final openRouter = _FakeOpenRouterService(
+        generateTextHandler: ({
+          required apiKey,
+          required modelId,
+          required prompt,
+          temperature,
+        }) async =>
+            'Unused',
+      );
+
+      await _pumpReaderScreen(
+        tester,
+        openRouterService: openRouter,
+      );
+
+      await _startAskAi(
+        tester,
+        sourceModeLabel: 'Selected Text',
+        question: null,
+      );
+
+      final askButton = tester.widget<FilledButton>(
+        find.widgetWithText(FilledButton, 'Ask'),
+      );
+      expect(askButton.onPressed, isNull);
+
+      await tester.enterText(find.byType(TextField).last, '   ');
+      await tester.pump();
+
+      final blankAskButton = tester.widget<FilledButton>(
+        find.widgetWithText(FilledButton, 'Ask'),
+      );
+      expect(blankAskButton.onPressed, isNull);
+      expect(openRouter.generateTextCallCount, 0);
+    });
+
     testWidgets('selected-text summary flow uses only the selected text',
         (tester) async {
       const forcedRangeText = 'Forced resume range text.';
@@ -938,6 +1036,66 @@ void main() {
       expect(openRouter.lastPrompt, isNot(contains(forcedRangeText)));
     });
 
+    testWidgets(
+        'selected-text ask ai flow includes book context and the first user question',
+        (tester) async {
+      const forcedRangeText = 'Forced resume range text.';
+      const question = 'Why is Anchorword important?';
+      final spyResumeSummaryService = _SpyResumeSummaryService(
+        forcedRange: const ResumeSummaryRange(
+          startOffset: 0,
+          endOffset: 24,
+          sourceText: forcedRangeText,
+          shouldUpdateResumeMarker: false,
+        ),
+      );
+      final openRouter = _FakeOpenRouterService(
+        generateTextHandler: ({
+          required apiKey,
+          required modelId,
+          required prompt,
+          temperature,
+        }) async =>
+            'It marks the focus of the sentence.',
+      );
+
+      await _pumpReaderScreen(
+        tester,
+        openRouterService: openRouter,
+        resumeSummaryService: spyResumeSummaryService,
+        chapters: const [
+          Chapter(
+            bookId: null,
+            index: 0,
+            title: 'Chapter 1',
+            content: 'Anchorword leads the sentence. More text follows here.',
+          ),
+        ],
+      );
+
+      await _startAskAi(
+        tester,
+        sourceModeLabel: 'Selected Text',
+        question: question,
+      );
+      await tester.pumpAndSettle();
+
+      expect(spyResumeSummaryService.computeRangeCallCount, 0);
+      expect(spyResumeSummaryService.lastSourceText, 'Anchorword');
+      expect(spyResumeSummaryService.lastUserMessage, question);
+      expect(openRouter.lastPrompt, contains('Book: Test Book'));
+      expect(openRouter.lastPrompt, contains('Author: Test Author'));
+      expect(openRouter.lastPrompt, contains('Chapter: Chapter 1'));
+      expect(openRouter.lastPrompt, contains('Passage:\nAnchorword'));
+      expect(
+        openRouter.lastPrompt,
+        contains('Reader question:\n$question'),
+      );
+      expect(openRouter.lastPrompt, isNot(contains(forcedRangeText)));
+      expect(find.text(question), findsOneWidget);
+      expect(find.text('It marks the focus of the sentence.'), findsOneWidget);
+    });
+
     testWidgets('resume-range summary flow still uses the computed range',
         (tester) async {
       const forcedRangeText = 'Forced resume range text.';
@@ -1001,6 +1159,41 @@ void main() {
       );
 
       await _startSimplifyText(tester);
+      await tester.pumpAndSettle();
+
+      expect(spyResumeSummaryService.computeRangeCallCount, 1);
+      expect(spyResumeSummaryService.lastSourceText, forcedRangeText);
+      expect(openRouter.lastPrompt, contains('Passage:\n$forcedRangeText'));
+    });
+
+    testWidgets('resume-range ask ai flow still uses the computed range',
+        (tester) async {
+      const forcedRangeText = 'Forced resume range text.';
+      final spyResumeSummaryService = _SpyResumeSummaryService(
+        forcedRange: const ResumeSummaryRange(
+          startOffset: 0,
+          endOffset: 24,
+          sourceText: forcedRangeText,
+          shouldUpdateResumeMarker: false,
+        ),
+      );
+      final openRouter = _FakeOpenRouterService(
+        generateTextHandler: ({
+          required apiKey,
+          required modelId,
+          required prompt,
+          temperature,
+        }) async =>
+            'It covers everything since the resume point.',
+      );
+
+      await _pumpReaderScreen(
+        tester,
+        openRouterService: openRouter,
+        resumeSummaryService: spyResumeSummaryService,
+      );
+
+      await _startAskAi(tester, question: 'What changed here?');
       await tester.pumpAndSettle();
 
       expect(spyResumeSummaryService.computeRangeCallCount, 1);
@@ -2130,6 +2323,28 @@ Future<void> _startSimplifyText(
   }
 }
 
+Future<void> _startAskAi(
+  WidgetTester tester, {
+  String? sourceModeLabel = 'Resume Range',
+  String? question = 'What is happening here?',
+}) async {
+  await _openReaderSelectionToolbar(tester);
+  await tester.tap(find.text('Ask AI'));
+  await tester.pumpAndSettle();
+  if (sourceModeLabel != null) {
+    final sourceModeFinder = find.text(sourceModeLabel);
+    await tester.ensureVisible(sourceModeFinder);
+    await tester.tap(sourceModeFinder);
+    await tester.pumpAndSettle();
+  }
+  if (question != null) {
+    await tester.enterText(find.byType(TextField).last, question);
+    await tester.pump();
+    await tester.tap(find.widgetWithText(FilledButton, 'Ask'));
+    await tester.pump();
+  }
+}
+
 Future<void> _startGenerateImage(WidgetTester tester) async {
   await _openReaderSelectionToolbar(tester);
   await tester.tap(find.text('Generate Image'));
@@ -2554,6 +2769,7 @@ class _GeminiGenerateImageCall {
 class _SpyResumeSummaryService extends ResumeSummaryService {
   String? lastSourceText;
   String? lastContextSentence;
+  String? lastUserMessage;
   final List<_RenderPromptCall> renderCalls = [];
   final ResumeSummaryRange? forcedRange;
   int computeRangeCallCount = 0;
@@ -2598,14 +2814,17 @@ class _SpyResumeSummaryService extends ResumeSummaryService {
     String bookAuthor = '',
     required String chapterTitle,
     String contextSentence = '',
+    String userMessage = '',
   }) {
     lastSourceText = sourceText;
     lastContextSentence = contextSentence;
+    lastUserMessage = userMessage;
     renderCalls.add(
       _RenderPromptCall(
         promptTemplate: promptTemplate,
         sourceText: sourceText,
         contextSentence: contextSentence,
+        userMessage: userMessage,
       ),
     );
     return super.renderPromptTemplate(
@@ -2615,6 +2834,7 @@ class _SpyResumeSummaryService extends ResumeSummaryService {
       bookAuthor: bookAuthor,
       chapterTitle: chapterTitle,
       contextSentence: contextSentence,
+      userMessage: userMessage,
     );
   }
 }
@@ -2623,10 +2843,12 @@ class _RenderPromptCall {
   final String promptTemplate;
   final String sourceText;
   final String contextSentence;
+  final String userMessage;
 
   const _RenderPromptCall({
     required this.promptTemplate,
     required this.sourceText,
     required this.contextSentence,
+    required this.userMessage,
   });
 }

@@ -5,6 +5,7 @@ const String bookTitlePlaceholder = '{book_title}';
 const String bookAuthorPlaceholder = '{book_author}';
 const String chapterTitlePlaceholder = '{chapter_title}';
 const String contextSentencePlaceholder = '{context_sentence}';
+const String userMessagePlaceholder = '{user_message}';
 
 class ResumeSummaryRange {
   final int startOffset;
@@ -81,6 +82,18 @@ class ResumeSummaryService {
     return promptTemplate.contains(sourceTextPlaceholder);
   }
 
+  bool hasRequiredPlaceholders(
+    String promptTemplate,
+    Iterable<String> placeholders,
+  ) {
+    for (final placeholder in placeholders) {
+      if (!promptTemplate.contains(placeholder)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   String extractContextSentence({
     required String chapterContent,
     required int selectionStart,
@@ -116,13 +129,15 @@ class ResumeSummaryService {
     String bookAuthor = '',
     required String chapterTitle,
     String contextSentence = '',
+    String userMessage = '',
   }) {
     return promptTemplate
         .replaceAll(sourceTextPlaceholder, sourceText)
         .replaceAll(bookTitlePlaceholder, bookTitle)
         .replaceAll(bookAuthorPlaceholder, bookAuthor)
         .replaceAll(chapterTitlePlaceholder, chapterTitle)
-        .replaceAll(contextSentencePlaceholder, contextSentence);
+        .replaceAll(contextSentencePlaceholder, contextSentence)
+        .replaceAll(userMessagePlaceholder, userMessage);
   }
 
   int _findSentenceStart(String text, int selectionStart) {

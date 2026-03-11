@@ -32,6 +32,27 @@ void main() {
       expect(feature.placeholders, contains('{book_author}'));
     });
 
+    test('registers ask ai feature', () {
+      final feature = aiFeatureById(AiFeatureIds.askAi);
+
+      expect(feature, isNotNull);
+      expect(feature!.title, 'Ask AI');
+      expect(feature.placeholders, contains('{book_title}'));
+      expect(feature.placeholders, contains('{book_author}'));
+      expect(feature.placeholders, contains('{chapter_title}'));
+      expect(feature.placeholders, contains('{source_text}'));
+      expect(feature.placeholders, contains('{user_message}'));
+    });
+
+    test('provides default config for ask ai', () {
+      expect(
+        defaultAiFeatureConfigs[AiFeatureIds.askAi],
+        const AiFeatureConfig(
+          promptTemplate: defaultAskAiPromptTemplate,
+        ),
+      );
+    });
+
     test('registers generate image feature', () {
       final feature = aiFeatureById(AiFeatureIds.generateImage);
 

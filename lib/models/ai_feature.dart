@@ -20,6 +20,7 @@ class AiFeatureIds {
   static const resumeSummary = 'resume_summary';
   static const defineAndTranslate = 'define_and_translate';
   static const simplifyText = 'simplify_text';
+  static const askAi = 'ask_ai';
   static const generateImage = 'generate_image';
 }
 
@@ -76,6 +77,40 @@ const AiFeatureDefinition simplifyTextFeature = AiFeatureDefinition(
     '{book_title}',
     '{chapter_title}',
     '{source_text}',
+  ],
+);
+
+const String defaultAskAiPromptTemplate = '''
+You are chatting with a reader about a book.
+
+Book: {book_title}
+Author: {book_author}
+Chapter: {chapter_title}
+
+Passage:
+{source_text}
+
+Reader question:
+{user_message}
+
+Use the provided passage as context when it is relevant, but the reader may also want to talk more generally about the book.
+You may use broader knowledge about the book when it helps answer the question.
+If the answer would reveal important spoilers, warn the reader before giving the spoiler-sensitive part of the answer.
+Be clear, direct, and helpful.
+''';
+
+const AiFeatureDefinition askAiFeature = AiFeatureDefinition(
+  id: AiFeatureIds.askAi,
+  title: 'Ask AI',
+  description:
+      'Answer reader questions about selected text or a resume range, with follow-up chat.',
+  defaultPromptTemplate: defaultAskAiPromptTemplate,
+  placeholders: <String>[
+    '{book_title}',
+    '{book_author}',
+    '{chapter_title}',
+    '{source_text}',
+    '{user_message}',
   ],
 );
 
@@ -154,6 +189,7 @@ const AiFeatureDefinition generateImageFeature = AiFeatureDefinition(
 const List<AiFeatureDefinition> aiFeatures = <AiFeatureDefinition>[
   resumeSummaryFeature,
   simplifyTextFeature,
+  askAiFeature,
   defineAndTranslateFeature,
   generateImageFeature,
 ];
@@ -165,6 +201,9 @@ const Map<String, AiFeatureConfig> defaultAiFeatureConfigs =
   ),
   AiFeatureIds.simplifyText: AiFeatureConfig(
     promptTemplate: defaultSimplifyTextPromptTemplate,
+  ),
+  AiFeatureIds.askAi: AiFeatureConfig(
+    promptTemplate: defaultAskAiPromptTemplate,
   ),
   AiFeatureIds.defineAndTranslate: AiFeatureConfig(
     promptTemplate: defaultDefineAndTranslatePromptTemplate,

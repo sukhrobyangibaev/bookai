@@ -34,11 +34,12 @@ void main() {
         onDefineAndTranslate: () {},
         onGenerateImage: () {},
         onSimplifyText: () {},
+        onAskAi: () {},
         onResumeHere: () {},
         onCatchMeUp: () {},
       );
 
-      expect(items, hasLength(7));
+      expect(items, hasLength(8));
       expect(items.first.type, ContextMenuButtonType.copy);
       expect(
         items.where((item) => item.type == ContextMenuButtonType.selectAll),
@@ -50,8 +51,9 @@ void main() {
         'Define & Translate',
         'Generate Image',
         'Simplify Text',
-        'Resume Here',
+        'Ask AI',
         'Catch Me Up',
+        'Resume Here',
       ]);
     });
   });
@@ -85,6 +87,7 @@ void main() {
                 onDefineAndTranslate: () {},
                 onGenerateImage: () {},
                 onSimplifyText: () {},
+                onAskAi: () {},
                 onResumeHere: () {},
                 onCatchMeUp: () {},
               ),
@@ -98,6 +101,7 @@ void main() {
       expect(find.text('Define & Translate'), findsOneWidget);
       expect(find.text('Generate Image'), findsOneWidget);
       expect(find.text('Simplify Text'), findsOneWidget);
+      expect(find.text('Ask AI'), findsOneWidget);
       expect(find.text('Resume Here'), findsOneWidget);
       expect(find.text('Catch Me Up'), findsOneWidget);
       expect(find.text('Select All'), findsNothing);
@@ -123,6 +127,10 @@ void main() {
         tester,
         'reader-selection-button-simplify_text',
       );
+      final askAiCenter = buttonCenterFor(
+        tester,
+        'reader-selection-button-ask_ai',
+      );
       final catchMeUpCenter = buttonCenterFor(
         tester,
         'reader-selection-button-catch_me_up',
@@ -134,6 +142,7 @@ void main() {
 
       expect(copyCenter.dy, moreOrLessEquals(highlightCenter.dy));
       expect(defineCenter.dy, moreOrLessEquals(generateImageCenter.dy));
+      expect(simplifyCenter.dy, moreOrLessEquals(askAiCenter.dy));
       expect(simplifyCenter.dy, moreOrLessEquals(catchMeUpCenter.dy));
       expect(defineCenter.dy, greaterThan(copyCenter.dy));
       expect(simplifyCenter.dy, greaterThan(defineCenter.dy));
@@ -141,7 +150,8 @@ void main() {
 
       expect(copyCenter.dx, lessThan(highlightCenter.dx));
       expect(defineCenter.dx, lessThan(generateImageCenter.dx));
-      expect(simplifyCenter.dx, lessThan(catchMeUpCenter.dx));
+      expect(simplifyCenter.dx, lessThan(askAiCenter.dx));
+      expect(askAiCenter.dx, lessThan(catchMeUpCenter.dx));
 
       final toolbarShape = toolbarShapeFor(
         tester,
@@ -177,6 +187,7 @@ void main() {
                 onSimplifyText: () {
                   simplifyPressed = true;
                 },
+                onAskAi: () {},
                 onResumeHere: () {
                   fail('Resume Here should not be tapped in this test.');
                 },
@@ -215,6 +226,7 @@ void main() {
                 onDefineAndTranslate: () {},
                 onGenerateImage: () {},
                 onSimplifyText: () {},
+                onAskAi: () {},
                 onResumeHere: () {},
                 onCatchMeUp: () {},
               ),
@@ -243,6 +255,10 @@ void main() {
         tester,
         'reader-selection-button-simplify_text',
       );
+      final askAiShape = toolbarShapeFor(
+        tester,
+        'reader-selection-button-ask_ai',
+      );
       final catchMeUpShape = toolbarShapeFor(
         tester,
         'reader-selection-button-catch_me_up',
@@ -258,6 +274,7 @@ void main() {
       expect(
           generateImageShape.side.color, isNot(equals(copyShape.side.color)));
       expect(simplifyShape.side.color, isNot(equals(copyShape.side.color)));
+      expect(askAiShape.side.color, isNot(equals(copyShape.side.color)));
       expect(catchMeUpShape.side.color, isNot(equals(copyShape.side.color)));
       expect(defineShape.side.color, isNot(equals(simplifyShape.side.color)));
       expect(
@@ -265,6 +282,7 @@ void main() {
         isNot(equals(defineShape.side.color)),
       );
       expect(catchMeUpShape.side.color, isNot(equals(defineShape.side.color)));
+      expect(askAiShape.side.color, isNot(equals(defineShape.side.color)));
       expect(
           catchMeUpShape.side.color, isNot(equals(simplifyShape.side.color)));
     });

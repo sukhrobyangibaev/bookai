@@ -9,6 +9,7 @@ List<ContextMenuButtonItem> buildReaderSelectionButtonItems({
   required VoidCallback onDefineAndTranslate,
   VoidCallback? onGenerateImage,
   required VoidCallback onSimplifyText,
+  required VoidCallback onAskAi,
   required VoidCallback onResumeHere,
   required VoidCallback onCatchMeUp,
 }) {
@@ -43,12 +44,16 @@ List<ContextMenuButtonItem> buildReaderSelectionButtonItems({
       onPressed: onSimplifyText,
     ),
     ContextMenuButtonItem(
-      label: 'Resume Here',
-      onPressed: onResumeHere,
+      label: 'Ask AI',
+      onPressed: onAskAi,
     ),
     ContextMenuButtonItem(
       label: 'Catch Me Up',
       onPressed: onCatchMeUp,
+    ),
+    ContextMenuButtonItem(
+      label: 'Resume Here',
+      onPressed: onResumeHere,
     ),
   ];
 }
@@ -69,7 +74,11 @@ class ReaderSelectionToolbar extends StatelessWidget {
       _ToolbarActionStyle._defineAndTranslateId,
       _ToolbarActionStyle._generateImageId,
     ],
-    [_ToolbarActionStyle._simplifyTextId, _ToolbarActionStyle._catchMeUpId],
+    [
+      _ToolbarActionStyle._simplifyTextId,
+      _ToolbarActionStyle._askAiId,
+      _ToolbarActionStyle._catchMeUpId,
+    ],
     [_ToolbarActionStyle._resumeHereId],
   ];
 
@@ -304,6 +313,7 @@ class _ToolbarActionStyle {
   static const String _defineAndTranslateId = 'define_and_translate';
   static const String _generateImageId = 'generate_image';
   static const String _simplifyTextId = 'simplify_text';
+  static const String _askAiId = 'ask_ai';
   static const String _resumeHereId = 'resume_here';
   static const String _catchMeUpId = 'catch_me_up';
   static const Color _defineAndTranslateLight = Color(0xFF0B57D0);
@@ -312,6 +322,8 @@ class _ToolbarActionStyle {
   static const Color _generateImageDark = Color(0xFFE1BEE7);
   static const Color _simplifyTextLight = Color(0xFF2E7D32);
   static const Color _simplifyTextDark = Color(0xFF81C995);
+  static const Color _askAiLight = Color(0xFFAD1457);
+  static const Color _askAiDark = Color(0xFFF48FB1);
   static const Color _catchMeUpLight = Color(0xFFEF6C00);
   static const Color _catchMeUpDark = Color(0xFFFFB74D);
 
@@ -357,6 +369,12 @@ class _ToolbarActionStyle {
               ? _simplifyTextDark
               : _simplifyTextLight,
         ),
+      _askAiId => _accent(
+          id: actionId,
+          toolbarColor: toolbarColor,
+          accentColor:
+              theme.brightness == Brightness.dark ? _askAiDark : _askAiLight,
+        ),
       _catchMeUpId => _accent(
           id: actionId,
           toolbarColor: toolbarColor,
@@ -401,6 +419,7 @@ class _ToolbarActionStyle {
       'Define & Translate' => _defineAndTranslateId,
       'Generate Image' => _generateImageId,
       'Simplify Text' => _simplifyTextId,
+      'Ask AI' => _askAiId,
       'Resume Here' => _resumeHereId,
       'Catch Me Up' => _catchMeUpId,
       final String label => label

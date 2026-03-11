@@ -147,23 +147,41 @@ void main() {
     test('renderPromptTemplate replaces placeholders', () {
       final prompt = service.renderPromptTemplate(
         promptTemplate:
-            'Book {book_title}\nAuthor {book_author}\nChapter {chapter_title}\nContext {context_sentence}\n{source_text}',
+            'Book {book_title}\nAuthor {book_author}\nChapter {chapter_title}\nContext {context_sentence}\nQuestion {user_message}\n{source_text}',
         sourceText: 'Hello',
         bookTitle: 'Book A',
         bookAuthor: 'Author A',
         chapterTitle: 'Chapter 1',
         contextSentence: 'Hello there.',
+        userMessage: 'What happened?',
       );
 
       expect(
         prompt,
-        'Book Book A\nAuthor Author A\nChapter Chapter 1\nContext Hello there.\nHello',
+        'Book Book A\nAuthor Author A\nChapter Chapter 1\nContext Hello there.\nQuestion What happened?\nHello',
       );
     });
 
     test('hasRequiredPlaceholder checks source placeholder', () {
       expect(service.hasRequiredPlaceholder('Use {source_text}'), isTrue);
       expect(service.hasRequiredPlaceholder('No placeholder'), isFalse);
+    });
+
+    test('hasRequiredPlaceholders checks all placeholders', () {
+      expect(
+        service.hasRequiredPlaceholders(
+          'Use {source_text} and {user_message}',
+          const [sourceTextPlaceholder, userMessagePlaceholder],
+        ),
+        isTrue,
+      );
+      expect(
+        service.hasRequiredPlaceholders(
+          'Use {source_text}',
+          const [sourceTextPlaceholder, userMessagePlaceholder],
+        ),
+        isFalse,
+      );
     });
 
     test('extractContextSentence returns the containing sentence', () {

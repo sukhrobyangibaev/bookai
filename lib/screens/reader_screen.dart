@@ -351,6 +351,15 @@ class _ReaderScreenState extends State<ReaderScreen> {
     );
   }
 
+  Future<void> _askAiAboutSelection(
+    EditableTextState editableTextState,
+  ) async {
+    await _showTextAiSourceModePicker(
+      editableTextState: editableTextState,
+      featureId: AiFeatureIds.askAi,
+    );
+  }
+
   Future<void> _showTextAiSourceModePicker({
     required EditableTextState editableTextState,
     required String featureId,
@@ -411,9 +420,13 @@ class _ReaderScreenState extends State<ReaderScreen> {
       return;
     }
 
+    final initialUserMessage = await _resolveInitialUserMessage(featureSpec);
+    if (!mounted || initialUserMessage == null) return;
+
     final requestSpec = _buildTextFeatureRequestSpec(
       featureId: featureId,
       textFeatureSelection: textFeatureSelection,
+      initialUserMessage: initialUserMessage,
     );
     if (requestSpec == null) return;
 
@@ -450,9 +463,13 @@ class _ReaderScreenState extends State<ReaderScreen> {
       return;
     }
 
+    final initialUserMessage = await _resolveInitialUserMessage(featureSpec);
+    if (!mounted || initialUserMessage == null) return;
+
     final requestSpec = _buildTextFeatureRequestSpec(
       featureId: featureId,
       textFeatureSelection: textFeatureSelection,
+      initialUserMessage: initialUserMessage,
     );
     if (requestSpec == null) return;
 
@@ -499,6 +516,8 @@ class _ReaderScreenState extends State<ReaderScreen> {
               'Unable to build a summary range for this selection.',
           invalidPromptMessage:
               'Catch-up prompt must include the {source_text} placeholder.',
+          requiredPromptPlaceholders: <String>[sourceTextPlaceholder],
+          followUpHintText: 'Ask a follow-up question',
           switchTargetFeatureId: AiFeatureIds.simplifyText,
           switchButtonLabel: 'Simplify Text',
         ),
@@ -513,8 +532,32 @@ class _ReaderScreenState extends State<ReaderScreen> {
               'Unable to build a text range for this selection.',
           invalidPromptMessage:
               'Simplify Text prompt must include the {source_text} placeholder.',
+          requiredPromptPlaceholders: <String>[sourceTextPlaceholder],
+          followUpHintText: 'Ask a follow-up question',
           switchTargetFeatureId: AiFeatureIds.resumeSummary,
           switchButtonLabel: 'Summary',
+        ),
+      AiFeatureIds.askAi => const _TextAiFeatureSpec(
+          featureId: AiFeatureIds.askAi,
+          title: 'Ask AI',
+          loadingText: 'Asking AI...',
+          emptyMessage: 'Model returned an empty answer.',
+          copiedMessage: 'Answer copied',
+          invalidSelectedTextMessage: 'Select some text to ask about.',
+          invalidRangeMessage:
+              'Unable to build a question range for this selection.',
+          invalidPromptMessage:
+              'Ask AI prompt must include the {book_title}, {book_author}, {chapter_title}, {source_text}, and {user_message} placeholders.',
+          requiredPromptPlaceholders: <String>[
+            bookTitlePlaceholder,
+            bookAuthorPlaceholder,
+            chapterTitlePlaceholder,
+            sourceTextPlaceholder,
+            userMessagePlaceholder,
+          ],
+          followUpHintText: 'Ask another question',
+          initialQuestionHintText:
+              'What do you want to ask about this passage?',
         ),
       _ => null,
     };
@@ -523,6 +566,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
   _AiRequestSpec? _buildTextFeatureRequestSpec({
     required String featureId,
     required _TextAiSelection textFeatureSelection,
+    String initialUserMessage = '',
   }) {
     final featureSpec = _textAiFeatureSpec(featureId);
     if (featureSpec == null) return null;
@@ -548,7 +592,10 @@ class _ReaderScreenState extends State<ReaderScreen> {
 
     final featureConfig = settings.aiFeatureConfig(featureId);
     final promptTemplate = featureConfig.promptTemplate;
-    if (!_resumeSummaryService.hasRequiredPlaceholder(promptTemplate)) {
+    if (!_resumeSummaryService.hasRequiredPlaceholders(
+      promptTemplate,
+      featureSpec.requiredPromptPlaceholders,
+    )) {
       _showAutoDismissSnackBar(
         SnackBar(
           content: Text(
@@ -566,6 +613,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
       bookTitle: widget.book.title,
       bookAuthor: widget.book.author,
       chapterTitle: textFeatureSelection.chapterTitle,
+      userMessage: initialUserMessage,
     );
     return _AiRequestSpec(
       modelSelection: modelSelection,
@@ -574,6 +622,13 @@ class _ReaderScreenState extends State<ReaderScreen> {
       loadingText: featureSpec.loadingText,
       emptyMessage: featureSpec.emptyMessage,
       copiedMessage: featureSpec.copiedMessage,
+      followUpHintText: featureSpec.followUpHintText,
+      initialConversationMessages: initialUserMessage.trim().isEmpty
+          ? null
+          : <_AiConversationMessage>[
+              _AiConversationMessage.hiddenUser(prompt),
+              _AiConversationMessage.displayOnlyUser(initialUserMessage.trim()),
+            ],
       onSuccess: textFeatureSelection.shouldUpdateResumeMarker
           ? () => _saveResumeMarker(
                 selectedText: textFeatureSelection.selectedText,
@@ -584,6 +639,110 @@ class _ReaderScreenState extends State<ReaderScreen> {
       featureId: featureSpec.featureId,
       textFeatureSelection: textFeatureSelection,
     );
+  }
+
+  Future<String?> _resolveInitialUserMessage(
+    _TextAiFeatureSpec featureSpec,
+  ) async {
+    final hintText = featureSpec.initialQuestionHintText;
+    if (hintText == null) return '';
+
+    return _showAiQuestionComposerSheet(
+      title: featureSpec.title,
+      description:
+          'Ask a question about the selected text or the chosen resume range.',
+      hintText: hintText,
+    );
+  }
+
+  Future<String?> _showAiQuestionComposerSheet({
+    required String title,
+    required String description,
+    required String hintText,
+  }) async {
+    String? result;
+    var draftQuestion = '';
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        return StatefulBuilder(
+          builder: (sheetContext, setSheetState) {
+            final canSubmit = draftQuestion.trim().isNotEmpty;
+
+            return SafeArea(
+              child: Padding(
+                padding: EdgeInsets.only(
+                  left: 16,
+                  right: 16,
+                  top: 8,
+                  bottom: MediaQuery.viewInsetsOf(sheetContext).bottom + 16,
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: Theme.of(sheetContext).textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      description,
+                      style: Theme.of(sheetContext).textTheme.bodySmall,
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      minLines: 2,
+                      maxLines: 5,
+                      autofocus: true,
+                      textInputAction: TextInputAction.done,
+                      decoration: InputDecoration(
+                        border: const OutlineInputBorder(),
+                        labelText: 'Question',
+                        hintText: hintText,
+                      ),
+                      onChanged: (value) {
+                        draftQuestion = value;
+                        setSheetState(() {});
+                      },
+                      onSubmitted: (value) {
+                        if (!canSubmit) return;
+                        result = value.trim();
+                        Navigator.of(sheetContext).pop();
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        TextButton(
+                          onPressed: () => Navigator.of(sheetContext).pop(),
+                          child: const Text('Cancel'),
+                        ),
+                        const Spacer(),
+                        FilledButton(
+                          onPressed: !canSubmit
+                              ? null
+                              : () {
+                                  result = draftQuestion.trim();
+                                  Navigator.of(sheetContext).pop();
+                                },
+                          child: const Text('Ask'),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    return result;
   }
 
   Future<void> _defineAndTranslateSelection(
@@ -1836,8 +1995,11 @@ class _ReaderScreenState extends State<ReaderScreen> {
       title: request.requestSpec.title,
       emptyMessage: request.requestSpec.emptyMessage,
       copiedMessage: request.requestSpec.copiedMessage,
+      followUpHintText: request.requestSpec.followUpHintText,
       modelSelection: request.requestSpec.modelSelection,
       prompt: request.requestSpec.prompt,
+      initialConversationMessages:
+          request.requestSpec.initialConversationMessages,
       switchFeatureLabel: _switchFeatureLabelForRequest(request.requestSpec),
       result: result,
       error: error,
@@ -1903,10 +2065,12 @@ class _ReaderScreenState extends State<ReaderScreen> {
     if (featureId == null || textFeatureSelection == null) return;
 
     final featureSpec = _textAiFeatureSpec(featureId);
-    if (featureSpec == null) return;
+    if (featureSpec == null || featureSpec.switchTargetFeatureId == null) {
+      return;
+    }
 
     final switchedRequestSpec = _buildTextFeatureRequestSpec(
-      featureId: featureSpec.switchTargetFeatureId,
+      featureId: featureSpec.switchTargetFeatureId!,
       textFeatureSelection: textFeatureSelection,
     );
     if (switchedRequestSpec == null) return;
@@ -1918,8 +2082,10 @@ class _ReaderScreenState extends State<ReaderScreen> {
     required String title,
     required String emptyMessage,
     required String copiedMessage,
+    required String followUpHintText,
     required AiModelSelection modelSelection,
     required String prompt,
+    List<_AiConversationMessage>? initialConversationMessages,
     String? switchFeatureLabel,
     String? result,
     Object? error,
@@ -1959,6 +2125,14 @@ class _ReaderScreenState extends State<ReaderScreen> {
       isScrollControlled: true,
       showDragHandle: true,
       builder: (sheetContext) {
+        final initialMessages = <_AiConversationMessage>[
+          ...(initialConversationMessages ??
+              <_AiConversationMessage>[
+                _AiConversationMessage.hiddenUser(prompt)
+              ]),
+          _AiConversationMessage.assistant(trimmedResult),
+        ];
+
         return SafeArea(
           child: Padding(
             padding: EdgeInsets.only(
@@ -1972,12 +2146,9 @@ class _ReaderScreenState extends State<ReaderScreen> {
                   title: title,
                   copiedMessage: copiedMessage,
                   emptyAssistantMessage: emptyMessage,
-                  followUpHintText: 'Ask a follow-up question',
+                  followUpHintText: followUpHintText,
                   resultTextStyle: resultTextStyle,
-                  initialMessages: <_AiConversationMessage>[
-                    _AiConversationMessage.hiddenUser(prompt),
-                    _AiConversationMessage.assistant(trimmedResult),
-                  ],
+                  initialMessages: initialMessages,
                   onSendFollowUp: (messages) => _runBackgroundAiTask(
                     task: () => _generateTextForMessages(
                       selection: modelSelection,
@@ -2053,7 +2224,8 @@ class _ReaderScreenState extends State<ReaderScreen> {
                 child: _AiConversationSheet(
                   title: 'Generate Image',
                   copiedMessage: 'Prompt copied',
-                  emptyAssistantMessage: 'Model returned an empty image prompt.',
+                  emptyAssistantMessage:
+                      'Model returned an empty image prompt.',
                   followUpHintText: 'Refine this image prompt',
                   resultTextStyle: resultTextStyle,
                   initialMessages: <_AiConversationMessage>[
@@ -2907,6 +3079,9 @@ class _ReaderScreenState extends State<ReaderScreen> {
       onSimplifyText: () {
         _simplifyTextFromResumePoint(editableTextState);
       },
+      onAskAi: () {
+        _askAiAboutSelection(editableTextState);
+      },
       onResumeHere: () {
         final selection = editableTextState.textEditingValue.selection;
         final text = editableTextState.textEditingValue.text;
@@ -3036,8 +3211,11 @@ class _TextAiFeatureSpec {
   final String invalidSelectedTextMessage;
   final String invalidRangeMessage;
   final String invalidPromptMessage;
-  final String switchTargetFeatureId;
-  final String switchButtonLabel;
+  final List<String> requiredPromptPlaceholders;
+  final String followUpHintText;
+  final String? initialQuestionHintText;
+  final String? switchTargetFeatureId;
+  final String? switchButtonLabel;
 
   const _TextAiFeatureSpec({
     required this.featureId,
@@ -3048,8 +3226,11 @@ class _TextAiFeatureSpec {
     required this.invalidSelectedTextMessage,
     required this.invalidRangeMessage,
     required this.invalidPromptMessage,
-    required this.switchTargetFeatureId,
-    required this.switchButtonLabel,
+    required this.requiredPromptPlaceholders,
+    required this.followUpHintText,
+    this.initialQuestionHintText,
+    this.switchTargetFeatureId,
+    this.switchButtonLabel,
   });
 }
 
@@ -3072,6 +3253,8 @@ class _AiRequestSpec {
   final String loadingText;
   final String emptyMessage;
   final String copiedMessage;
+  final String followUpHintText;
+  final List<_AiConversationMessage>? initialConversationMessages;
   final String? featureId;
   final _TextAiSelection? textFeatureSelection;
   final Future<void> Function()? onSuccess;
@@ -3083,6 +3266,8 @@ class _AiRequestSpec {
     required this.loadingText,
     required this.emptyMessage,
     required this.copiedMessage,
+    this.followUpHintText = 'Ask a follow-up question',
+    this.initialConversationMessages,
     this.featureId,
     this.textFeatureSelection,
     this.onSuccess,
@@ -3095,6 +3280,8 @@ class _AiRequestSpec {
     String? loadingText,
     String? emptyMessage,
     String? copiedMessage,
+    String? followUpHintText,
+    List<_AiConversationMessage>? initialConversationMessages,
     String? featureId,
     _TextAiSelection? textFeatureSelection,
     Future<void> Function()? onSuccess,
@@ -3106,6 +3293,9 @@ class _AiRequestSpec {
       loadingText: loadingText ?? this.loadingText,
       emptyMessage: emptyMessage ?? this.emptyMessage,
       copiedMessage: copiedMessage ?? this.copiedMessage,
+      followUpHintText: followUpHintText ?? this.followUpHintText,
+      initialConversationMessages:
+          initialConversationMessages ?? this.initialConversationMessages,
       featureId: featureId ?? this.featureId,
       textFeatureSelection: textFeatureSelection ?? this.textFeatureSelection,
       onSuccess: onSuccess ?? this.onSuccess,
@@ -3155,11 +3345,13 @@ class _AiConversationMessage {
   final AiChatMessageRole role;
   final String text;
   final bool isVisible;
+  final bool includeInApi;
 
   const _AiConversationMessage._({
     required this.role,
     required this.text,
     required this.isVisible,
+    required this.includeInApi,
   });
 
   const _AiConversationMessage.hiddenUser(String value)
@@ -3167,6 +3359,7 @@ class _AiConversationMessage {
           role: AiChatMessageRole.user,
           text: value,
           isVisible: false,
+          includeInApi: true,
         );
 
   const _AiConversationMessage.user(String value)
@@ -3174,6 +3367,15 @@ class _AiConversationMessage {
           role: AiChatMessageRole.user,
           text: value,
           isVisible: true,
+          includeInApi: true,
+        );
+
+  const _AiConversationMessage.displayOnlyUser(String value)
+      : this._(
+          role: AiChatMessageRole.user,
+          text: value,
+          isVisible: true,
+          includeInApi: false,
         );
 
   const _AiConversationMessage.assistant(String value)
@@ -3181,6 +3383,7 @@ class _AiConversationMessage {
           role: AiChatMessageRole.assistant,
           text: value,
           isVisible: true,
+          includeInApi: true,
         );
 
   AiChatMessage toApiMessage() => AiChatMessage(
@@ -3196,6 +3399,15 @@ class _AiConversationMessage {
       }
     }
     return '';
+  }
+
+  static List<AiChatMessage> apiMessages(
+    Iterable<_AiConversationMessage> messages,
+  ) {
+    return messages
+        .where((message) => message.includeInApi)
+        .map((message) => message.toApiMessage())
+        .toList(growable: false);
   }
 }
 
@@ -3313,7 +3525,7 @@ class _AiConversationSheetState extends State<_AiConversationSheet> {
 
     try {
       final response = await widget.onSendFollowUp(
-        _messages.map((message) => message.toApiMessage()).toList(),
+        _AiConversationMessage.apiMessages(_messages),
       );
       final trimmedResponse = response.trim();
       if (!mounted) return;

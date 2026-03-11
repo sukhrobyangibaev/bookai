@@ -83,6 +83,22 @@ void main() {
       expect(controller.geminiApiKey, 'gem-key');
     });
 
+    testWidgets('lists Ask AI in the AI features section', (tester) async {
+      await _useTallSurface(tester);
+      SharedPreferences.setMockInitialValues({});
+
+      final controller = SettingsController();
+      await tester.runAsync(() => controller.load());
+
+      await tester.pumpWidget(_buildSettingsApp(controller));
+      await tester.pumpAndSettle();
+
+      final askAiFeature = find.widgetWithText(ListTile, 'Ask AI');
+      await tester.ensureVisible(askAiFeature);
+
+      expect(askAiFeature, findsOneWidget);
+    });
+
     testWidgets(
         'default model picker is provider-first and shows OpenRouter pricing',
         (tester) async {
