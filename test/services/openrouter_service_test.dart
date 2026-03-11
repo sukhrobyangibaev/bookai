@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:bookai/models/ai_chat_message.dart';
 import 'package:bookai/models/openrouter_model.dart';
 import 'package:bookai/services/openrouter_service.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -239,6 +240,50 @@ void main() {
       );
 
       expect(text, 'Line 1\nLine 2');
+    });
+
+    test('generateTextMessages sends a multi-turn payload', () async {
+      final client = MockClient((request) async {
+        final body = jsonDecode(request.body) as Map<String, dynamic>;
+        final messages = body['messages'] as List<dynamic>;
+        expect(messages, hasLength(3));
+        expect(messages[0], {
+          'role': 'user',
+          'content': 'Summarize this scene.',
+        });
+        expect(messages[1], {
+          'role': 'assistant',
+          'content': 'It is a stormy reunion.',
+        });
+        expect(messages[2], {
+          'role': 'user',
+          'content': 'Explain why in simpler words.',
+        });
+
+        return http.Response(
+          jsonEncode({
+            'choices': [
+              {
+                'message': {'content': 'They meet again during a storm.'}
+              }
+            ],
+          }),
+          200,
+        );
+      });
+
+      final service = OpenRouterService(client: client);
+      final text = await service.generateTextMessages(
+        apiKey: 'k',
+        modelId: 'm',
+        messages: const <AiChatMessage>[
+          AiChatMessage.user('Summarize this scene.'),
+          AiChatMessage.assistant('It is a stormy reunion.'),
+          AiChatMessage.user('Explain why in simpler words.'),
+        ],
+      );
+
+      expect(text, 'They meet again during a storm.');
     });
 
     test('generateText throws on non-2xx status', () async {

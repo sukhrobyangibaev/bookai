@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:bookai/models/ai_chat_message.dart';
 import 'package:bookai/models/ai_model_info.dart';
 import 'package:bookai/models/ai_provider.dart';
 import 'package:bookai/services/gemini_service.dart';
@@ -136,6 +137,60 @@ void main() {
       );
 
       expect(text, 'Generated answer');
+    });
+
+    test('generateTextMessages sends a multi-turn Gemini payload', () async {
+      final client = MockClient((request) async {
+        final body = jsonDecode(request.body) as Map<String, dynamic>;
+        final contents = body['contents'] as List<dynamic>;
+        expect(contents, hasLength(3));
+        expect(contents[0], {
+          'role': 'user',
+          'parts': [
+            {'text': 'Summarize this scene.'},
+          ],
+        });
+        expect(contents[1], {
+          'role': 'model',
+          'parts': [
+            {'text': 'It is a stormy reunion.'},
+          ],
+        });
+        expect(contents[2], {
+          'role': 'user',
+          'parts': [
+            {'text': 'Explain why in simpler words.'},
+          ],
+        });
+
+        return http.Response(
+          jsonEncode({
+            'candidates': [
+              {
+                'content': {
+                  'parts': [
+                    {'text': 'They meet again during a storm.'},
+                  ],
+                },
+              },
+            ],
+          }),
+          200,
+        );
+      });
+
+      final service = GeminiService(client: client);
+      final text = await service.generateTextMessages(
+        apiKey: 'test-key',
+        modelId: 'gemini-2.5-flash',
+        messages: const <AiChatMessage>[
+          AiChatMessage.user('Summarize this scene.'),
+          AiChatMessage.assistant('It is a stormy reunion.'),
+          AiChatMessage.user('Explain why in simpler words.'),
+        ],
+      );
+
+      expect(text, 'They meet again during a storm.');
     });
 
     test('generateText sends Gemini 3 Flash Preview defaults', () async {

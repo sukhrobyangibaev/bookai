@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../app.dart';
+import '../models/ai_chat_message.dart';
 import '../models/ai_feature.dart';
 import '../models/ai_model_info.dart';
 import '../models/ai_model_selection.dart';
@@ -90,6 +91,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
 
   /// Monotonic token used to ignore stale AI completions.
   int _aiRequestToken = 0;
+  bool _hasBackgroundAiRequest = false;
 
   _ActiveAiRequest? _activeAiRequest;
   Timer? _aiLoadingElapsedTimer;
@@ -904,8 +906,14 @@ class _ReaderScreenState extends State<ReaderScreen> {
       return;
     }
 
+    final latestPrompt = await _showGeneratedPromptConversationSheet(
+      request: request,
+      generatedPrompt: generatedPrompt,
+    );
+    if (!mounted || latestPrompt == null) return;
+
     final editedImageDraft = await _showImagePromptEditorSheet(
-      initialPrompt: generatedPrompt,
+      initialPrompt: latestPrompt,
     );
     if (!mounted || editedImageDraft == null) return;
 
@@ -1206,6 +1214,45 @@ class _ReaderScreenState extends State<ReaderScreen> {
           modelId: modelId,
           prompt: prompt,
         );
+    }
+  }
+
+  Future<String> _generateTextForMessages({
+    required AiModelSelection selection,
+    required List<AiChatMessage> messages,
+  }) {
+    final provider = selection.provider;
+    final modelId = selection.normalizedModelId;
+    if (provider == null || modelId.isEmpty) {
+      throw const OpenRouterException('Model is not configured.');
+    }
+
+    final settings = SettingsControllerScope.of(context);
+    final apiKey = settings.apiKeyForProvider(provider);
+    switch (provider) {
+      case AiProvider.openRouter:
+        return _openRouter.generateTextMessages(
+          apiKey: apiKey,
+          modelId: modelId,
+          messages: messages,
+        );
+      case AiProvider.gemini:
+        return _gemini.generateTextMessages(
+          apiKey: apiKey,
+          modelId: modelId,
+          messages: messages,
+        );
+    }
+  }
+
+  Future<T> _runBackgroundAiTask<T>({
+    required Future<T> Function() task,
+  }) async {
+    _hasBackgroundAiRequest = true;
+    try {
+      return await task();
+    } finally {
+      _hasBackgroundAiRequest = false;
     }
   }
 
@@ -1756,7 +1803,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
   }
 
   bool _canStartAiRequest() {
-    if (_activeAiRequest == null) return true;
+    if (_activeAiRequest == null && !_hasBackgroundAiRequest) return true;
 
     _showAutoDismissSnackBar(
       const SnackBar(
@@ -1789,14 +1836,16 @@ class _ReaderScreenState extends State<ReaderScreen> {
       title: request.requestSpec.title,
       emptyMessage: request.requestSpec.emptyMessage,
       copiedMessage: request.requestSpec.copiedMessage,
+      modelSelection: request.requestSpec.modelSelection,
+      prompt: request.requestSpec.prompt,
       switchFeatureLabel: _switchFeatureLabelForRequest(request.requestSpec),
       result: result,
       error: error,
     );
     if (!mounted) return;
-    if (action == _AiResultSheetAction.regenerateWithFallback) {
+    if (action?.type == _AiResultSheetActionType.regenerateWithFallback) {
       await _regenerateAiRequestWithFallback(request.requestSpec);
-    } else if (action == _AiResultSheetAction.switchFeature) {
+    } else if (action?.type == _AiResultSheetActionType.switchFeature) {
       await _switchTextFeature(request.requestSpec);
     }
   }
@@ -1869,6 +1918,8 @@ class _ReaderScreenState extends State<ReaderScreen> {
     required String title,
     required String emptyMessage,
     required String copiedMessage,
+    required AiModelSelection modelSelection,
+    required String prompt,
     String? switchFeatureLabel,
     String? result,
     Object? error,
@@ -1879,55 +1930,70 @@ class _ReaderScreenState extends State<ReaderScreen> {
       fontSize: settings.fontSize,
       fontFamily: settings.fontFamily,
     );
+    final trimmedResult = (result ?? '').trim();
+
+    if (error != null || trimmedResult.isEmpty) {
+      return showModalBottomSheet<_AiResultSheetAction>(
+        context: context,
+        showDragHandle: true,
+        builder: (sheetContext) {
+          return FractionallySizedBox(
+            heightFactor: 0.7,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+              child: _AiResultError(
+                title: title,
+                message: error?.toString() ?? emptyMessage,
+                onClose: () => Navigator.of(sheetContext).pop(),
+                onRegenerateWithFallback: () =>
+                    _popRegenerateWithFallback(sheetContext),
+              ),
+            ),
+          );
+        },
+      );
+    }
 
     return showModalBottomSheet<_AiResultSheetAction>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
       builder: (sheetContext) {
-        void regenerateWithFallback() {
-          final settings = SettingsControllerScope.of(context);
-          final fallbackSelection = settings.fallbackModelSelection;
-          if (!fallbackSelection.isConfigured) {
-            _showAutoDismissSnackBar(
-              const SnackBar(
-                content: Text('Select a fallback AI model in Settings first.'),
-                duration: Duration(seconds: 2),
-              ),
-            );
-            return;
-          }
-          if (!_ensureApiKeyConfigured(
-            settings: settings,
-            selection: fallbackSelection,
-          )) {
-            return;
-          }
-
-          Navigator.of(sheetContext).pop(
-            _AiResultSheetAction.regenerateWithFallback,
-          );
-        }
-
-        return FractionallySizedBox(
-          heightFactor: 0.7,
+        return SafeArea(
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-            child: _buildAiResultSheetBody(
-              sheetContext: sheetContext,
-              title: title,
-              emptyMessage: emptyMessage,
-              copiedMessage: copiedMessage,
-              onSwitchFeature: switchFeatureLabel == null
-                  ? null
-                  : () => Navigator.of(sheetContext).pop(
-                        _AiResultSheetAction.switchFeature,
-                      ),
-              resultTextStyle: resultTextStyle,
-              onRegenerateWithFallback: regenerateWithFallback,
-              switchFeatureLabel: switchFeatureLabel,
-              result: result,
-              error: error,
+            padding: EdgeInsets.only(
+              bottom: MediaQuery.viewInsetsOf(sheetContext).bottom,
+            ),
+            child: FractionallySizedBox(
+              heightFactor: 0.82,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                child: _AiConversationSheet(
+                  title: title,
+                  copiedMessage: copiedMessage,
+                  emptyAssistantMessage: emptyMessage,
+                  followUpHintText: 'Ask a follow-up question',
+                  resultTextStyle: resultTextStyle,
+                  initialMessages: <_AiConversationMessage>[
+                    _AiConversationMessage.hiddenUser(prompt),
+                    _AiConversationMessage.assistant(trimmedResult),
+                  ],
+                  onSendFollowUp: (messages) => _runBackgroundAiTask(
+                    task: () => _generateTextForMessages(
+                      selection: modelSelection,
+                      messages: messages,
+                    ),
+                  ),
+                  onRegenerateWithFallback: () =>
+                      _popRegenerateWithFallback(sheetContext),
+                  switchFeatureLabel: switchFeatureLabel,
+                  onSwitchFeature: switchFeatureLabel == null
+                      ? null
+                      : () => Navigator.of(sheetContext).pop(
+                            const _AiResultSheetAction.switchFeature(),
+                          ),
+                ),
+              ),
             ),
           ),
         );
@@ -1935,103 +2001,92 @@ class _ReaderScreenState extends State<ReaderScreen> {
     );
   }
 
-  Widget _buildAiResultSheetBody({
-    required BuildContext sheetContext,
-    required String title,
-    required String emptyMessage,
-    required String copiedMessage,
-    required TextStyle resultTextStyle,
-    required VoidCallback onRegenerateWithFallback,
-    required String? switchFeatureLabel,
-    VoidCallback? onSwitchFeature,
-    String? result,
-    Object? error,
-  }) {
-    final trimmedResult = (result ?? '').trim();
-
-    if (error != null) {
-      return _AiResultError(
-        title: title,
-        message: error.toString(),
-        onClose: () => Navigator.of(sheetContext).pop(),
-        onRegenerateWithFallback: onRegenerateWithFallback,
-      );
-    }
-
-    if (trimmedResult.isEmpty) {
-      return _AiResultError(
-        title: title,
-        message: emptyMessage,
-        onClose: () => Navigator.of(sheetContext).pop(),
-        onRegenerateWithFallback: onRegenerateWithFallback,
-      );
-    }
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          title,
-          style: Theme.of(context).textTheme.titleMedium,
+  void _popRegenerateWithFallback(BuildContext sheetContext) {
+    final settings = SettingsControllerScope.of(context);
+    final fallbackSelection = settings.fallbackModelSelection;
+    if (!fallbackSelection.isConfigured) {
+      _showAutoDismissSnackBar(
+        const SnackBar(
+          content: Text('Select a fallback AI model in Settings first.'),
+          duration: Duration(seconds: 2),
         ),
-        const SizedBox(height: 8),
-        Expanded(
-          child: MobileScrollbar(
-            child: SingleChildScrollView(
-              child: SelectableText(
-                trimmedResult,
-                textAlign: TextAlign.justify,
-                style: resultTextStyle,
-                contextMenuBuilder: (context, editableTextState) {
-                  return _buildDefaultSelectionToolbar(
-                    context,
-                    editableTextState,
-                  );
-                },
+      );
+      return;
+    }
+    if (!_ensureApiKeyConfigured(
+      settings: settings,
+      selection: fallbackSelection,
+    )) {
+      return;
+    }
+
+    Navigator.of(sheetContext).pop(
+      const _AiResultSheetAction.regenerateWithFallback(),
+    );
+  }
+
+  Future<String?> _showGeneratedPromptConversationSheet({
+    required _GenerateImagePromptRequest request,
+    required String generatedPrompt,
+  }) async {
+    final settings = SettingsControllerScope.of(context);
+    final resultTextStyle = buildReaderContentTextStyle(
+      context: context,
+      fontSize: settings.fontSize,
+      fontFamily: settings.fontFamily,
+    );
+
+    final action = await showModalBottomSheet<_AiResultSheetAction>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Padding(
+            padding: EdgeInsets.only(
+              bottom: MediaQuery.viewInsetsOf(sheetContext).bottom,
+            ),
+            child: FractionallySizedBox(
+              heightFactor: 0.82,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                child: _AiConversationSheet(
+                  title: 'Generate Image',
+                  copiedMessage: 'Prompt copied',
+                  emptyAssistantMessage: 'Model returned an empty image prompt.',
+                  followUpHintText: 'Refine this image prompt',
+                  resultTextStyle: resultTextStyle,
+                  initialMessages: <_AiConversationMessage>[
+                    _AiConversationMessage.hiddenUser(request.prompt),
+                    _AiConversationMessage.assistant(generatedPrompt),
+                  ],
+                  onSendFollowUp: (messages) => _runBackgroundAiTask(
+                    task: () => _generateTextForMessages(
+                      selection: request.promptModelSelection,
+                      messages: messages,
+                    ),
+                  ),
+                  primaryActionLabel: 'Use Latest Prompt',
+                  onPrimaryAction: (latestAssistantText) {
+                    Navigator.of(sheetContext).pop(
+                      _AiResultSheetAction.applyLatestAssistant(
+                        latestAssistantText,
+                      ),
+                    );
+                  },
+                ),
               ),
             ),
           ),
-        ),
-        const SizedBox(height: 12),
-        Align(
-          alignment: Alignment.centerRight,
-          child: Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            alignment: WrapAlignment.end,
-            children: [
-              IconButton(
-                onPressed: () async {
-                  await Clipboard.setData(
-                    ClipboardData(text: trimmedResult),
-                  );
-                  if (!sheetContext.mounted) return;
-                  ScaffoldMessenger.of(sheetContext).showSnackBar(
-                    SnackBar(
-                      content: Text(copiedMessage),
-                      duration: const Duration(seconds: 2),
-                    ),
-                  );
-                },
-                tooltip: 'Copy',
-                icon: const Icon(Icons.copy_outlined),
-              ),
-              IconButton(
-                onPressed: onRegenerateWithFallback,
-                tooltip: 'Regenerate with Fallback',
-                icon: const Icon(Icons.refresh),
-              ),
-              if (onSwitchFeature != null && switchFeatureLabel != null)
-                IconButton(
-                  onPressed: onSwitchFeature,
-                  tooltip: switchFeatureLabel,
-                  icon: const Icon(Icons.swap_horiz),
-                ),
-            ],
-          ),
-        ),
-      ],
+        );
+      },
     );
+
+    if (action?.type != _AiResultSheetActionType.applyLatestAssistant) {
+      return null;
+    }
+
+    return action?.assistantText?.trim();
   }
 
   /// Shows a snackbar and guarantees auto-dismiss even when accessibility
@@ -2827,28 +2882,6 @@ class _ReaderScreenState extends State<ReaderScreen> {
     return TextSpan(children: spans);
   }
 
-  List<ContextMenuButtonItem> _filteredSelectionItems(
-    BuildContext context,
-    EditableTextState editableTextState,
-  ) {
-    final isAndroid = Theme.of(context).platform == TargetPlatform.android;
-    return editableTextState.contextMenuButtonItems.where((item) {
-      if (!isAndroid) return true;
-      return item.type == ContextMenuButtonType.copy ||
-          item.type == ContextMenuButtonType.selectAll;
-    }).toList();
-  }
-
-  Widget _buildDefaultSelectionToolbar(
-    BuildContext context,
-    EditableTextState editableTextState,
-  ) {
-    return AdaptiveTextSelectionToolbar.buttonItems(
-      anchors: editableTextState.contextMenuAnchors,
-      buttonItems: _filteredSelectionItems(context, editableTextState),
-    );
-  }
-
   /// Custom context menu with reader actions.
   Widget _buildSelectionToolbar(EditableTextState editableTextState) {
     final items = buildReaderSelectionButtonItems(
@@ -3090,9 +3123,400 @@ class _AiImageGenerationResult {
   });
 }
 
-enum _AiResultSheetAction {
+enum _AiResultSheetActionType {
   regenerateWithFallback,
   switchFeature,
+  applyLatestAssistant,
+}
+
+class _AiResultSheetAction {
+  final _AiResultSheetActionType type;
+  final String? assistantText;
+
+  const _AiResultSheetAction._({
+    required this.type,
+    this.assistantText,
+  });
+
+  const _AiResultSheetAction.regenerateWithFallback()
+      : this._(type: _AiResultSheetActionType.regenerateWithFallback);
+
+  const _AiResultSheetAction.switchFeature()
+      : this._(type: _AiResultSheetActionType.switchFeature);
+
+  const _AiResultSheetAction.applyLatestAssistant(String assistantText)
+      : this._(
+          type: _AiResultSheetActionType.applyLatestAssistant,
+          assistantText: assistantText,
+        );
+}
+
+class _AiConversationMessage {
+  final AiChatMessageRole role;
+  final String text;
+  final bool isVisible;
+
+  const _AiConversationMessage._({
+    required this.role,
+    required this.text,
+    required this.isVisible,
+  });
+
+  const _AiConversationMessage.hiddenUser(String value)
+      : this._(
+          role: AiChatMessageRole.user,
+          text: value,
+          isVisible: false,
+        );
+
+  const _AiConversationMessage.user(String value)
+      : this._(
+          role: AiChatMessageRole.user,
+          text: value,
+          isVisible: true,
+        );
+
+  const _AiConversationMessage.assistant(String value)
+      : this._(
+          role: AiChatMessageRole.assistant,
+          text: value,
+          isVisible: true,
+        );
+
+  AiChatMessage toApiMessage() => AiChatMessage(
+        role: role,
+        content: text,
+      );
+
+  static String latestAssistantText(Iterable<_AiConversationMessage> messages) {
+    for (final message in messages.toList().reversed) {
+      if (message.role == AiChatMessageRole.assistant &&
+          message.text.trim().isNotEmpty) {
+        return message.text.trim();
+      }
+    }
+    return '';
+  }
+}
+
+class _AiConversationSheet extends StatefulWidget {
+  final String title;
+  final String copiedMessage;
+  final String emptyAssistantMessage;
+  final String followUpHintText;
+  final TextStyle resultTextStyle;
+  final List<_AiConversationMessage> initialMessages;
+  final Future<String> Function(List<AiChatMessage> messages) onSendFollowUp;
+  final VoidCallback? onRegenerateWithFallback;
+  final String? switchFeatureLabel;
+  final VoidCallback? onSwitchFeature;
+  final String? primaryActionLabel;
+  final void Function(String latestAssistantText)? onPrimaryAction;
+
+  const _AiConversationSheet({
+    required this.title,
+    required this.copiedMessage,
+    required this.emptyAssistantMessage,
+    required this.followUpHintText,
+    required this.resultTextStyle,
+    required this.initialMessages,
+    required this.onSendFollowUp,
+    this.onRegenerateWithFallback,
+    this.switchFeatureLabel,
+    this.onSwitchFeature,
+    this.primaryActionLabel,
+    this.onPrimaryAction,
+  });
+
+  @override
+  State<_AiConversationSheet> createState() => _AiConversationSheetState();
+}
+
+class _AiConversationSheetState extends State<_AiConversationSheet> {
+  late final TextEditingController _controller;
+  late final ScrollController _scrollController;
+  late final List<_AiConversationMessage> _messages;
+
+  bool _isSending = false;
+  String? _errorText;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController()..addListener(_handleComposerChanged);
+    _scrollController = ScrollController();
+    _messages = List<_AiConversationMessage>.from(widget.initialMessages);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+  }
+
+  @override
+  void dispose() {
+    _controller
+      ..removeListener(_handleComposerChanged)
+      ..dispose();
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  List<_AiConversationMessage> get _visibleMessages =>
+      _messages.where((message) => message.isVisible).toList(growable: false);
+
+  String get _latestAssistantText =>
+      _AiConversationMessage.latestAssistantText(_messages);
+
+  bool get _canSend => !_isSending && _controller.text.trim().isNotEmpty;
+
+  void _handleComposerChanged() {
+    if (!mounted) return;
+    setState(() {});
+  }
+
+  void _scheduleScrollToBottom() {
+    WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+  }
+
+  void _scrollToBottom() {
+    if (!_scrollController.hasClients) return;
+    _scrollController.animateTo(
+      _scrollController.position.maxScrollExtent,
+      duration: const Duration(milliseconds: 180),
+      curve: Curves.easeOut,
+    );
+  }
+
+  Future<void> _copyLatestAssistant() async {
+    final latestAssistantText = _latestAssistantText;
+    if (latestAssistantText.isEmpty) return;
+
+    await Clipboard.setData(ClipboardData(text: latestAssistantText));
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(widget.copiedMessage),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
+  Future<void> _sendFollowUp() async {
+    final question = _controller.text.trim();
+    if (question.isEmpty || _isSending) return;
+
+    setState(() {
+      _messages.add(_AiConversationMessage.user(question));
+      _controller.clear();
+      _errorText = null;
+      _isSending = true;
+    });
+    _scheduleScrollToBottom();
+
+    try {
+      final response = await widget.onSendFollowUp(
+        _messages.map((message) => message.toApiMessage()).toList(),
+      );
+      final trimmedResponse = response.trim();
+      if (!mounted) return;
+
+      if (trimmedResponse.isEmpty) {
+        setState(() => _errorText = widget.emptyAssistantMessage);
+        return;
+      }
+
+      setState(() {
+        _messages.add(_AiConversationMessage.assistant(trimmedResponse));
+      });
+      _scheduleScrollToBottom();
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _errorText = error.toString());
+    } finally {
+      if (mounted) {
+        setState(() => _isSending = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final latestAssistantText = _latestAssistantText;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                widget.title,
+                style: theme.textTheme.titleMedium,
+              ),
+            ),
+            IconButton(
+              onPressed:
+                  latestAssistantText.isEmpty ? null : _copyLatestAssistant,
+              tooltip: 'Copy',
+              icon: const Icon(Icons.copy_outlined),
+            ),
+            if (widget.onRegenerateWithFallback != null)
+              IconButton(
+                onPressed: _isSending ? null : widget.onRegenerateWithFallback,
+                tooltip: 'Regenerate with Fallback',
+                icon: const Icon(Icons.refresh),
+              ),
+            if (widget.onSwitchFeature != null &&
+                widget.switchFeatureLabel != null)
+              IconButton(
+                onPressed: _isSending ? null : widget.onSwitchFeature,
+                tooltip: widget.switchFeatureLabel,
+                icon: const Icon(Icons.swap_horiz),
+              ),
+            IconButton(
+              onPressed: _isSending ? null : () => Navigator.of(context).pop(),
+              tooltip: 'Close',
+              icon: const Icon(Icons.close),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Expanded(
+          child: MobileScrollbar(
+            controller: _scrollController,
+            child: ListView.separated(
+              controller: _scrollController,
+              itemCount: _visibleMessages.length,
+              separatorBuilder: (_, __) => const SizedBox(height: 12),
+              itemBuilder: (context, index) {
+                final message = _visibleMessages[index];
+                return _AiConversationBubble(
+                  message: message,
+                  resultTextStyle: widget.resultTextStyle,
+                );
+              },
+            ),
+          ),
+        ),
+        if (_errorText != null) ...[
+          const SizedBox(height: 8),
+          Text(
+            _errorText!,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.error,
+            ),
+          ),
+        ],
+        if (widget.primaryActionLabel != null &&
+            widget.onPrimaryAction != null) ...[
+          const SizedBox(height: 12),
+          Align(
+            alignment: Alignment.centerRight,
+            child: FilledButton(
+              onPressed: _isSending || latestAssistantText.isEmpty
+                  ? null
+                  : () => widget.onPrimaryAction!(latestAssistantText),
+              child: Text(widget.primaryActionLabel!),
+            ),
+          ),
+        ],
+        const SizedBox(height: 12),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _controller,
+                minLines: 1,
+                maxLines: 4,
+                enabled: !_isSending,
+                textInputAction: TextInputAction.newline,
+                decoration: InputDecoration(
+                  border: const OutlineInputBorder(),
+                  hintText: widget.followUpHintText,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            FilledButton(
+              onPressed: _canSend ? _sendFollowUp : null,
+              child: _isSending
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Text('Send'),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _AiConversationBubble extends StatelessWidget {
+  final _AiConversationMessage message;
+  final TextStyle resultTextStyle;
+
+  const _AiConversationBubble({
+    required this.message,
+    required this.resultTextStyle,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isAssistant = message.role == AiChatMessageRole.assistant;
+    final alignment =
+        isAssistant ? Alignment.centerLeft : Alignment.centerRight;
+    final backgroundColor = isAssistant
+        ? theme.colorScheme.surfaceContainerHighest
+        : theme.colorScheme.primaryContainer;
+    final foregroundColor = isAssistant
+        ? theme.colorScheme.onSurface
+        : theme.colorScheme.onPrimaryContainer;
+
+    return Align(
+      alignment: alignment,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 560),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: backgroundColor,
+            borderRadius: BorderRadius.circular(18),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  isAssistant ? 'Assistant' : 'You',
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: foregroundColor.withOpacity(0.8),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                if (isAssistant)
+                  SelectableText(
+                    message.text,
+                    textAlign: TextAlign.justify,
+                    style: resultTextStyle.copyWith(color: foregroundColor),
+                  )
+                else
+                  Text(
+                    message.text,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: foregroundColor,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _AiLoadingSheet extends StatelessWidget {
@@ -3191,7 +3615,7 @@ class _AiResultError extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Center(
+    return SingleChildScrollView(
       child: Padding(
         padding: const EdgeInsets.all(24),
         child: Column(

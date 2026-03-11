@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:bookai/app.dart';
+import 'package:bookai/models/ai_chat_message.dart';
 import 'package:bookai/models/book.dart';
 import 'package:bookai/models/ai_feature.dart';
 import 'package:bookai/models/ai_model_info.dart';
@@ -762,6 +763,93 @@ void main() {
       );
     });
 
+    testWidgets('supports follow-up questions inside the result sheet',
+        (tester) async {
+      final openRouter = _FakeOpenRouterService(
+        generateTextHandler: ({
+          required apiKey,
+          required modelId,
+          required prompt,
+          temperature,
+        }) async =>
+            'Definition: vague\nTranslation: neyasny',
+        generateTextMessagesHandler: ({
+          required apiKey,
+          required modelId,
+          required messages,
+          temperature,
+        }) async {
+          expect(messages, hasLength(3));
+          expect(messages[0].role, AiChatMessageRole.user);
+          expect(messages[1].role, AiChatMessageRole.assistant);
+          expect(messages[2].role, AiChatMessageRole.user);
+          expect(messages[2].content, 'Explain it more simply.');
+          return 'It means the plan feels unclear.';
+        },
+      );
+
+      await _pumpReaderScreen(
+        tester,
+        openRouterService: openRouter,
+      );
+
+      await _startDefineAndTranslate(tester);
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+          find.byType(TextField).last, 'Explain it more simply.');
+      await tester.pump();
+      await tester.tap(find.text('Send'));
+      await tester.pump();
+      await tester.pumpAndSettle();
+
+      expect(openRouter.generateTextCallCount, 1);
+      expect(openRouter.generateTextMessagesCallCount, 1);
+      expect(find.text('Explain it more simply.'), findsOneWidget);
+      expect(find.text('It means the plan feels unclear.'), findsOneWidget);
+    });
+
+    testWidgets('follow-up errors keep the existing conversation visible',
+        (tester) async {
+      final openRouter = _FakeOpenRouterService(
+        generateTextHandler: ({
+          required apiKey,
+          required modelId,
+          required prompt,
+          temperature,
+        }) async =>
+            'Definition: vague\nTranslation: neyasny',
+        generateTextMessagesHandler: ({
+          required apiKey,
+          required modelId,
+          required messages,
+          temperature,
+        }) async {
+          throw const OpenRouterException('Follow-up failed.');
+        },
+      );
+
+      await _pumpReaderScreen(
+        tester,
+        openRouterService: openRouter,
+      );
+
+      await _startDefineAndTranslate(tester);
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+          find.byType(TextField).last, 'Explain it more simply.');
+      await tester.pump();
+      await tester.tap(find.text('Send'));
+      await tester.pump();
+      await tester.pumpAndSettle();
+
+      expect(
+          find.text('Definition: vague\nTranslation: neyasny'), findsOneWidget);
+      expect(find.text('Explain it more simply.'), findsOneWidget);
+      expect(find.text('Follow-up failed.'), findsOneWidget);
+    });
+
     testWidgets('selected-text summary flow uses only the selected text',
         (tester) async {
       const forcedRangeText = 'Forced resume range text.';
@@ -1078,11 +1166,25 @@ void main() {
         await tester.pump(const Duration(milliseconds: 150));
       }
 
-      expect(find.text('Edit Image Prompt'), findsOneWidget);
+      expect(find.text('Generate Image'), findsOneWidget);
       expect(
         find.textContaining('A quiet watercolor portrait'),
         findsOneWidget,
       );
+      expect(
+        find.byWidgetPredicate(
+          (widget) =>
+              widget is FilledButton &&
+              widget.child is Text &&
+              (widget.child! as Text).data == 'Use Latest Prompt',
+        ),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.text('Use Latest Prompt'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Edit Image Prompt'), findsOneWidget);
       expect(
         find.byWidgetPredicate(
           (widget) =>
@@ -1108,6 +1210,60 @@ void main() {
       expect(
         openRouter.generateImageCalls.single.prompt,
         contains('watercolor portrait'),
+      );
+    });
+
+    testWidgets(
+        'generate image follow-up can refine the prompt before opening the editor',
+        (tester) async {
+      final openRouter = _FakeOpenRouterService(
+        generateTextHandler: ({
+          required apiKey,
+          required modelId,
+          required prompt,
+          temperature,
+        }) async =>
+            'A quiet watercolor portrait of the hero in soft lantern light.',
+        generateTextMessagesHandler: ({
+          required apiKey,
+          required modelId,
+          required messages,
+          temperature,
+        }) async =>
+            'A cinematic watercolor portrait with stronger moonlight and harbor fog.',
+      );
+
+      await _pumpReaderScreen(
+        tester,
+        openRouterService: openRouter,
+      );
+      await _startGenerateImage(tester);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Selected Text'));
+      await tester.pump();
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(TextField).last, 'Make it moodier.');
+      await tester.pump();
+      await tester.tap(find.text('Send'));
+      await tester.pump();
+      await tester.pumpAndSettle();
+
+      expect(openRouter.generateTextMessagesCallCount, 1);
+      expect(
+        find.text(
+          'A cinematic watercolor portrait with stronger moonlight and harbor fog.',
+        ),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.text('Use Latest Prompt'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Edit Image Prompt'), findsOneWidget);
+      expect(
+        find.textContaining('stronger moonlight and harbor fog'),
+        findsOneWidget,
       );
     });
 
@@ -1159,6 +1315,9 @@ void main() {
       for (var i = 0; i < 6; i++) {
         await tester.pump(const Duration(milliseconds: 150));
       }
+
+      await tester.tap(find.text('Use Latest Prompt'));
+      await tester.pumpAndSettle();
 
       await tester.tap(find.text('Generate'));
       await tester.pump();
@@ -1219,6 +1378,9 @@ void main() {
       for (var i = 0; i < 6; i++) {
         await tester.pump(const Duration(milliseconds: 150));
       }
+
+      await tester.tap(find.text('Use Latest Prompt'));
+      await tester.pumpAndSettle();
 
       await tester.tap(find.text('Generate'));
       await tester.pump();
@@ -1596,6 +1758,7 @@ void main() {
 
       expect(find.text('Primary failed.'), findsOneWidget);
 
+      await tester.ensureVisible(find.text('Regenerate with Fallback'));
       await tester.tap(find.text('Regenerate with Fallback'));
       await tester.pumpAndSettle();
 
@@ -1679,6 +1842,9 @@ void main() {
       for (var i = 0; i < 6; i++) {
         await tester.pump(const Duration(milliseconds: 150));
       }
+
+      await tester.tap(find.text('Use Latest Prompt'));
+      await tester.pumpAndSettle();
 
       await tester.tap(find.text('Generate'));
       await tester.pump();
@@ -1772,6 +1938,9 @@ void main() {
       for (var i = 0; i < 6; i++) {
         await tester.pump(const Duration(milliseconds: 150));
       }
+
+      await tester.tap(find.text('Use Latest Prompt'));
+      await tester.pumpAndSettle();
 
       await tester.tap(find.text('Generate'));
       await tester.pumpAndSettle();
@@ -1992,6 +2161,13 @@ typedef _GenerateTextHandler = Future<String> Function({
   double? temperature,
 });
 
+typedef _GenerateTextMessagesHandler = Future<String> Function({
+  required String apiKey,
+  required String modelId,
+  required List<AiChatMessage> messages,
+  double? temperature,
+});
+
 typedef _FetchModelsHandler = Future<List<OpenRouterModel>> Function({
   required String apiKey,
   required bool forceRefresh,
@@ -2013,6 +2189,13 @@ typedef _GeminiGenerateTextHandler = Future<String> Function({
   double? temperature,
 });
 
+typedef _GeminiGenerateTextMessagesHandler = Future<String> Function({
+  required String apiKey,
+  required String modelId,
+  required List<AiChatMessage> messages,
+  double? temperature,
+});
+
 typedef _GeminiFetchModelsHandler = Future<List<AiModelInfo>> Function({
   required String apiKey,
   required bool forceRefresh,
@@ -2028,20 +2211,35 @@ typedef _GeminiGenerateImageHandler = Future<GeminiImageGenerationResult>
 
 class _FakeOpenRouterService extends OpenRouterService {
   final _GenerateTextHandler generateTextHandler;
+  final _GenerateTextMessagesHandler generateTextMessagesHandler;
   final _FetchModelsHandler fetchModelsHandler;
   final _GenerateImageHandler generateImageHandler;
   int generateTextCallCount = 0;
   final List<_GenerateTextCall> generateTextCalls = [];
+  int generateTextMessagesCallCount = 0;
+  final List<_GenerateTextMessagesCall> generateTextMessagesCalls = [];
   int generateImageCallCount = 0;
   final List<_GenerateImageCall> generateImageCalls = [];
   String? lastPrompt;
 
   _FakeOpenRouterService({
     required this.generateTextHandler,
+    _GenerateTextMessagesHandler? generateTextMessagesHandler,
     _FetchModelsHandler? fetchModelsHandler,
     _GenerateImageHandler? generateImageHandler,
-  })  : fetchModelsHandler = fetchModelsHandler ?? _defaultFetchModels,
+  })  : generateTextMessagesHandler =
+            generateTextMessagesHandler ?? _defaultGenerateTextMessages,
+        fetchModelsHandler = fetchModelsHandler ?? _defaultFetchModels,
         generateImageHandler = generateImageHandler ?? _defaultGenerateImage;
+
+  static Future<String> _defaultGenerateTextMessages({
+    required String apiKey,
+    required String modelId,
+    required List<AiChatMessage> messages,
+    double? temperature,
+  }) async {
+    return messages.isEmpty ? '' : messages.last.normalizedContent;
+  }
 
   static Future<List<OpenRouterModel>> _defaultFetchModels({
     required String apiKey,
@@ -2099,6 +2297,29 @@ class _FakeOpenRouterService extends OpenRouterService {
   }
 
   @override
+  Future<String> generateTextMessages({
+    required String apiKey,
+    required String modelId,
+    required List<AiChatMessage> messages,
+    double? temperature,
+  }) {
+    generateTextMessagesCallCount += 1;
+    generateTextMessagesCalls.add(
+      _GenerateTextMessagesCall(
+        apiKey: apiKey,
+        modelId: modelId,
+        messages: List<AiChatMessage>.from(messages),
+      ),
+    );
+    return generateTextMessagesHandler(
+      apiKey: apiKey,
+      modelId: modelId,
+      messages: messages,
+      temperature: temperature,
+    );
+  }
+
+  @override
   Future<List<OpenRouterModel>> fetchModels({
     String? apiKey,
     bool forceRefresh = false,
@@ -2148,6 +2369,18 @@ class _GenerateTextCall {
   });
 }
 
+class _GenerateTextMessagesCall {
+  final String apiKey;
+  final String modelId;
+  final List<AiChatMessage> messages;
+
+  const _GenerateTextMessagesCall({
+    required this.apiKey,
+    required this.modelId,
+    required this.messages,
+  });
+}
+
 class _GenerateImageCall {
   final String apiKey;
   final String modelId;
@@ -2164,19 +2397,34 @@ class _GenerateImageCall {
 
 class _FakeGeminiService extends GeminiService {
   final _GeminiGenerateTextHandler generateTextHandler;
+  final _GeminiGenerateTextMessagesHandler generateTextMessagesHandler;
   final _GeminiFetchModelsHandler fetchModelsHandler;
   final _GeminiGenerateImageHandler generateImageHandler;
   int generateTextCallCount = 0;
   final List<_GenerateTextCall> generateTextCalls = [];
+  int generateTextMessagesCallCount = 0;
+  final List<_GenerateTextMessagesCall> generateTextMessagesCalls = [];
   int generateImageCallCount = 0;
   final List<_GeminiGenerateImageCall> generateImageCalls = [];
 
   _FakeGeminiService({
     required this.generateTextHandler,
+    _GeminiGenerateTextMessagesHandler? generateTextMessagesHandler,
     _GeminiFetchModelsHandler? fetchModelsHandler,
     _GeminiGenerateImageHandler? generateImageHandler,
-  })  : fetchModelsHandler = fetchModelsHandler ?? _defaultFetchModels,
+  })  : generateTextMessagesHandler =
+            generateTextMessagesHandler ?? _defaultGenerateTextMessages,
+        fetchModelsHandler = fetchModelsHandler ?? _defaultFetchModels,
         generateImageHandler = generateImageHandler ?? _defaultGenerateImage;
+
+  static Future<String> _defaultGenerateTextMessages({
+    required String apiKey,
+    required String modelId,
+    required List<AiChatMessage> messages,
+    double? temperature,
+  }) async {
+    return messages.isEmpty ? '' : messages.last.normalizedContent;
+  }
 
   static Future<List<AiModelInfo>> _defaultFetchModels({
     required String apiKey,
@@ -2229,6 +2477,29 @@ class _FakeGeminiService extends GeminiService {
       apiKey: apiKey,
       modelId: modelId,
       prompt: prompt,
+      temperature: temperature,
+    );
+  }
+
+  @override
+  Future<String> generateTextMessages({
+    required String apiKey,
+    required String modelId,
+    required List<AiChatMessage> messages,
+    double? temperature,
+  }) {
+    generateTextMessagesCallCount += 1;
+    generateTextMessagesCalls.add(
+      _GenerateTextMessagesCall(
+        apiKey: apiKey,
+        modelId: modelId,
+        messages: List<AiChatMessage>.from(messages),
+      ),
+    );
+    return generateTextMessagesHandler(
+      apiKey: apiKey,
+      modelId: modelId,
+      messages: messages,
       temperature: temperature,
     );
   }

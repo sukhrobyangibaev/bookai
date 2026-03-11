@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import '../models/ai_model_info.dart';
+import '../models/ai_chat_message.dart';
 import '../models/openrouter_model.dart';
 
 class OpenRouterException implements Exception {
@@ -153,10 +154,26 @@ class OpenRouterService {
     required String prompt,
     double? temperature,
   }) async {
+    return generateTextMessages(
+      apiKey: apiKey,
+      modelId: modelId,
+      messages: <AiChatMessage>[
+        AiChatMessage.user(prompt),
+      ],
+      temperature: temperature,
+    );
+  }
+
+  Future<String> generateTextMessages({
+    required String apiKey,
+    required String modelId,
+    required List<AiChatMessage> messages,
+    double? temperature,
+  }) async {
     final decoded = await _sendChatCompletion(
       apiKey: apiKey,
       modelId: modelId,
-      prompt: prompt,
+      messages: messages,
       temperature: temperature,
       action: 'generating text',
     );
@@ -214,14 +231,14 @@ class OpenRouterService {
   Future<Map<String, dynamic>> _sendChatCompletion({
     required String apiKey,
     required String modelId,
-    required String prompt,
     required String action,
+    String? prompt,
+    List<AiChatMessage>? messages,
     List<String>? modalities,
     double? temperature,
   }) async {
     final normalizedApiKey = apiKey.trim();
     final normalizedModelId = modelId.trim();
-    final normalizedPrompt = prompt.trim();
 
     if (normalizedApiKey.isEmpty) {
       throw const OpenRouterException('OpenRouter API key is required.');
@@ -229,15 +246,22 @@ class OpenRouterService {
     if (normalizedModelId.isEmpty) {
       throw const OpenRouterException('OpenRouter model id is required.');
     }
-    if (normalizedPrompt.isEmpty) {
-      throw const OpenRouterException('Prompt cannot be empty.');
-    }
+
+    final payloadMessages = _normalizeMessages(
+      prompt: prompt,
+      messages: messages,
+    );
 
     final payload = <String, dynamic>{
       'model': normalizedModelId,
-      'messages': <Map<String, String>>[
-        {'role': 'user', 'content': normalizedPrompt},
-      ],
+      'messages': payloadMessages
+          .map((message) => <String, String>{
+                'role': message.role == AiChatMessageRole.user
+                    ? 'user'
+                    : 'assistant',
+                'content': message.normalizedContent,
+              })
+          .toList(growable: false),
     };
     if (modalities != null && modalities.isNotEmpty) {
       payload['modalities'] = modalities;
@@ -284,6 +308,33 @@ class OpenRouterService {
     }
 
     return _decodePayload(response.body);
+  }
+
+  List<AiChatMessage> _normalizeMessages({
+    String? prompt,
+    List<AiChatMessage>? messages,
+  }) {
+    if (messages != null) {
+      final normalizedMessages = messages
+          .map(
+            (message) => AiChatMessage(
+              role: message.role,
+              content: message.normalizedContent,
+            ),
+          )
+          .where((message) => message.content.isNotEmpty)
+          .toList(growable: false);
+      if (normalizedMessages.isEmpty) {
+        throw const OpenRouterException('At least one message is required.');
+      }
+      return normalizedMessages;
+    }
+
+    final normalizedPrompt = prompt?.trim() ?? '';
+    if (normalizedPrompt.isEmpty) {
+      throw const OpenRouterException('Prompt cannot be empty.');
+    }
+    return <AiChatMessage>[AiChatMessage.user(normalizedPrompt)];
   }
 
   String _extractGeneratedText(Map<String, dynamic> payload) {

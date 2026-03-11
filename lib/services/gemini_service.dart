@@ -5,6 +5,7 @@ import 'dart:math' as math;
 import 'package:http/http.dart' as http;
 
 import '../models/ai_model_info.dart';
+import '../models/ai_chat_message.dart';
 import '../models/ai_provider.dart';
 
 class GeminiException implements Exception {
@@ -178,10 +179,26 @@ class GeminiService {
     required String prompt,
     double? temperature,
   }) async {
+    return generateTextMessages(
+      apiKey: apiKey,
+      modelId: modelId,
+      messages: <AiChatMessage>[
+        AiChatMessage.user(prompt),
+      ],
+      temperature: temperature,
+    );
+  }
+
+  Future<String> generateTextMessages({
+    required String apiKey,
+    required String modelId,
+    required List<AiChatMessage> messages,
+    double? temperature,
+  }) async {
     final decoded = await _generateContent(
       apiKey: apiKey,
       modelId: modelId,
-      prompt: prompt,
+      messages: messages,
       temperature: temperature,
       action: 'generating text',
       thinkingConfig: _thinkingConfigForTextModel(modelId),
@@ -240,8 +257,9 @@ class GeminiService {
   Future<Map<String, dynamic>> _generateContent({
     required String apiKey,
     required String modelId,
-    required String prompt,
     required String action,
+    String? prompt,
+    List<AiChatMessage>? messages,
     List<String>? responseModalities,
     double? temperature,
     Map<String, dynamic>? thinkingConfig,
@@ -252,7 +270,6 @@ class GeminiService {
   }) async {
     final normalizedApiKey = apiKey.trim();
     final normalizedModelId = modelId.trim();
-    final normalizedPrompt = prompt.trim();
 
     if (normalizedApiKey.isEmpty) {
       throw const GeminiException('Gemini API key is required.');
@@ -260,19 +277,21 @@ class GeminiService {
     if (normalizedModelId.isEmpty) {
       throw const GeminiException('Gemini model id is required.');
     }
-    if (normalizedPrompt.isEmpty) {
-      throw const GeminiException('Prompt cannot be empty.');
-    }
 
     final payload = <String, dynamic>{
-      'contents': <Map<String, dynamic>>[
-        {
-          'role': 'user',
-          'parts': <Map<String, String>>[
-            {'text': normalizedPrompt},
-          ],
-        },
-      ],
+      'contents': _normalizeMessages(
+        prompt: prompt,
+        messages: messages,
+      )
+          .map(
+            (message) => <String, dynamic>{
+              'role': message.role == AiChatMessageRole.user ? 'user' : 'model',
+              'parts': <Map<String, String>>[
+                {'text': message.normalizedContent},
+              ],
+            },
+          )
+          .toList(growable: false),
     };
 
     final generationConfig = <String, dynamic>{};
@@ -320,6 +339,33 @@ class GeminiService {
     }
 
     return _decodePayload(response.body);
+  }
+
+  List<AiChatMessage> _normalizeMessages({
+    String? prompt,
+    List<AiChatMessage>? messages,
+  }) {
+    if (messages != null) {
+      final normalizedMessages = messages
+          .map(
+            (message) => AiChatMessage(
+              role: message.role,
+              content: message.normalizedContent,
+            ),
+          )
+          .where((message) => message.content.isNotEmpty)
+          .toList(growable: false);
+      if (normalizedMessages.isEmpty) {
+        throw const GeminiException('At least one message is required.');
+      }
+      return normalizedMessages;
+    }
+
+    final normalizedPrompt = prompt?.trim() ?? '';
+    if (normalizedPrompt.isEmpty) {
+      throw const GeminiException('Prompt cannot be empty.');
+    }
+    return <AiChatMessage>[AiChatMessage.user(normalizedPrompt)];
   }
 
   Future<GeminiImageGenerationResult> _predictImagen({
