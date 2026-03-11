@@ -13,6 +13,7 @@ import '../models/chapter.dart';
 import '../models/generated_image.dart';
 import '../models/highlight.dart';
 import '../models/reading_progress.dart';
+import '../models/reader_settings.dart';
 import '../models/resume_marker.dart';
 import '../services/chapter_loader_service.dart';
 import '../services/database_service.dart';
@@ -104,6 +105,12 @@ class _ReaderScreenState extends State<ReaderScreen> {
   static const double _hiddenNavPillContentGap = 8.0;
   static const ValueKey<String> _hiddenNavPillKey =
       ValueKey<String>('reader-hidden-nav-pill');
+
+  static const List<AppThemeMode> _readerThemeModes = <AppThemeMode>[
+    AppThemeMode.light,
+    AppThemeMode.dark,
+    AppThemeMode.sepia,
+  ];
 
   @override
   void initState() {
@@ -2368,8 +2375,38 @@ class _ReaderScreenState extends State<ReaderScreen> {
 
   // ── Build ────────────────────────────────────────────────────────────────
 
+  Future<void> _setThemeMode(AppThemeMode mode) async {
+    final settings = SettingsControllerScope.of(context);
+    await settings.setThemeMode(mode);
+  }
+
+  IconData _themeModeIcon(AppThemeMode mode) {
+    switch (mode) {
+      case AppThemeMode.light:
+        return Icons.light_mode_outlined;
+      case AppThemeMode.dark:
+        return Icons.dark_mode_outlined;
+      case AppThemeMode.sepia:
+        return Icons.auto_stories_outlined;
+    }
+  }
+
+  String _themeModeLabel(AppThemeMode mode) {
+    switch (mode) {
+      case AppThemeMode.light:
+        return 'Light';
+      case AppThemeMode.dark:
+        return 'Dark';
+      case AppThemeMode.sepia:
+        return 'Sepia';
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final settings = SettingsControllerScope.of(context);
+    final currentThemeMode = settings.themeMode;
+
     return Scaffold(
       appBar: _isNavbarVisible
           ? AppBar(
@@ -2384,6 +2421,35 @@ class _ReaderScreenState extends State<ReaderScreen> {
                     icon: const Icon(Icons.highlight_outlined),
                     tooltip: 'Highlights',
                     onPressed: _showHighlights,
+                  ),
+                  PopupMenuButton<AppThemeMode>(
+                    tooltip: 'Theme',
+                    initialValue: currentThemeMode,
+                    onSelected: _setThemeMode,
+                    itemBuilder: (context) {
+                      return _readerThemeModes.map((mode) {
+                        final isSelected = mode == currentThemeMode;
+                        return PopupMenuItem<AppThemeMode>(
+                          value: mode,
+                          child: Row(
+                            children: [
+                              Icon(_themeModeIcon(mode), size: 20),
+                              const SizedBox(width: 12),
+                              Expanded(child: Text(_themeModeLabel(mode))),
+                              if (isSelected) ...[
+                                const SizedBox(width: 12),
+                                Icon(
+                                  Icons.check,
+                                  size: 18,
+                                  color: Theme.of(context).colorScheme.primary,
+                                ),
+                              ],
+                            ],
+                          ),
+                        );
+                      }).toList();
+                    },
+                    icon: Icon(_themeModeIcon(currentThemeMode)),
                   ),
                   IconButton(
                     icon: const Icon(Icons.toc),

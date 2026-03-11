@@ -10,6 +10,7 @@ import 'package:bookai/models/ai_model_selection.dart';
 import 'package:bookai/models/ai_provider.dart';
 import 'package:bookai/models/chapter.dart';
 import 'package:bookai/models/openrouter_model.dart';
+import 'package:bookai/models/reader_settings.dart';
 import 'package:bookai/models/resume_marker.dart';
 import 'package:bookai/screens/reader_screen.dart';
 import 'package:bookai/services/chapter_loader_service.dart';
@@ -264,6 +265,45 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byTooltip('Hide Navigation Bar'), findsOneWidget);
+    });
+
+    testWidgets('can change theme from the reader app bar', (tester) async {
+      final openRouter = _FakeOpenRouterService(
+        generateTextHandler: ({
+          required apiKey,
+          required modelId,
+          required prompt,
+          temperature,
+        }) async =>
+            'Definition: vague\nTranslation: neyasny',
+      );
+
+      await _pumpReaderScreen(
+        tester,
+        openRouterService: openRouter,
+      );
+
+      await tester.tap(find.byTooltip('Show Navigation Bar'));
+      await tester.pumpAndSettle();
+
+      expect(find.byTooltip('Theme'), findsOneWidget);
+      expect(find.byIcon(Icons.light_mode_outlined), findsOneWidget);
+
+      await tester.tap(find.byTooltip('Theme'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Light'), findsOneWidget);
+      expect(find.text('Dark'), findsOneWidget);
+      expect(find.text('Sepia'), findsOneWidget);
+
+      await tester.tap(find.text('Dark'));
+      await tester.pumpAndSettle();
+
+      final readerContext = tester.element(find.byType(ReaderScreen));
+      expect(SettingsControllerScope.of(readerContext).themeMode,
+          AppThemeMode.dark);
+      expect(find.byTooltip('Theme'), findsOneWidget);
+      expect(find.byIcon(Icons.dark_mode_outlined), findsOneWidget);
     });
 
     testWidgets(
