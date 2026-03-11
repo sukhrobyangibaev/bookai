@@ -5,6 +5,7 @@ import 'package:bookai/models/ai_chat_message.dart';
 import 'package:bookai/models/ai_model_info.dart';
 import 'package:bookai/models/ai_provider.dart';
 import 'package:bookai/services/gemini_service.dart';
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -762,6 +763,56 @@ void main() {
         ),
       );
       expect(attempts, 1);
+    });
+
+    test(
+        'uses a 10 minute default timeout for hung Gemini 3.1 image preview requests',
+        () {
+      fakeAsync((async) {
+        var attempts = 0;
+        Object? capturedError;
+        final completer = Completer<http.Response>();
+        final client = MockClient((request) {
+          attempts += 1;
+          return completer.future;
+        });
+        final service = GeminiService(
+          client: client,
+          retryBaseDelay: Duration.zero,
+        );
+
+        service
+            .generateImage(
+          apiKey: 'test-key',
+          modelId: 'gemini-3.1-flash-image-preview',
+          prompt: 'Draw a lighthouse',
+        )
+            .then<void>(
+          (_) => fail('Expected the request to time out.'),
+          onError: (Object error, StackTrace _) {
+            capturedError = error;
+          },
+        );
+
+        async.flushMicrotasks();
+        expect(attempts, 1);
+
+        async.elapse(const Duration(minutes: 5));
+        async.flushMicrotasks();
+        expect(capturedError, isNull);
+
+        async.elapse(const Duration(minutes: 5));
+        async.flushMicrotasks();
+
+        expect(
+          capturedError,
+          isA<GeminiException>().having(
+            (error) => error.message,
+            'message',
+            contains('timed out while generating images'),
+          ),
+        );
+      });
     });
 
     test('times out hung requests with a Gemini-specific message', () async {

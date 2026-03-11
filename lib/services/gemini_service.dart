@@ -32,7 +32,7 @@ class GeminiService {
   static final Uri _modelsUri =
       Uri.parse('https://generativelanguage.googleapis.com/v1beta/models');
   static const Duration _defaultRequestTimeout = Duration(seconds: 120);
-  static const Duration _previewImageRequestTimeout = Duration(minutes: 5);
+  static const Duration _previewImageRequestTimeout = Duration(minutes: 10);
   static const List<Map<String, String>> _relaxedSafetySettings =
       <Map<String, String>>[
     {
