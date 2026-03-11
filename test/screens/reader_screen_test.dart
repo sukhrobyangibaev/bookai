@@ -1699,6 +1699,91 @@ void main() {
         contains('watercolor scene'),
       );
     });
+
+    testWidgets('generate image surfaces Gemini failures and clears loading',
+        (tester) async {
+      final openRouter = _FakeOpenRouterService(
+        generateTextHandler: ({
+          required apiKey,
+          required modelId,
+          required prompt,
+          temperature,
+        }) async =>
+            'unused',
+      );
+      final gemini = _FakeGeminiService(
+        generateTextHandler: ({
+          required apiKey,
+          required modelId,
+          required prompt,
+          temperature,
+        }) async =>
+            'A moonlit watercolor scene.',
+        fetchModelsHandler: ({
+          required apiKey,
+          required forceRefresh,
+        }) async =>
+            const [
+          AiModelInfo(
+            provider: AiProvider.gemini,
+            id: 'gemini-2.5-flash',
+            displayName: 'Gemini 2.5 Flash',
+            outputModalities: ['text'],
+          ),
+          AiModelInfo(
+            provider: AiProvider.gemini,
+            id: 'gemini-3.1-flash-image-preview',
+            displayName: 'Gemini 3.1 Flash Image Preview',
+            outputModalities: ['image', 'text'],
+          ),
+        ],
+        generateImageHandler: ({
+          required apiKey,
+          required modelId,
+          required prompt,
+          temperature,
+        }) async {
+          throw const GeminiException(
+            'Gemini timed out while generating images. Please try again.',
+          );
+        },
+      );
+
+      await _pumpReaderScreen(
+        tester,
+        openRouterService: openRouter,
+        geminiService: gemini,
+        openRouterApiKey: '',
+        geminiApiKey: 'gem-key',
+        defaultModelSelection: const AiModelSelection(
+          provider: AiProvider.gemini,
+          modelId: 'gemini-2.5-flash',
+        ),
+        imageModelSelection: const AiModelSelection(
+          provider: AiProvider.gemini,
+          modelId: 'gemini-3.1-flash-image-preview',
+        ),
+      );
+
+      await _startGenerateImage(tester);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Selected Text'));
+      await tester.pump();
+      for (var i = 0; i < 6; i++) {
+        await tester.pump(const Duration(milliseconds: 150));
+      }
+
+      await tester.tap(find.text('Generate'));
+      await tester.pumpAndSettle();
+
+      expect(gemini.generateImageCallCount, 1);
+      expect(
+        find.text(
+            'Gemini timed out while generating images. Please try again.'),
+        findsOneWidget,
+      );
+      expect(find.text('Generating image...'), findsNothing);
+    });
   });
 }
 

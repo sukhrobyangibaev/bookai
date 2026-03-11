@@ -282,7 +282,8 @@ void main() {
       expect(text, 'Generated answer');
     });
 
-    test('generateImage sends Nano Banana defaults', () async {
+    test('generateImage sends a minimal payload for Gemini 3.1 image preview',
+        () async {
       final client = MockClient((request) async {
         expect(
           request.url.path,
@@ -291,20 +292,11 @@ void main() {
         final body = jsonDecode(request.body) as Map<String, dynamic>;
         final contents = body['contents'] as List<dynamic>;
         expect(contents.single['role'], 'user');
-        final generationConfig =
-            body['generationConfig'] as Map<String, dynamic>;
         expect(
-          generationConfig['responseModalities'],
-          ['IMAGE', 'TEXT'],
+          (contents.single['parts'] as List<dynamic>).single,
+          {'text': 'Draw a castle'},
         );
-        expect(
-          generationConfig['thinkingConfig'],
-          {'thinkingLevel': 'minimal'},
-        );
-        expect(
-          generationConfig['imageConfig'],
-          {'imageSize': '1K'},
-        );
+        expect(body.containsKey('generationConfig'), isFalse);
         expect(body.containsKey('safetySettings'), isFalse);
         return http.Response(
           jsonEncode({
@@ -337,6 +329,53 @@ void main() {
 
       expect(result.assistantText, 'Here is your image.');
       expect(result.imageDataUrls, ['data:image/png;base64,abc123']);
+    });
+
+    test('generateImage surfaces text-only Gemini 3.1 image preview replies',
+        () async {
+      final client = MockClient((request) async {
+        expect(
+          request.url.path,
+          '/v1beta/models/gemini-3.1-flash-image-preview:generateContent',
+        );
+        final body = jsonDecode(request.body) as Map<String, dynamic>;
+        expect(body.containsKey('generationConfig'), isFalse);
+        return http.Response(
+          jsonEncode({
+            'candidates': [
+              {
+                'content': {
+                  'parts': [
+                    {
+                      'text':
+                          "I can't generate that image, but I can describe it.",
+                    },
+                  ],
+                },
+                'finishReason': 'STOP',
+              },
+            ],
+          }),
+          200,
+        );
+      });
+
+      final service = GeminiService(client: client);
+
+      await expectLater(
+        service.generateImage(
+          apiKey: 'test-key',
+          modelId: 'gemini-3.1-flash-image-preview',
+          prompt: 'Draw the scene',
+        ),
+        throwsA(
+          isA<GeminiException>().having(
+            (error) => error.message,
+            'message',
+            "I can't generate that image, but I can describe it.",
+          ),
+        ),
+      );
     });
 
     test('generateImage parses inlineData from Gemini image models', () async {
@@ -638,6 +677,36 @@ void main() {
         ),
       );
       expect(attempts, 2);
+    });
+
+    test('does not retry hung Gemini 3.1 image preview requests', () async {
+      var attempts = 0;
+      final completer = Completer<http.Response>();
+      final client = MockClient((request) {
+        attempts += 1;
+        return completer.future;
+      });
+      final service = GeminiService(
+        client: client,
+        requestTimeout: const Duration(milliseconds: 10),
+        retryBaseDelay: Duration.zero,
+      );
+
+      await expectLater(
+        service.generateImage(
+          apiKey: 'test-key',
+          modelId: 'gemini-3.1-flash-image-preview',
+          prompt: 'Draw a lighthouse',
+        ),
+        throwsA(
+          isA<GeminiException>().having(
+            (error) => error.message,
+            'message',
+            contains('timed out while generating images'),
+          ),
+        ),
+      );
+      expect(attempts, 1);
     });
 
     test('times out hung requests with a Gemini-specific message', () async {
