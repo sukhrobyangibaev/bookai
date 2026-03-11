@@ -64,9 +64,18 @@ void main() {
         find.byKey(const ValueKey<String>('reader-ai-loading-progress')),
         findsOneWidget,
       );
+      expect(
+        find.byKey(const ValueKey<String>('reader-ai-loading-elapsed')),
+        findsOneWidget,
+      );
+      expect(find.text('Elapsed: 0s'), findsOneWidget);
       expect(find.byType(CircularProgressIndicator), findsNothing);
       expect(openRouter.generateTextCallCount, 1);
       expect(find.byTooltip('Show Navigation Bar'), findsOneWidget);
+
+      await tester.pump(const Duration(seconds: 1));
+
+      expect(find.text('Elapsed: 1s'), findsOneWidget);
 
       await tester.tap(find.byTooltip('Show Navigation Bar'));
       await tester.pump();
@@ -101,12 +110,21 @@ void main() {
         find.byKey(const ValueKey<String>('reader-ai-loading-sheet')),
         findsOneWidget,
       );
+      expect(find.text('Elapsed: 0s'), findsOneWidget);
+
+      await tester.pump(const Duration(seconds: 1));
+
+      expect(find.text('Elapsed: 1s'), findsOneWidget);
 
       await tester.tap(find.byTooltip('Cancel AI Request'));
       await tester.pump();
 
       expect(
         find.byKey(const ValueKey<String>('reader-ai-loading-sheet')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const ValueKey<String>('reader-ai-loading-elapsed')),
         findsNothing,
       );
       expect(find.text('AI request canceled.'), findsOneWidget);
@@ -884,6 +902,89 @@ void main() {
       expect(find.text('Generate Image'), findsWidgets);
       expect(find.text('Selected Text'), findsOneWidget);
       expect(find.text('Resume Range'), findsOneWidget);
+    });
+
+    testWidgets(
+        'generate image resets elapsed time when the loading step changes',
+        (tester) async {
+      final fetchModelsCompleter = Completer<List<OpenRouterModel>>();
+      final promptCompleter = Completer<String>();
+      var fetchModelsCallCount = 0;
+
+      final openRouter = _FakeOpenRouterService(
+        generateTextHandler: ({
+          required apiKey,
+          required modelId,
+          required prompt,
+          temperature,
+        }) =>
+            promptCompleter.future,
+        fetchModelsHandler: ({
+          required apiKey,
+          required forceRefresh,
+        }) {
+          fetchModelsCallCount += 1;
+          if (fetchModelsCallCount == 1) {
+            return fetchModelsCompleter.future;
+          }
+
+          return Future.value(
+            const [
+              OpenRouterModel(
+                id: 'openai/gpt-image-1',
+                name: 'GPT Image 1',
+                outputModalities: ['image', 'text'],
+              ),
+              OpenRouterModel(
+                id: 'openai/gpt-4o-mini',
+                name: 'GPT-4o Mini',
+                outputModalities: ['text'],
+              ),
+            ],
+          );
+        },
+      );
+
+      await _pumpReaderScreen(
+        tester,
+        openRouterService: openRouter,
+      );
+
+      await _startGenerateImage(tester);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Selected Text'));
+      await tester.pump();
+
+      expect(find.text('Checking prompt model...'), findsOneWidget);
+      expect(find.text('Elapsed: 0s'), findsOneWidget);
+
+      await tester.pump(const Duration(seconds: 2));
+
+      expect(find.text('Elapsed: 2s'), findsOneWidget);
+
+      fetchModelsCompleter.complete(
+        const [
+          OpenRouterModel(
+            id: 'openai/gpt-image-1',
+            name: 'GPT Image 1',
+            outputModalities: ['image', 'text'],
+          ),
+          OpenRouterModel(
+            id: 'openai/gpt-4o-mini',
+            name: 'GPT-4o Mini',
+            outputModalities: ['text'],
+          ),
+        ],
+      );
+      await tester.pump();
+
+      expect(find.text('Generating image prompt...'), findsOneWidget);
+      expect(find.text('Elapsed: 0s'), findsOneWidget);
+
+      promptCompleter.complete(
+        'A quiet watercolor portrait of the hero in soft lantern light.',
+      );
+      await tester.pumpAndSettle();
     });
 
     testWidgets(

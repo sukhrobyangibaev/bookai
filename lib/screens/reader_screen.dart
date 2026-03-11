@@ -91,8 +91,10 @@ class _ReaderScreenState extends State<ReaderScreen> {
   int _aiRequestToken = 0;
 
   _ActiveAiRequest? _activeAiRequest;
+  Timer? _aiLoadingElapsedTimer;
+  int _activeAiElapsedSeconds = 0;
 
-  static const double _aiLoadingSheetReservedSpace = 88.0;
+  static const double _aiLoadingSheetReservedSpace = 116.0;
   static const double _readerHorizontalPadding = 20.0;
   static const double _readerTopPadding = 16.0;
   static const double _readerBottomPadding = 32.0;
@@ -120,6 +122,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
   @override
   void dispose() {
     _saveTimer?.cancel();
+    _aiLoadingElapsedTimer?.cancel();
     // Persist final progress synchronously before disposing.
     _saveProgressNow();
     _scrollController.removeListener(_onScroll);
@@ -1272,7 +1275,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
     );
 
     if (!mounted) return null;
-    setState(() => _activeAiRequest = loadingRequest);
+    _setActiveAiRequest(loadingRequest);
 
     try {
       final result = await task();
@@ -1281,18 +1284,19 @@ class _ReaderScreenState extends State<ReaderScreen> {
       }
       return result;
     } finally {
-      if (mounted && _activeAiRequest?.token == loadingRequest.token) {
-        setState(() => _activeAiRequest = null);
-      }
+      _clearActiveAiRequest(token: loadingRequest.token);
     }
   }
 
   void _cancelActiveAiRequest() {
     if (!mounted || _activeAiRequest == null) return;
 
+    _aiLoadingElapsedTimer?.cancel();
+    _aiLoadingElapsedTimer = null;
     setState(() {
       _aiRequestToken += 1;
       _activeAiRequest = null;
+      _activeAiElapsedSeconds = 0;
     });
 
     _showAutoDismissSnackBar(
@@ -1740,7 +1744,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
     );
 
     if (!mounted) return;
-    setState(() => _activeAiRequest = request);
+    _setActiveAiRequest(request);
     unawaited(_completeAiResultFlow(request));
   }
 
@@ -1770,7 +1774,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
       return;
     }
 
-    setState(() => _activeAiRequest = null);
+    _clearActiveAiRequest(token: request.token);
 
     if (!mounted) return;
 
@@ -1797,6 +1801,44 @@ class _ReaderScreenState extends State<ReaderScreen> {
     }
 
     return _textAiFeatureSpec(featureId)?.switchButtonLabel;
+  }
+
+  void _setActiveAiRequest(_ActiveAiRequest request) {
+    _aiLoadingElapsedTimer?.cancel();
+    _aiLoadingElapsedTimer = null;
+
+    if (!mounted) return;
+    setState(() {
+      _activeAiRequest = request;
+      _activeAiElapsedSeconds = 0;
+    });
+
+    _aiLoadingElapsedTimer = Timer.periodic(const Duration(seconds: 1), (
+      timer,
+    ) {
+      if (!mounted || _activeAiRequest?.token != request.token) {
+        timer.cancel();
+        if (identical(_aiLoadingElapsedTimer, timer)) {
+          _aiLoadingElapsedTimer = null;
+        }
+        return;
+      }
+
+      setState(() => _activeAiElapsedSeconds += 1);
+    });
+  }
+
+  void _clearActiveAiRequest({required int token}) {
+    if (_activeAiRequest?.token != token) return;
+
+    _aiLoadingElapsedTimer?.cancel();
+    _aiLoadingElapsedTimer = null;
+
+    if (!mounted) return;
+    setState(() {
+      _activeAiRequest = null;
+      _activeAiElapsedSeconds = 0;
+    });
   }
 
   Future<void> _switchTextFeature(_AiRequestSpec requestSpec) async {
@@ -2380,6 +2422,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
           if (_activeAiRequest != null)
             _AiLoadingSheet(
               loadingText: _activeAiRequest!.requestSpec.loadingText,
+              elapsedSeconds: _activeAiElapsedSeconds,
               onCancel: _cancelActiveAiRequest,
             ),
           if (!_isNavbarVisible) _buildHiddenNavPill(),
@@ -2991,12 +3034,16 @@ class _AiLoadingSheet extends StatelessWidget {
       ValueKey<String>('reader-ai-loading-sheet');
   static const ValueKey<String> progressKey =
       ValueKey<String>('reader-ai-loading-progress');
+  static const ValueKey<String> elapsedKey =
+      ValueKey<String>('reader-ai-loading-elapsed');
 
   final String loadingText;
+  final int elapsedSeconds;
   final VoidCallback onCancel;
 
   const _AiLoadingSheet({
     required this.loadingText,
+    required this.elapsedSeconds,
     required this.onCancel,
   });
 
@@ -3044,6 +3091,14 @@ class _AiLoadingSheet extends StatelessWidget {
                   const LinearProgressIndicator(
                     key: progressKey,
                     minHeight: 3,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Elapsed: ${elapsedSeconds}s',
+                    key: elapsedKey,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
                   ),
                 ],
               ),
