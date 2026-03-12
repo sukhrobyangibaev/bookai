@@ -1,5 +1,5 @@
-import 'package:bookai/models/reader_settings.dart';
-import 'package:bookai/theme/reader_typography.dart';
+import 'package:scroll/models/reader_settings.dart';
+import 'package:scroll/theme/reader_typography.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_fonts/google_fonts.dart';

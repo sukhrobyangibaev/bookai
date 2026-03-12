@@ -1,10 +1,10 @@
-import 'package:bookai/models/ai_feature.dart';
-import 'package:bookai/models/ai_feature_config.dart';
-import 'package:bookai/models/ai_model_selection.dart';
-import 'package:bookai/models/ai_provider.dart';
-import 'package:bookai/models/reader_settings.dart';
-import 'package:bookai/services/settings_controller.dart';
-import 'package:bookai/services/settings_service.dart';
+import 'package:scroll/models/ai_feature.dart';
+import 'package:scroll/models/ai_feature_config.dart';
+import 'package:scroll/models/ai_model_selection.dart';
+import 'package:scroll/models/ai_provider.dart';
+import 'package:scroll/models/reader_settings.dart';
+import 'package:scroll/services/settings_controller.dart';
+import 'package:scroll/services/settings_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 

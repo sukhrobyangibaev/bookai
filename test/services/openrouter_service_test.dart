@@ -1,9 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:bookai/models/ai_chat_message.dart';
-import 'package:bookai/models/openrouter_model.dart';
-import 'package:bookai/services/openrouter_service.dart';
+import 'package:scroll/models/ai_chat_message.dart';
+import 'package:scroll/models/openrouter_model.dart';
+import 'package:scroll/services/openrouter_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -17,8 +17,8 @@ void main() {
           'https://openrouter.ai/api/v1/models',
         );
         expect(request.headers['accept'], 'application/json');
-        expect(request.headers['http-referer'], 'https://bookai.app');
-        expect(request.headers['x-title'], 'BookAI');
+        expect(request.headers['http-referer'], 'https://scroll.app');
+        expect(request.headers['x-title'], 'scroll');
         expect(request.headers['authorization'], 'Bearer test-key');
 
         return http.Response(
@@ -179,8 +179,8 @@ void main() {
         expect(request.method, 'POST');
         expect(request.headers['authorization'], 'Bearer test-key');
         expect(request.headers['content-type'], 'application/json');
-        expect(request.headers['http-referer'], 'https://bookai.app');
-        expect(request.headers['x-title'], 'BookAI');
+        expect(request.headers['http-referer'], 'https://scroll.app');
+        expect(request.headers['x-title'], 'scroll');
 
         final body = jsonDecode(request.body) as Map<String, dynamic>;
         expect(body['model'], 'openai/gpt-4.1-mini');

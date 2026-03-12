@@ -33,8 +33,8 @@ class OpenRouterService {
       Uri.parse('https://openrouter.ai/api/v1/models');
   static final Uri _chatCompletionsUri =
       Uri.parse('https://openrouter.ai/api/v1/chat/completions');
-  static const String _appReferer = 'https://bookai.app';
-  static const String _appTitle = 'BookAI';
+  static const String _appReferer = 'https://scroll.app';
+  static const String _appTitle = 'scroll';
 
   final http.Client _client;
   final DateTime Function() _clock;

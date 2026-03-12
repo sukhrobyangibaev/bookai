@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:bookai/services/storage_service.dart';
+import 'package:scroll/services/storage_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -10,7 +10,7 @@ void main() {
   final service = StorageService.instance;
 
   setUp(() async {
-    tempDir = await Directory.systemTemp.createTemp('bookai_storage_test_');
+    tempDir = await Directory.systemTemp.createTemp('scroll_storage_test_');
   });
 
   tearDown(() async {

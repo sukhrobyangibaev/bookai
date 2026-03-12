@@ -2,25 +2,25 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:bookai/app.dart';
-import 'package:bookai/models/ai_chat_message.dart';
-import 'package:bookai/models/book.dart';
-import 'package:bookai/models/ai_feature.dart';
-import 'package:bookai/models/ai_model_info.dart';
-import 'package:bookai/models/ai_model_selection.dart';
-import 'package:bookai/models/ai_provider.dart';
-import 'package:bookai/models/chapter.dart';
-import 'package:bookai/models/openrouter_model.dart';
-import 'package:bookai/models/reader_settings.dart';
-import 'package:bookai/models/resume_marker.dart';
-import 'package:bookai/screens/reader_screen.dart';
-import 'package:bookai/services/chapter_loader_service.dart';
-import 'package:bookai/services/database_service.dart';
-import 'package:bookai/services/gemini_service.dart';
-import 'package:bookai/services/openrouter_service.dart';
-import 'package:bookai/services/resume_summary_service.dart';
-import 'package:bookai/services/settings_controller.dart';
-import 'package:bookai/services/storage_service.dart';
+import 'package:scroll/app.dart';
+import 'package:scroll/models/ai_chat_message.dart';
+import 'package:scroll/models/book.dart';
+import 'package:scroll/models/ai_feature.dart';
+import 'package:scroll/models/ai_model_info.dart';
+import 'package:scroll/models/ai_model_selection.dart';
+import 'package:scroll/models/ai_provider.dart';
+import 'package:scroll/models/chapter.dart';
+import 'package:scroll/models/openrouter_model.dart';
+import 'package:scroll/models/reader_settings.dart';
+import 'package:scroll/models/resume_marker.dart';
+import 'package:scroll/screens/reader_screen.dart';
+import 'package:scroll/services/chapter_loader_service.dart';
+import 'package:scroll/services/database_service.dart';
+import 'package:scroll/services/gemini_service.dart';
+import 'package:scroll/services/openrouter_service.dart';
+import 'package:scroll/services/resume_summary_service.dart';
+import 'package:scroll/services/settings_controller.dart';
+import 'package:scroll/services/storage_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -452,7 +452,7 @@ void main() {
     testWidgets('chapter catch-up does not update the saved resume marker',
         (tester) async {
       final tempDir = (await tester.runAsync(
-        () => Directory.systemTemp.createTemp('bookai_reader_screen_test_'),
+        () => Directory.systemTemp.createTemp('scroll_reader_screen_test_'),
       ))!;
       addTearDown(() async {
         if (await tempDir.exists()) {

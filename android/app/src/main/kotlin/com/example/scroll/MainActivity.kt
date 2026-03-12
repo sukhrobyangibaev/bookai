@@ -1,4 +1,4 @@
-package com.example.bookai
+package com.example.scroll
 
 import io.flutter.embedding.android.FlutterActivity
 

@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:bookai/models/chapter.dart';
+import 'package:scroll/models/chapter.dart';
 
 void main() {
   group('Chapter', () {

@@ -1,5 +1,5 @@
-import 'package:bookai/models/ai_feature.dart';
-import 'package:bookai/models/ai_feature_config.dart';
+import 'package:scroll/models/ai_feature.dart';
+import 'package:scroll/models/ai_feature_config.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

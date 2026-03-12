@@ -1,4 +1,4 @@
-import 'package:bookai/models/resume_marker.dart';
+import 'package:scroll/models/resume_marker.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

@@ -1,4 +1,4 @@
-# BookAI
+# scroll
 
 A personal AI-powered EPUB reader for Android, built with Flutter.
 

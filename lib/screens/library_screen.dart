@@ -401,7 +401,7 @@ class _LibraryScreenState extends State<LibraryScreen>
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('BookAI Library'),
+        title: const Text('scroll library'),
         bottom: TabBar(
           controller: _tabController,
           tabs: const [

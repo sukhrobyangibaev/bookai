@@ -1,8 +1,8 @@
-import 'package:bookai/models/ai_feature.dart';
-import 'package:bookai/models/ai_feature_config.dart';
-import 'package:bookai/models/ai_model_selection.dart';
-import 'package:bookai/models/ai_provider.dart';
-import 'package:bookai/models/reader_settings.dart';
+import 'package:scroll/models/ai_feature.dart';
+import 'package:scroll/models/ai_feature_config.dart';
+import 'package:scroll/models/ai_model_selection.dart';
+import 'package:scroll/models/ai_provider.dart';
+import 'package:scroll/models/reader_settings.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

@@ -20,16 +20,16 @@ class SettingsControllerScope extends InheritedNotifier<SettingsController> {
   }
 }
 
-class BookAiApp extends StatefulWidget {
+class ScrollApp extends StatefulWidget {
   final SettingsController? settingsController;
 
-  const BookAiApp({super.key, this.settingsController});
+  const ScrollApp({super.key, this.settingsController});
 
   @override
-  State<BookAiApp> createState() => _BookAiAppState();
+  State<ScrollApp> createState() => _ScrollAppState();
 }
 
-class _BookAiAppState extends State<BookAiApp> {
+class _ScrollAppState extends State<ScrollApp> {
   late final SettingsController _controller;
 
   @override
@@ -101,7 +101,7 @@ class _BookAiAppState extends State<BookAiApp> {
         return SettingsControllerScope(
           controller: _controller,
           child: MaterialApp(
-            title: 'BookAI',
+            title: 'scroll',
             debugShowCheckedModeBanner: false,
             theme: _buildTheme(_controller.themeMode),
             home: const LibraryScreen(),

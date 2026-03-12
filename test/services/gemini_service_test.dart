@@ -1,10 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:bookai/models/ai_chat_message.dart';
-import 'package:bookai/models/ai_model_info.dart';
-import 'package:bookai/models/ai_provider.dart';
-import 'package:bookai/services/gemini_service.dart';
+import 'package:scroll/models/ai_chat_message.dart';
+import 'package:scroll/models/ai_model_info.dart';
+import 'package:scroll/models/ai_provider.dart';
+import 'package:scroll/services/gemini_service.dart';
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;

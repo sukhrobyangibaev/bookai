@@ -12,5 +12,5 @@ void main() {
     databaseFactory = databaseFactoryFfi;
   }
   
-  runApp(const BookAiApp());
+  runApp(const ScrollApp());
 }

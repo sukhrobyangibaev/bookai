@@ -1,4 +1,4 @@
-import 'package:bookai/models/generated_image.dart';
+import 'package:scroll/models/generated_image.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

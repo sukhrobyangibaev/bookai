@@ -4,10 +4,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
-import 'package:bookai/models/book.dart';
-import 'package:bookai/models/chapter.dart';
-import 'package:bookai/models/generated_image.dart';
-import 'package:bookai/services/database_service.dart';
+import 'package:scroll/models/book.dart';
+import 'package:scroll/models/chapter.dart';
+import 'package:scroll/models/generated_image.dart';
+import 'package:scroll/services/database_service.dart';
 
 void main() {
   late Directory tempDir;
@@ -20,8 +20,8 @@ void main() {
   });
 
   setUp(() async {
-    tempDir = await Directory.systemTemp.createTemp('bookai_db_test_');
-    databasePath = p.join(tempDir.path, 'bookai.db');
+    tempDir = await Directory.systemTemp.createTemp('scroll_db_test_');
+    databasePath = p.join(tempDir.path, 'scroll.db');
     await service.resetForTesting(databasePath: databasePath);
   });
 

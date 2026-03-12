@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:bookai/models/highlight.dart';
+import 'package:scroll/models/highlight.dart';
 
 void main() {
   group('Highlight', () {

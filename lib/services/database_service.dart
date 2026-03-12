@@ -22,7 +22,7 @@ class DatabaseService {
 
   Future<Database> _initDb() async {
     final path =
-        _databasePathOverride ?? join(await getDatabasesPath(), 'bookai.db');
+        _databasePathOverride ?? join(await getDatabasesPath(), 'scroll.db');
 
     return openDatabaseAt(path);
   }

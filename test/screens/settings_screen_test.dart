@@ -1,14 +1,14 @@
 import 'dart:convert';
 
-import 'package:bookai/app.dart';
-import 'package:bookai/models/ai_feature.dart';
-import 'package:bookai/models/ai_model_info.dart';
-import 'package:bookai/models/ai_model_selection.dart';
-import 'package:bookai/models/ai_provider.dart';
-import 'package:bookai/screens/settings_screen.dart';
-import 'package:bookai/services/gemini_service.dart';
-import 'package:bookai/services/openrouter_service.dart';
-import 'package:bookai/services/settings_controller.dart';
+import 'package:scroll/app.dart';
+import 'package:scroll/models/ai_feature.dart';
+import 'package:scroll/models/ai_model_info.dart';
+import 'package:scroll/models/ai_model_selection.dart';
+import 'package:scroll/models/ai_provider.dart';
+import 'package:scroll/screens/settings_screen.dart';
+import 'package:scroll/services/gemini_service.dart';
+import 'package:scroll/services/openrouter_service.dart';
+import 'package:scroll/services/settings_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_fonts/google_fonts.dart';

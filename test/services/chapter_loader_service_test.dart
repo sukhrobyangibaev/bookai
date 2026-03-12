@@ -1,8 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:bookai/models/book.dart';
-import 'package:bookai/models/chapter.dart';
-import 'package:bookai/services/chapter_loader_service.dart';
+import 'package:scroll/models/book.dart';
+import 'package:scroll/models/chapter.dart';
+import 'package:scroll/services/chapter_loader_service.dart';
 
 void main() {
   final sampleBook = Book(

@@ -1,8 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:bookai/models/book.dart';
-import 'package:bookai/models/generated_image.dart';
+import 'package:scroll/models/book.dart';
+import 'package:scroll/models/generated_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -10,10 +10,10 @@ import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
-import 'package:bookai/app.dart';
-import 'package:bookai/services/database_service.dart';
-import 'package:bookai/services/settings_controller.dart';
-import 'package:bookai/services/storage_service.dart';
+import 'package:scroll/app.dart';
+import 'package:scroll/services/database_service.dart';
+import 'package:scroll/services/settings_controller.dart';
+import 'package:scroll/services/storage_service.dart';
 
 void main() {
   GoogleFonts.config.allowRuntimeFetching = false;
@@ -36,8 +36,8 @@ void main() {
 
   group('LibraryScreen', () {
     setUp(() async {
-      tempDir = await Directory.systemTemp.createTemp('bookai_widget_test_');
-      databasePath = p.join(tempDir.path, 'bookai_test.db');
+      tempDir = await Directory.systemTemp.createTemp('scroll_widget_test_');
+      databasePath = p.join(tempDir.path, 'scroll_test.db');
       await DatabaseService.instance
           .resetForTesting(databasePath: databasePath);
       await StorageService.instance.resetForTesting(
@@ -57,7 +57,7 @@ void main() {
       final controller = SettingsController();
       await tester.runAsync(() => controller.load());
 
-      await tester.pumpWidget(BookAiApp(settingsController: controller));
+      await tester.pumpWidget(ScrollApp(settingsController: controller));
 
       // Pump and flush async work in a loop to let _loadBooks() complete.
       for (int i = 0; i < 10; i++) {
@@ -67,7 +67,7 @@ void main() {
       }
 
       // ── App bar ──────────────────────────────────────────────────────────
-      expect(find.text('BookAI Library'), findsOneWidget);
+      expect(find.text('scroll library'), findsOneWidget);
       expect(find.byIcon(Icons.settings_outlined), findsOneWidget);
       expect(find.text('Books'), findsOneWidget);
       expect(find.text('Images'), findsOneWidget);
@@ -116,7 +116,7 @@ void main() {
       final controller = SettingsController();
       await tester.runAsync(() => controller.load());
 
-      await tester.pumpWidget(BookAiApp(settingsController: controller));
+      await tester.pumpWidget(ScrollApp(settingsController: controller));
 
       for (int i = 0; i < 10; i++) {
         await tester.runAsync(
@@ -172,7 +172,7 @@ void main() {
       final controller = SettingsController();
       await tester.runAsync(() => controller.load());
 
-      await tester.pumpWidget(BookAiApp(settingsController: controller));
+      await tester.pumpWidget(ScrollApp(settingsController: controller));
 
       for (int i = 0; i < 10; i++) {
         await tester.runAsync(
@@ -232,7 +232,7 @@ void main() {
       final controller = SettingsController();
       await tester.runAsync(() => controller.load());
 
-      await tester.pumpWidget(BookAiApp(settingsController: controller));
+      await tester.pumpWidget(ScrollApp(settingsController: controller));
 
       for (int i = 0; i < 10; i++) {
         await tester.runAsync(
@@ -289,7 +289,7 @@ void main() {
       final controller = SettingsController();
       await tester.runAsync(() => controller.load());
 
-      await tester.pumpWidget(BookAiApp(settingsController: controller));
+      await tester.pumpWidget(ScrollApp(settingsController: controller));
 
       for (int i = 0; i < 10; i++) {
         await tester.runAsync(
@@ -347,7 +347,7 @@ void main() {
       final controller = SettingsController();
       await tester.runAsync(() => controller.load());
 
-      await tester.pumpWidget(BookAiApp(settingsController: controller));
+      await tester.pumpWidget(ScrollApp(settingsController: controller));
 
       for (int i = 0; i < 10; i++) {
         await tester.runAsync(

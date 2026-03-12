@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:bookai/models/reading_progress.dart';
+import 'package:scroll/models/reading_progress.dart';
 
 void main() {
   group('ReadingProgress', () {
