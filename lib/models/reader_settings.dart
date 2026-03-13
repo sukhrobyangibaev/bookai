@@ -3,7 +3,7 @@ import 'ai_feature_config.dart';
 import 'ai_model_selection.dart';
 import 'ai_provider.dart';
 
-enum AppThemeMode { light, dark, sepia }
+enum AppThemeMode { system, light, dark, sepia }
 
 enum ReaderFontFamily { system, literata, bitter, atkinsonHyperlegible }
 
@@ -47,7 +47,7 @@ class ReaderSettings {
 
   static const ReaderSettings defaults = ReaderSettings(
     fontSize: 18.0,
-    themeMode: AppThemeMode.light,
+    themeMode: AppThemeMode.system,
     fontFamily: ReaderFontFamily.system,
     openRouterApiKey: '',
     geminiApiKey: '',
@@ -113,10 +113,11 @@ class ReaderSettings {
   }
 
   factory ReaderSettings.fromMap(Map<String, dynamic> map) {
-    final themeModeStr = map['themeMode'] as String? ?? AppThemeMode.light.name;
+    final themeModeStr =
+        map['themeMode'] as String? ?? ReaderSettings.defaults.themeMode.name;
     final themeMode = AppThemeMode.values.firstWhere(
       (e) => e.name == themeModeStr,
-      orElse: () => AppThemeMode.light,
+      orElse: () => ReaderSettings.defaults.themeMode,
     );
     final fontFamilyStr =
         map['fontFamily'] as String? ?? ReaderFontFamily.system.name;

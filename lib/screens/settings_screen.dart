@@ -28,6 +28,13 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
+  static const List<AppThemeMode> _themeModes = <AppThemeMode>[
+    AppThemeMode.system,
+    AppThemeMode.light,
+    AppThemeMode.dark,
+    AppThemeMode.sepia,
+  ];
+
   late final TextEditingController _openRouterApiKeyController;
   late final TextEditingController _geminiApiKeyController;
   late final OpenRouterService _openRouterService;
@@ -496,6 +503,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     SettingsController controller,
   ) {
     final currentMode = controller.themeMode;
+    final labelStyle =
+        Theme.of(context).textTheme.bodyMedium ?? const TextStyle();
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -507,32 +516,58 @@ class _SettingsScreenState extends State<SettingsScreen> {
             style: Theme.of(context).textTheme.titleMedium,
           ),
           const SizedBox(height: 12),
-          SegmentedButton<AppThemeMode>(
-            segments: const [
-              ButtonSegment(
-                value: AppThemeMode.light,
-                label: Text('Light'),
-                icon: Icon(Icons.light_mode_outlined),
-              ),
-              ButtonSegment(
-                value: AppThemeMode.dark,
-                label: Text('Dark'),
-                icon: Icon(Icons.dark_mode_outlined),
-              ),
-              ButtonSegment(
-                value: AppThemeMode.sepia,
-                label: Text('Sepia'),
-                icon: Icon(Icons.auto_stories_outlined),
-              ),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final mode in _themeModes)
+                ChoiceChip(
+                  avatar: Icon(_themeModeIcon(mode), size: 18),
+                  showCheckmark: false,
+                  label: Text(
+                    _themeModeLabel(mode),
+                    softWrap: false,
+                    maxLines: 1,
+                    overflow: TextOverflow.fade,
+                    style: labelStyle,
+                  ),
+                  selected: currentMode == mode,
+                  onSelected: (selected) {
+                    if (!selected) return;
+                    controller.setThemeMode(mode);
+                  },
+                ),
             ],
-            selected: {currentMode},
-            onSelectionChanged: (selected) {
-              controller.setThemeMode(selected.first);
-            },
           ),
         ],
       ),
     );
+  }
+
+  IconData _themeModeIcon(AppThemeMode mode) {
+    switch (mode) {
+      case AppThemeMode.system:
+        return Icons.brightness_auto;
+      case AppThemeMode.light:
+        return Icons.light_mode_outlined;
+      case AppThemeMode.dark:
+        return Icons.dark_mode_outlined;
+      case AppThemeMode.sepia:
+        return Icons.auto_stories_outlined;
+    }
+  }
+
+  String _themeModeLabel(AppThemeMode mode) {
+    switch (mode) {
+      case AppThemeMode.system:
+        return 'System';
+      case AppThemeMode.light:
+        return 'Light';
+      case AppThemeMode.dark:
+        return 'Dark';
+      case AppThemeMode.sepia:
+        return 'Sepia';
+    }
   }
 
   Widget _buildAiSection(BuildContext context, SettingsController controller) {

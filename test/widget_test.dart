@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:bookai/models/book.dart';
 import 'package:bookai/models/generated_image.dart';
+import 'package:bookai/models/reader_settings.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -11,6 +12,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:bookai/app.dart';
+import 'package:bookai/screens/library_screen.dart';
 import 'package:bookai/services/database_service.dart';
 import 'package:bookai/services/settings_controller.dart';
 import 'package:bookai/services/storage_service.dart';
@@ -136,6 +138,54 @@ void main() {
         findsOneWidget,
       );
       expect(find.byType(FloatingActionButton), findsNothing);
+    });
+
+    testWidgets('system theme follows platform brightness',
+        (WidgetTester tester) async {
+      SharedPreferences.setMockInitialValues({});
+      addTearDown(tester.platformDispatcher.clearAllTestValues);
+
+      await tester.runAsync(() async {
+        await DatabaseService.instance.database;
+      });
+
+      final controller = SettingsController();
+      await tester.runAsync(() => controller.load());
+      await controller.setThemeMode(AppThemeMode.system);
+
+      tester.platformDispatcher.platformBrightnessTestValue = Brightness.light;
+      await tester.pumpWidget(BookAiApp(settingsController: controller));
+      for (int i = 0; i < 5; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 50)),
+        );
+        await tester.pump();
+      }
+
+      expect(
+        Theme.of(tester.element(find.byType(LibraryScreen))).brightness,
+        Brightness.light,
+      );
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+
+      tester.platformDispatcher.platformBrightnessTestValue = Brightness.dark;
+      await tester.pumpWidget(BookAiApp(settingsController: controller));
+      for (int i = 0; i < 2; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 50)),
+        );
+        await tester.pump();
+      }
+
+      expect(
+        Theme.of(tester.element(find.byType(LibraryScreen))).brightness,
+        Brightness.dark,
+      );
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
     });
 
     testWidgets('library image detail shows file size and opens zoom viewer',

@@ -21,6 +21,43 @@ void main() {
   GoogleFonts.config.allowRuntimeFetching = false;
 
   group('SettingsScreen', () {
+    testWidgets('uses wrapping theme chips on narrow screens', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(320, 900));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      SharedPreferences.setMockInitialValues({});
+
+      final controller = SettingsController();
+      await tester.runAsync(() => controller.load());
+
+      await tester.pumpWidget(_buildSettingsApp(controller));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(ChoiceChip), findsWidgets);
+      expect(find.byType(SegmentedButton), findsNothing);
+      expect(find.text('System'), findsOneWidget);
+    });
+
+    testWidgets('shows theme options including system', (tester) async {
+      SharedPreferences.setMockInitialValues({});
+
+      final controller = SettingsController();
+      await tester.runAsync(() => controller.load());
+
+      await tester.pumpWidget(_buildSettingsApp(controller));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Theme'), findsOneWidget);
+      expect(find.text('System'), findsOneWidget);
+      expect(find.text('Light'), findsOneWidget);
+      expect(find.text('Dark'), findsOneWidget);
+      expect(find.text('Sepia'), findsOneWidget);
+
+      final systemChip = tester.widget<ChoiceChip>(
+        find.widgetWithText(ChoiceChip, 'System'),
+      );
+      expect(systemChip.showCheckmark, isFalse);
+    });
+
     testWidgets('shows reader font options', (tester) async {
       SharedPreferences.setMockInitialValues({});
 

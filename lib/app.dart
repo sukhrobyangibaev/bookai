@@ -47,63 +47,86 @@ class _BookAiAppState extends State<BookAiApp> {
     super.dispose();
   }
 
-  ThemeData _buildTheme(AppThemeMode mode) {
+  ThemeData _buildLightTheme() {
+    return ThemeData(
+      colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo),
+      useMaterial3: true,
+    );
+  }
+
+  ThemeData _buildDarkTheme() {
+    return ThemeData(
+      colorScheme: ColorScheme.fromSeed(
+        seedColor: Colors.indigo,
+        brightness: Brightness.dark,
+      ),
+      useMaterial3: true,
+      brightness: Brightness.dark,
+    );
+  }
+
+  ThemeData _buildSepiaTheme() {
+    const sepiaBackground = Color(0xFFF5E6C8);
+    const sepiaOnBackground = Color(0xFF3B2A1A);
+    const sepiaSurface = Color(0xFFEDD9A3);
+
+    return ThemeData(
+      useMaterial3: true,
+      brightness: Brightness.light,
+      colorScheme: const ColorScheme.light(
+        primary: Color(0xFF795548),
+        onPrimary: Colors.white,
+        secondary: Color(0xFFA1887F),
+        onSecondary: Colors.white,
+        surface: sepiaSurface,
+        onSurface: sepiaOnBackground,
+        surfaceContainerHighest: sepiaBackground,
+      ),
+      scaffoldBackgroundColor: sepiaBackground,
+      appBarTheme: const AppBarTheme(
+        backgroundColor: Color(0xFFD7B987),
+        foregroundColor: sepiaOnBackground,
+        elevation: 0,
+      ),
+      textTheme: const TextTheme(
+        bodyMedium: TextStyle(color: sepiaOnBackground),
+        bodyLarge: TextStyle(color: sepiaOnBackground),
+      ),
+    );
+  }
+
+  ThemeMode _materialThemeMode(AppThemeMode mode) {
     switch (mode) {
-      case AppThemeMode.dark:
-        return ThemeData(
-          colorScheme: ColorScheme.fromSeed(
-            seedColor: Colors.indigo,
-            brightness: Brightness.dark,
-          ),
-          useMaterial3: true,
-          brightness: Brightness.dark,
-        );
-      case AppThemeMode.sepia:
-        const sepiaBackground = Color(0xFFF5E6C8);
-        const sepiaOnBackground = Color(0xFF3B2A1A);
-        const sepiaSurface = Color(0xFFEDD9A3);
-        return ThemeData(
-          useMaterial3: true,
-          colorScheme: const ColorScheme.light(
-            primary: Color(0xFF795548),
-            onPrimary: Colors.white,
-            secondary: Color(0xFFA1887F),
-            onSecondary: Colors.white,
-            surface: sepiaSurface,
-            onSurface: sepiaOnBackground,
-            surfaceContainerHighest: sepiaBackground,
-          ),
-          scaffoldBackgroundColor: sepiaBackground,
-          appBarTheme: const AppBarTheme(
-            backgroundColor: Color(0xFFD7B987),
-            foregroundColor: sepiaOnBackground,
-            elevation: 0,
-          ),
-          textTheme: const TextTheme(
-            bodyMedium: TextStyle(color: sepiaOnBackground),
-            bodyLarge: TextStyle(color: sepiaOnBackground),
-          ),
-        );
+      case AppThemeMode.system:
+        return ThemeMode.system;
       case AppThemeMode.light:
-      default:
-        return ThemeData(
-          colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo),
-          useMaterial3: true,
-        );
+      case AppThemeMode.sepia:
+        return ThemeMode.light;
+      case AppThemeMode.dark:
+        return ThemeMode.dark;
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final lightTheme = _buildLightTheme();
+    final darkTheme = _buildDarkTheme();
+
     return ListenableBuilder(
       listenable: _controller,
       builder: (context, _) {
+        final themeMode = _controller.themeMode;
+
         return SettingsControllerScope(
           controller: _controller,
           child: MaterialApp(
             title: 'BookAI',
             debugShowCheckedModeBanner: false,
-            theme: _buildTheme(_controller.themeMode),
+            theme: themeMode == AppThemeMode.sepia
+                ? _buildSepiaTheme()
+                : lightTheme,
+            darkTheme: darkTheme,
+            themeMode: _materialThemeMode(themeMode),
             home: const LibraryScreen(),
           ),
         );

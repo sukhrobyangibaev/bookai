@@ -9,7 +9,7 @@ void main() {
   group('ReaderSettings', () {
     test('defaults has expected values', () {
       expect(ReaderSettings.defaults.fontSize, 18.0);
-      expect(ReaderSettings.defaults.themeMode, AppThemeMode.light);
+      expect(ReaderSettings.defaults.themeMode, AppThemeMode.system);
       expect(ReaderSettings.defaults.fontFamily, ReaderFontFamily.system);
       expect(ReaderSettings.defaults.openRouterApiKey, '');
       expect(ReaderSettings.defaults.geminiApiKey, '');
@@ -196,7 +196,7 @@ void main() {
     test('roundtrip toMap -> fromMap preserves all fields', () {
       const original = ReaderSettings(
         fontSize: 14.0,
-        themeMode: AppThemeMode.sepia,
+        themeMode: AppThemeMode.system,
         fontFamily: ReaderFontFamily.literata,
         openRouterApiKey: 'or-key',
         geminiApiKey: 'gem-key',
@@ -281,8 +281,8 @@ void main() {
   });
 
   group('AppThemeMode', () {
-    test('has exactly three values', () {
-      expect(AppThemeMode.values.length, 3);
+    test('has exactly four values', () {
+      expect(AppThemeMode.values.length, 4);
     });
   });
 

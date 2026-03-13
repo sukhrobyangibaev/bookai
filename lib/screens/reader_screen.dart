@@ -109,6 +109,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
       ValueKey<String>('reader-hidden-nav-pill');
 
   static const List<AppThemeMode> _readerThemeModes = <AppThemeMode>[
+    AppThemeMode.system,
     AppThemeMode.light,
     AppThemeMode.dark,
     AppThemeMode.sepia,
@@ -2609,6 +2610,8 @@ class _ReaderScreenState extends State<ReaderScreen> {
 
   IconData _themeModeIcon(AppThemeMode mode) {
     switch (mode) {
+      case AppThemeMode.system:
+        return Icons.brightness_auto;
       case AppThemeMode.light:
         return Icons.light_mode_outlined;
       case AppThemeMode.dark:
@@ -2620,6 +2623,8 @@ class _ReaderScreenState extends State<ReaderScreen> {
 
   String _themeModeLabel(AppThemeMode mode) {
     switch (mode) {
+      case AppThemeMode.system:
+        return 'System';
       case AppThemeMode.light:
         return 'Light';
       case AppThemeMode.dark:

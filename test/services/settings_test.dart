@@ -126,6 +126,7 @@ void main() {
       SharedPreferences.setMockInitialValues({});
 
       final service = SettingsService();
+      await service.saveThemeMode(AppThemeMode.system);
       await service.saveOpenRouterApiKey('or-key');
       await service.saveGeminiApiKey('gem-key');
       await service.saveDefaultModelSelection(
@@ -157,6 +158,7 @@ void main() {
       });
 
       final loaded = await service.load();
+      expect(loaded.themeMode, AppThemeMode.system);
       expect(loaded.openRouterApiKey, 'or-key');
       expect(loaded.geminiApiKey, 'gem-key');
       expect(

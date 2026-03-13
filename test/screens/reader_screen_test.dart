@@ -288,11 +288,12 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byTooltip('Theme'), findsOneWidget);
-      expect(find.byIcon(Icons.light_mode_outlined), findsOneWidget);
+      expect(find.byIcon(Icons.brightness_auto), findsOneWidget);
 
       await tester.tap(find.byTooltip('Theme'));
       await tester.pumpAndSettle();
 
+      expect(find.text('System'), findsOneWidget);
       expect(find.text('Light'), findsOneWidget);
       expect(find.text('Dark'), findsOneWidget);
       expect(find.text('Sepia'), findsOneWidget);
@@ -305,6 +306,15 @@ void main() {
           AppThemeMode.dark);
       expect(find.byTooltip('Theme'), findsOneWidget);
       expect(find.byIcon(Icons.dark_mode_outlined), findsOneWidget);
+
+      await tester.tap(find.byTooltip('Theme'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('System'));
+      await tester.pumpAndSettle();
+
+      expect(SettingsControllerScope.of(readerContext).themeMode,
+          AppThemeMode.system);
+      expect(find.byIcon(Icons.brightness_auto), findsOneWidget);
     });
 
     testWidgets(
