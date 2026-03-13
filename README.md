@@ -1,66 +1,159 @@
 # BookAI
 
-A personal AI-powered EPUB reader for Android, built with Flutter.
+BookAI is a local-first EPUB reader built with Flutter, with optional AI tools layered on top. You can import EPUB files into a private on-device library, read with adjustable typography and themes, save highlights and resume points, and use your own OpenRouter or Gemini account for reading assistance.
 
-## How to Run
+Reading works without any AI key. AI features are bring-your-own-provider.
+
+## What BookAI Does
+
+- Import EPUB files into an on-device library
+- Read chapter by chapter with saved progress
+- Highlight passages and save a manual "resume here" point
+- Keep generated images in a separate library tab
+- Let you choose your own AI provider and models instead of relying on a BookAI backend
+
+## AI Features
+
+All AI features are optional and use your own OpenRouter and/or Gemini credentials.
+
+- **Resume Here and Catch Me Up**: Creates a short catch-up from selected text or from the range between your last resume point and the current selection.
+- **Simplify Text**: Rewrites a passage in clearer, simpler language without intentionally turning it into a summary.
+- **Ask AI**: Answers questions about a selected passage and supports follow-up chat.
+- **Define & Translate**: Explains a selected word, phrase, or character name in context and translates it. The default prompt translates into Russian.
+- **Generate Image**: Turns a passage into an image prompt, lets you refine that prompt, then sends it to an image-capable model and saves the returned image locally.
+
+Advanced configuration is built in:
+
+- Choose a default text model
+- Set a fallback text model
+- Choose a separate image model
+- Override the prompt template and text model for each AI feature
+
+## OpenRouter and Gemini Keys
+
+BookAI does not ship with shared API keys, and it does not ask users to set environment variables. End users add keys directly inside the app:
+
+1. Open **Settings**.
+2. Paste an **OpenRouter API Key** (`sk-or-v1-...`) and/or a **Gemini API Key** (`AIza...`).
+3. Pick a **Default Model** for text features.
+4. Optionally pick a **Fallback Model** for retries.
+5. Pick an **Image Model** if you want to use **Generate Image**.
+6. Optionally customize prompt templates or per-feature model overrides.
+
+Notes:
+
+- You only need a provider key if you want AI features.
+- You can use either provider for text features.
+- You can mix providers, for example one provider for text and another for image generation.
+
+## What Stays Local
+
+BookAI is local-first by default.
+
+Stored locally on the device:
+
+- Imported EPUB files copied into app-local storage
+- Library metadata and parsed chapters in the local database
+- Reading progress
+- Highlights
+- Resume markers
+- Generated image files and their saved prompt metadata
+- API keys
+- Selected models
+- Theme, font, and AI feature settings
+
+What leaves the device when you use AI:
+
+- The selected text or resume range you chose
+- Context sentence, book title, author, and chapter title when the feature prompt uses them
+- Your Ask AI question and follow-up messages
+- The final image prompt sent to the chosen image model
+- Model list requests when you browse available models in Settings
+
+BookAI currently has:
+
+- No BookAI account system
+- No BookAI cloud sync
+- No BookAI-hosted AI proxy between the app and OpenRouter/Gemini
+
+If you use AI, your requests go directly to the selected provider, and that provider's own retention and privacy policies apply.
+
+## Supported Platforms
+
+Current app targets:
+
+- Android
+- iOS
+- macOS
+- Windows
+- Linux
+
+Not currently supported:
+
+- Web
+
+The repository includes a `web/` directory because this is a Flutter project, but the current app still depends on native local storage/database behavior and `dart:io`, so the web build is not ready yet.
+
+## Screenshots
+
+- `[Placeholder: library overview screenshot]`
+- `[Placeholder: reader screen screenshot]`
+- `[Placeholder: text selection toolbar with AI actions screenshot]`
+- `[Placeholder: Ask AI / summary result sheet screenshot]`
+- `[Placeholder: generated image result screenshot]`
+- `[Placeholder: generated images gallery screenshot]`
+
+## Demo
+
+- `[Placeholder: short GIF or video link showing import -> read -> Ask AI -> generate image]`
+
+## Getting Started
 
 ### Prerequisites
 
-- [Flutter SDK](https://docs.flutter.dev/get-started/install) (>=3.4.4)
-- Android SDK (for building APKs)
-- A connected Android device or emulator
+- [Flutter SDK](https://docs.flutter.dev/get-started/install) `>=3.4.4`
+- Platform toolchain for your target OS
+- Your own OpenRouter and/or Gemini key if you want AI features
 
-### Development
+### Run
 
 ```bash
-# Install dependencies
 flutter pub get
-
-# Run on connected device/emulator
 flutter run
+```
 
-# Run static analysis
+### Checks
+
+```bash
 flutter analyze
-
-# Run tests
 flutter test
 ```
 
-### Build APK
+Use standard Flutter build commands for your target platform, for example:
 
 ```bash
 flutter build apk --release
 ```
 
-The APK will be at `build/app/outputs/flutter-apk/app-release.apk`. Install it directly on your Android device.
+## Roadmap
 
-## Phase 1 Features (Implemented)
+Planned directions for the project:
 
-- **EPUB import** -- pick `.epub` files from device storage; files are copied into app-local storage
-- **EPUB parsing** -- chapters extracted with titles and plain-text content; in-memory cache avoids redundant parsing
-- **Local library** -- list of imported books with title, author, and reading progress; pull-to-refresh; delete with confirmation
-- **Reader** -- scrollable chapter content with previous/next navigation
-- **Table of contents** -- bottom sheet listing all chapters; tap to jump; current chapter highlighted
-- **Reading progress** -- persisted chapter index and scroll offset; debounced saves; restored on reopen; progress shown in library
-- **Text highlights** -- select text and tap "Highlight" from context menu; inline highlight rendering; highlights panel; delete support
-- **Settings** -- font size slider (14--28), theme selector (light / dark / sepia); persisted via SharedPreferences; applied globally
-- **SQLite persistence** -- books, progress, highlights, and resume markers stored locally with cascade deletes
-
-## Tech Stack
-
-- **Flutter** (Dart) -- app and UI
-- **SQLite** (`sqflite`) -- local database
-- **SharedPreferences** -- reader settings
-- **epubx** -- EPUB parsing
-- **file_picker** -- file selection
+- Richer EPUB rendering with covers, inline images, and better formatting support
+- Full-text search inside books
+- Better export and sharing for highlights and generated images
+- Sync and backup across devices
+- More language presets and reading-assistance workflows
+- Better multi-image generation and image management
+- Web support
 
 ## Known Limitations
 
-- **No cover images** -- book covers are not extracted or displayed; library shows a generic icon
-- **Plain text only** -- HTML formatting in EPUB chapters is stripped; no rich text, images, or CSS styling in the reader
-- **No search** -- no full-text search within books
-- **No pagination** -- chapters render as a single scrollable view rather than paginated pages
-- **No annotation export** -- highlights and resume markers cannot be exported
-- **Single-device** -- all data is local with no sync or backup mechanism
-- **Android only** -- tested on Android; iOS/desktop builds are not validated
-- **Highlight matching** -- highlights are matched by plain-text substring; if the same text appears multiple times in a chapter, all occurrences are highlighted
+- EPUB chapters are currently rendered as plain text, so rich HTML/CSS formatting and inline media are not preserved in the reader.
+- Cover extraction is not implemented yet.
+- There is no full-text search.
+- There is no built-in sync or backup.
+- Highlights and resume markers cannot be exported yet.
+- The image workflow currently saves a single returned image into the local library flow.
+- The default Define & Translate setup is tuned for English explanation plus Russian translation.
+- Web is not supported yet.
