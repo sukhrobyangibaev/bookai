@@ -1,11 +1,11 @@
 {
-    "name": "bookai",
-    "short_name": "bookai",
+    "name": "BookAI",
+    "short_name": "BookAI",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#FFF9DB",
     "theme_color": "#343A40",
-    "description": "A new Flutter project.",
+    "description": "An AI-powered EPUB reader built with Flutter.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

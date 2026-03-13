@@ -1,4 +1,4 @@
-package com.example.bookai
+package io.github.sukhrobyangibaev.bookai
 
 import io.flutter.embedding.android.FlutterActivity
 
