@@ -96,12 +96,21 @@ The repository includes a `web/` directory because this is a Flutter project, bu
 
 ## Screenshots
 
-- `[Placeholder: library overview screenshot]`
-- `[Placeholder: reader screen screenshot]`
-- `[Placeholder: text selection toolbar with AI actions screenshot]`
-- `[Placeholder: Ask AI / summary result sheet screenshot]`
-- `[Placeholder: generated image result screenshot]`
-- `[Placeholder: generated images gallery screenshot]`
+<p align="center">
+  <img src="docs/screenshots/Screenshot_20260315-164621.jpg" alt="BookAI library overview" width="220" />
+  <img src="docs/screenshots/Screenshot_20260315-164700.jpg" alt="Reader screen" width="220" />
+  <img src="docs/screenshots/Screenshot_20260315-164756.jpg" alt="Text selection toolbar with AI actions" width="220" />
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/Screenshot_20260315-164808.jpg" alt="Summary source picker" width="220" />
+  <img src="docs/screenshots/Screenshot_20260315-164954.jpg" alt="Summary result sheet" width="220" />
+  <img src="docs/screenshots/Screenshot_20260315-165318.jpg" alt="Generated image result with saved prompt" width="220" />
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/Screenshot_20260315-165332.jpg" alt="Generated images gallery" width="220" />
+</p>
 
 ## Demo
 
