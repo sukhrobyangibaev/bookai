@@ -112,9 +112,6 @@ The repository includes a `web/` directory because this is a Flutter project, bu
   <img src="docs/screenshots/Screenshot_20260315-165332.jpg" alt="Generated images gallery" width="220" />
 </p>
 
-## Demo
-
-- `[Placeholder: short GIF or video link showing import -> read -> Ask AI -> generate image]`
 
 ## Getting Started
 
