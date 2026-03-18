@@ -172,9 +172,15 @@ class ReaderSettings {
       if (value is! Map) continue;
 
       final valueMap = Map<String, dynamic>.from(value);
-      configs[featureId] = AiFeatureConfig.fromMap(
+      final config = AiFeatureConfig.fromMap(
         valueMap,
         defaultPromptTemplate: feature.defaultPromptTemplate,
+      );
+      configs[featureId] = config.copyWith(
+        promptTemplate: migrateAiFeaturePromptTemplate(
+          featureId: featureId,
+          promptTemplate: config.promptTemplate,
+        ),
       );
     }
 

@@ -187,6 +187,40 @@ void main() {
       );
     });
 
+    test('fromMap migrates the legacy ask ai default prompt', () {
+      const legacyAskAiPrompt = '''
+You are chatting with a reader about a book.
+
+Book: {book_title}
+Author: {book_author}
+Chapter: {chapter_title}
+
+Passage:
+{source_text}
+
+Reader question:
+{user_message}
+
+Use the provided passage as context when it is relevant, but the reader may also want to talk more generally about the book.
+You may use broader knowledge about the book when it helps answer the question.
+If the answer would reveal important spoilers, warn the reader before giving the spoiler-sensitive part of the answer.
+Be clear, direct, and helpful.
+''';
+
+      final settings = ReaderSettings.fromMap({
+        'aiFeatureConfigs': {
+          AiFeatureIds.askAi: {
+            'promptTemplate': legacyAskAiPrompt,
+          },
+        },
+      });
+
+      expect(
+        settings.aiFeatureConfigs[AiFeatureIds.askAi]?.promptTemplate,
+        defaultAskAiPromptTemplate,
+      );
+    });
+
     test('fromMap with empty map returns defaults', () {
       final settings = ReaderSettings.fromMap(<String, dynamic>{});
 

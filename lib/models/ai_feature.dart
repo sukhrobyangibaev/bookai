@@ -96,8 +96,45 @@ Reader question:
 Use the provided passage as context when it is relevant, but the reader may also want to talk more generally about the book.
 You may use broader knowledge about the book when it helps answer the question.
 If the answer would reveal important spoilers, warn the reader before giving the spoiler-sensitive part of the answer.
+Keep the answer concise by default.
+Answer directly in short paragraphs or a short list only when needed.
+Unless the reader asks for detail, keep the reply to 2-4 short sentences.
 Be clear, direct, and helpful.
 ''';
+
+const String _legacyDefaultAskAiPromptTemplateV1 = '''
+You are chatting with a reader about a book.
+
+Book: {book_title}
+Author: {book_author}
+Chapter: {chapter_title}
+
+Passage:
+{source_text}
+
+Reader question:
+{user_message}
+
+Use the provided passage as context when it is relevant, but the reader may also want to talk more generally about the book.
+You may use broader knowledge about the book when it helps answer the question.
+If the answer would reveal important spoilers, warn the reader before giving the spoiler-sensitive part of the answer.
+Be clear, direct, and helpful.
+''';
+
+String migrateAiFeaturePromptTemplate({
+  required String featureId,
+  required String promptTemplate,
+}) {
+  switch (featureId) {
+    case AiFeatureIds.askAi:
+      if (promptTemplate == _legacyDefaultAskAiPromptTemplateV1) {
+        return defaultAskAiPromptTemplate;
+      }
+      return promptTemplate;
+    default:
+      return promptTemplate;
+  }
+}
 
 const AiFeatureDefinition askAiFeature = AiFeatureDefinition(
   id: AiFeatureIds.askAi,
