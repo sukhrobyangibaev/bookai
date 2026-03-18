@@ -559,6 +559,10 @@ class _ReaderScreenState extends State<ReaderScreen> {
           followUpHintText: 'Ask another question',
           initialQuestionHintText:
               'What do you want to ask about this passage?',
+          initialQuestionPresets: <String>[
+            'What is this?',
+            'Who is this?',
+          ],
         ),
       _ => null,
     };
@@ -653,6 +657,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
       description:
           'Ask a question about the selected text or the chosen resume range.',
       hintText: hintText,
+      presetQuestions: featureSpec.initialQuestionPresets,
     );
   }
 
@@ -660,90 +665,21 @@ class _ReaderScreenState extends State<ReaderScreen> {
     required String title,
     required String description,
     required String hintText,
+    List<String> presetQuestions = const <String>[],
   }) async {
-    String? result;
-    var draftQuestion = '';
-
-    await showModalBottomSheet<void>(
+    return showModalBottomSheet<String>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
       builder: (sheetContext) {
-        return StatefulBuilder(
-          builder: (sheetContext, setSheetState) {
-            final canSubmit = draftQuestion.trim().isNotEmpty;
-
-            return SafeArea(
-              child: Padding(
-                padding: EdgeInsets.only(
-                  left: 16,
-                  right: 16,
-                  top: 8,
-                  bottom: MediaQuery.viewInsetsOf(sheetContext).bottom + 16,
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: Theme.of(sheetContext).textTheme.titleMedium,
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      description,
-                      style: Theme.of(sheetContext).textTheme.bodySmall,
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      minLines: 2,
-                      maxLines: 5,
-                      autofocus: true,
-                      textInputAction: TextInputAction.done,
-                      decoration: InputDecoration(
-                        border: const OutlineInputBorder(),
-                        labelText: 'Question',
-                        hintText: hintText,
-                      ),
-                      onChanged: (value) {
-                        draftQuestion = value;
-                        setSheetState(() {});
-                      },
-                      onSubmitted: (value) {
-                        if (!canSubmit) return;
-                        result = value.trim();
-                        Navigator.of(sheetContext).pop();
-                      },
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        TextButton(
-                          onPressed: () => Navigator.of(sheetContext).pop(),
-                          child: const Text('Cancel'),
-                        ),
-                        const Spacer(),
-                        FilledButton(
-                          onPressed: !canSubmit
-                              ? null
-                              : () {
-                                  result = draftQuestion.trim();
-                                  Navigator.of(sheetContext).pop();
-                                },
-                          child: const Text('Ask'),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
+        return _AiQuestionComposerSheet(
+          title: title,
+          description: description,
+          hintText: hintText,
+          presetQuestions: presetQuestions,
         );
       },
     );
-
-    return result;
   }
 
   Future<void> _defineAndTranslateSelection(
@@ -3219,6 +3155,7 @@ class _TextAiFeatureSpec {
   final List<String> requiredPromptPlaceholders;
   final String followUpHintText;
   final String? initialQuestionHintText;
+  final List<String> initialQuestionPresets;
   final String? switchTargetFeatureId;
   final String? switchButtonLabel;
 
@@ -3234,9 +3171,141 @@ class _TextAiFeatureSpec {
     required this.requiredPromptPlaceholders,
     required this.followUpHintText,
     this.initialQuestionHintText,
+    this.initialQuestionPresets = const <String>[],
     this.switchTargetFeatureId,
     this.switchButtonLabel,
   });
+}
+
+class _AiQuestionComposerSheet extends StatefulWidget {
+  final String title;
+  final String description;
+  final String hintText;
+  final List<String> presetQuestions;
+
+  const _AiQuestionComposerSheet({
+    required this.title,
+    required this.description,
+    required this.hintText,
+    required this.presetQuestions,
+  });
+
+  @override
+  State<_AiQuestionComposerSheet> createState() =>
+      _AiQuestionComposerSheetState();
+}
+
+class _AiQuestionComposerSheetState extends State<_AiQuestionComposerSheet> {
+  late final TextEditingController _controller;
+
+  bool get _canSubmit => _controller.text.trim().isNotEmpty;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _fillQuestion(String question) {
+    _controller.value = TextEditingValue(
+      text: question,
+      selection: TextSelection.collapsed(offset: question.length),
+    );
+    setState(() {});
+  }
+
+  void _submit() {
+    if (!_canSubmit) return;
+    Navigator.of(context).pop(_controller.text.trim());
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return SafeArea(
+      child: Padding(
+        padding: EdgeInsets.only(
+          left: 16,
+          right: 16,
+          top: 8,
+          bottom: MediaQuery.viewInsetsOf(context).bottom + 16,
+        ),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                widget.title,
+                style: theme.textTheme.titleMedium,
+              ),
+              const SizedBox(height: 6),
+              Text(
+                widget.description,
+                style: theme.textTheme.bodySmall,
+              ),
+              if (widget.presetQuestions.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Text(
+                  'Quick questions',
+                  style: theme.textTheme.labelLarge,
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: widget.presetQuestions
+                      .map(
+                        (question) => ActionChip(
+                          label: Text(question),
+                          onPressed: () => _fillQuestion(question),
+                        ),
+                      )
+                      .toList(growable: false),
+                ),
+              ],
+              const SizedBox(height: 12),
+              TextField(
+                controller: _controller,
+                minLines: 2,
+                maxLines: 5,
+                autofocus: true,
+                textInputAction: TextInputAction.done,
+                decoration: InputDecoration(
+                  border: const OutlineInputBorder(),
+                  labelText: 'Question',
+                  hintText: widget.hintText,
+                ),
+                onChanged: (value) => setState(() {}),
+                onSubmitted: (value) => _submit(),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  TextButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: const Text('Cancel'),
+                  ),
+                  const Spacer(),
+                  FilledButton(
+                    onPressed: _canSubmit ? _submit : null,
+                    child: const Text('Ask'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _ActiveAiRequest {

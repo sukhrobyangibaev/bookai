@@ -958,6 +958,108 @@ void main() {
       expect(openRouter.generateTextCallCount, 0);
     });
 
+    testWidgets('ask ai shows boilerplate question chips in the composer',
+        (tester) async {
+      final openRouter = _FakeOpenRouterService(
+        generateTextHandler: ({
+          required apiKey,
+          required modelId,
+          required prompt,
+          temperature,
+        }) async =>
+            'Unused',
+      );
+
+      await _pumpReaderScreen(
+        tester,
+        openRouterService: openRouter,
+      );
+
+      await _startAskAi(
+        tester,
+        sourceModeLabel: 'Selected Text',
+        question: null,
+      );
+
+      expect(find.text('Quick questions'), findsOneWidget);
+      expect(find.widgetWithText(ActionChip, 'What is this?'), findsOneWidget);
+      expect(find.widgetWithText(ActionChip, 'Who is this?'), findsOneWidget);
+    });
+
+    testWidgets('ask ai boilerplate chip fills the composer input',
+        (tester) async {
+      final openRouter = _FakeOpenRouterService(
+        generateTextHandler: ({
+          required apiKey,
+          required modelId,
+          required prompt,
+          temperature,
+        }) async =>
+            'Unused',
+      );
+
+      await _pumpReaderScreen(
+        tester,
+        openRouterService: openRouter,
+      );
+
+      await _startAskAi(
+        tester,
+        sourceModeLabel: 'Selected Text',
+        question: null,
+      );
+
+      await tester.tap(find.widgetWithText(ActionChip, 'What is this?'));
+      await tester.pump();
+
+      final editableText = tester.widget<EditableText>(
+        find.byType(EditableText).last,
+      );
+      expect(editableText.controller.text, 'What is this?');
+
+      final askButton = tester.widget<FilledButton>(
+        find.widgetWithText(FilledButton, 'Ask'),
+      );
+      expect(askButton.onPressed, isNotNull);
+    });
+
+    testWidgets('ask ai submits a boilerplate question chip value',
+        (tester) async {
+      final openRouter = _FakeOpenRouterService(
+        generateTextHandler: ({
+          required apiKey,
+          required modelId,
+          required prompt,
+          temperature,
+        }) async =>
+            'It identifies the selected item.',
+      );
+
+      await _pumpReaderScreen(
+        tester,
+        openRouterService: openRouter,
+      );
+
+      await _startAskAi(
+        tester,
+        sourceModeLabel: 'Selected Text',
+        question: null,
+      );
+
+      await tester.tap(find.widgetWithText(ActionChip, 'Who is this?'));
+      await tester.pump();
+      await tester.tap(find.widgetWithText(FilledButton, 'Ask'));
+      await tester.pump();
+      await tester.pumpAndSettle();
+
+      expect(
+        openRouter.lastPrompt,
+        contains('Reader question:\nWho is this?'),
+      );
+      expect(find.text('Who is this?'), findsOneWidget);
+      expect(find.text('It identifies the selected item.'), findsOneWidget);
+    });
+
     testWidgets('selected-text summary flow uses only the selected text',
         (tester) async {
       const forcedRangeText = 'Forced resume range text.';
