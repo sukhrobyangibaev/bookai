@@ -372,6 +372,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
       title: featureSpec.title,
       description:
           'Choose how the source text should be collected for this request.',
+      includeChapterStartToSelection: featureId == AiFeatureIds.resumeSummary,
     );
     if (!mounted || choice == null) return;
 
@@ -384,6 +385,12 @@ class _ReaderScreenState extends State<ReaderScreen> {
         break;
       case _AiSourceMode.resumeRange:
         await _runAiResumeRangeFeature(
+          editableTextState: editableTextState,
+          featureId: featureId,
+        );
+        break;
+      case _AiSourceMode.chapterStartToSelection:
+        await _runAiChapterStartToSelectionFeature(
           editableTextState: editableTextState,
           featureId: featureId,
         );
@@ -458,6 +465,47 @@ class _ReaderScreenState extends State<ReaderScreen> {
           content: Text(
             featureSpec.invalidRangeMessage,
           ),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+
+    final initialUserMessage = await _resolveInitialUserMessage(featureSpec);
+    if (!mounted || initialUserMessage == null) return;
+
+    final requestSpec = _buildTextFeatureRequestSpec(
+      featureId: featureId,
+      textFeatureSelection: textFeatureSelection,
+      initialUserMessage: initialUserMessage,
+    );
+    if (requestSpec == null) return;
+
+    await _startAiFeatureRequest(requestSpec);
+  }
+
+  Future<void> _runAiChapterStartToSelectionFeature({
+    required EditableTextState editableTextState,
+    required String featureId,
+  }) async {
+    final chapter = _currentChapter;
+    if (chapter == null) return;
+    final featureSpec = _textAiFeatureSpec(featureId);
+    if (featureSpec == null) return;
+
+    final selection = editableTextState.textEditingValue.selection;
+    final text = editableTextState.textEditingValue.text;
+    final textFeatureSelection = _buildChapterStartToSelectionAiSelection(
+      selection: selection,
+      chapterContent: text,
+      chapterTitle: chapter.title,
+    );
+    editableTextState.hideToolbar();
+
+    if (textFeatureSelection == null) {
+      _showAutoDismissSnackBar(
+        SnackBar(
+          content: Text(featureSpec.invalidSelectedTextMessage),
           duration: const Duration(seconds: 2),
         ),
       );
@@ -776,6 +824,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
       case _AiSourceMode.resumeRange:
         await _generateImageFromResumeRange(editableTextState);
         break;
+      case _AiSourceMode.chapterStartToSelection:
       case _AiSourceMode.wholeChapter:
         return;
     }
@@ -1753,49 +1802,63 @@ class _ReaderScreenState extends State<ReaderScreen> {
   Future<_AiSourceMode?> _showAiSourceModePicker({
     required String title,
     required String description,
+    bool includeChapterStartToSelection = false,
   }) {
     return showModalBottomSheet<_AiSourceMode>(
       context: context,
       showDragHandle: true,
       builder: (sheetContext) {
         return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: Theme.of(sheetContext).textTheme.titleMedium,
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  description,
-                  style: Theme.of(sheetContext).textTheme.bodySmall,
-                ),
-                const SizedBox(height: 12),
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.short_text),
-                  title: const Text('Selected Text'),
-                  subtitle: const Text(
-                    'Use only the currently selected words or sentence.',
+          child: SingleChildScrollView(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: Theme.of(sheetContext).textTheme.titleMedium,
                   ),
-                  onTap: () => Navigator.of(sheetContext)
-                      .pop(_AiSourceMode.selectedText),
-                ),
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.bookmark_outline),
-                  title: const Text('Resume Range'),
-                  subtitle: const Text(
-                    'Use the range between the last resume point and this selection.',
+                  const SizedBox(height: 6),
+                  Text(
+                    description,
+                    style: Theme.of(sheetContext).textTheme.bodySmall,
                   ),
-                  onTap: () =>
-                      Navigator.of(sheetContext).pop(_AiSourceMode.resumeRange),
-                ),
-              ],
+                  const SizedBox(height: 12),
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.short_text),
+                    title: const Text('Selected Text'),
+                    subtitle: const Text(
+                      'Use only the currently selected words or sentence.',
+                    ),
+                    onTap: () => Navigator.of(sheetContext)
+                        .pop(_AiSourceMode.selectedText),
+                  ),
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.bookmark_outline),
+                    title: const Text('Resume Range'),
+                    subtitle: const Text(
+                      'Use the range between the last resume point and this selection.',
+                    ),
+                    onTap: () => Navigator.of(sheetContext)
+                        .pop(_AiSourceMode.resumeRange),
+                  ),
+                  if (includeChapterStartToSelection)
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.first_page),
+                      title: const Text('Chapter Start to Selection'),
+                      subtitle: const Text(
+                        'Use the current chapter from the beginning through this selection.',
+                      ),
+                      onTap: () => Navigator.of(sheetContext)
+                          .pop(_AiSourceMode.chapterStartToSelection),
+                    ),
+                ],
+              ),
             ),
           ),
         );
@@ -1860,6 +1923,34 @@ class _ReaderScreenState extends State<ReaderScreen> {
       selectionStart: boundedStart,
       selectionEnd: boundedEnd,
       shouldUpdateResumeMarker: range.shouldUpdateResumeMarker,
+    );
+  }
+
+  _TextAiSelection? _buildChapterStartToSelectionAiSelection({
+    required TextSelection selection,
+    required String chapterContent,
+    required String chapterTitle,
+  }) {
+    if (!selection.isValid || selection.isCollapsed) return null;
+
+    final boundedStart = selection.start.clamp(0, chapterContent.length);
+    final boundedEnd = selection.end.clamp(0, chapterContent.length);
+    if (boundedEnd <= boundedStart) return null;
+
+    final selectedText = chapterContent.substring(boundedStart, boundedEnd);
+    if (selectedText.trim().isEmpty) return null;
+
+    final sourceText = chapterContent.substring(0, boundedEnd).trim();
+    if (sourceText.isEmpty) return null;
+
+    return _TextAiSelection(
+      sourceMode: _AiSourceMode.chapterStartToSelection,
+      sourceText: sourceText,
+      chapterTitle: chapterTitle,
+      selectedText: selectedText,
+      selectionStart: boundedStart,
+      selectionEnd: boundedEnd,
+      shouldUpdateResumeMarker: false,
     );
   }
 
@@ -3097,6 +3188,7 @@ class _TextAiSelection {
 enum _AiSourceMode {
   selectedText,
   resumeRange,
+  chapterStartToSelection,
   wholeChapter,
 }
 

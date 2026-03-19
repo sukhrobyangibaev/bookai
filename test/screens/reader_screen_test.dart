@@ -624,7 +624,7 @@ void main() {
       expect(find.byTooltip('Summary'), findsOneWidget);
     });
 
-    testWidgets('shows both summary source modes', (tester) async {
+    testWidgets('shows all summary source modes', (tester) async {
       final openRouter = _FakeOpenRouterService(
         generateTextHandler: ({
           required apiKey,
@@ -646,6 +646,7 @@ void main() {
       expect(find.text('Summary'), findsWidgets);
       expect(find.text('Selected Text'), findsOneWidget);
       expect(find.text('Resume Range'), findsOneWidget);
+      expect(find.text('Chapter Start to Selection'), findsOneWidget);
     });
 
     testWidgets('shows both simplify text source modes', (tester) async {
@@ -670,6 +671,37 @@ void main() {
       expect(find.text('Simplify Text'), findsWidgets);
       expect(find.text('Selected Text'), findsOneWidget);
       expect(find.text('Resume Range'), findsOneWidget);
+      expect(find.text('Chapter Start to Selection'), findsNothing);
+    });
+
+    testWidgets('ask ai still shows only the existing source modes',
+        (tester) async {
+      final openRouter = _FakeOpenRouterService(
+        generateTextHandler: ({
+          required apiKey,
+          required modelId,
+          required prompt,
+          temperature,
+        }) async =>
+            'It answers the question.',
+      );
+
+      await _pumpReaderScreen(
+        tester,
+        openRouterService: openRouter,
+      );
+
+      await _startAskAi(
+        tester,
+        sourceModeLabel: null,
+        question: null,
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Ask AI'), findsWidgets);
+      expect(find.text('Selected Text'), findsOneWidget);
+      expect(find.text('Resume Range'), findsOneWidget);
+      expect(find.text('Chapter Start to Selection'), findsNothing);
     });
 
     testWidgets('opens the result sheet in error state when AI fails',
@@ -1101,6 +1133,64 @@ void main() {
       expect(spyResumeSummaryService.computeRangeCallCount, 0);
       expect(spyResumeSummaryService.lastSourceText, 'Anchorword');
       expect(openRouter.lastPrompt, contains('Passage:\nAnchorword'));
+      expect(openRouter.lastPrompt, isNot(contains(forcedRangeText)));
+    });
+
+    testWidgets(
+        'chapter-start summary flow uses chapter text through the selected text',
+        (tester) async {
+      const forcedRangeText = 'Forced resume range text.';
+      const chapterContent =
+          'First line before target.\nTargetword closes the excerpt.\nTrailing line after target.';
+      const expectedSourceText = 'First line before target.\nTargetword';
+      final spyResumeSummaryService = _SpyResumeSummaryService(
+        forcedRange: const ResumeSummaryRange(
+          startOffset: 0,
+          endOffset: 24,
+          sourceText: forcedRangeText,
+          shouldUpdateResumeMarker: false,
+        ),
+      );
+      final openRouter = _FakeOpenRouterService(
+        generateTextHandler: ({
+          required apiKey,
+          required modelId,
+          required prompt,
+          temperature,
+        }) async =>
+            'Catch-up summary.',
+      );
+
+      await _pumpReaderScreen(
+        tester,
+        openRouterService: openRouter,
+        resumeSummaryService: spyResumeSummaryService,
+        chapters: const [
+          Chapter(
+            bookId: null,
+            index: 0,
+            title: 'Chapter 1',
+            content: chapterContent,
+          ),
+        ],
+      );
+
+      await _openReaderSelectionToolbarForSubstring(tester, 'Targetword');
+      await tester.tap(find.text('Catch Me Up'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Chapter Start to Selection'));
+      await tester.pumpAndSettle();
+
+      expect(spyResumeSummaryService.computeRangeCallCount, 0);
+      expect(spyResumeSummaryService.lastSourceText, expectedSourceText);
+      expect(
+        openRouter.lastPrompt,
+        contains('Passage:\n$expectedSourceText'),
+      );
+      expect(
+        openRouter.lastPrompt,
+        isNot(contains('Trailing line after target.')),
+      );
       expect(openRouter.lastPrompt, isNot(contains(forcedRangeText)));
     });
 
@@ -2477,6 +2567,61 @@ Future<void> _openReaderSelectionToolbar(WidgetTester tester) async {
 
   final textTopLeft = tester.getTopLeft(textFinder);
   await tester.longPressAt(textTopLeft + const Offset(32, 24));
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 200));
+}
+
+Future<void> _openReaderSelectionToolbarForSubstring(
+  WidgetTester tester,
+  String substring,
+) async {
+  final textFinder = find.byType(SelectableText).first;
+
+  await tester.ensureVisible(textFinder);
+
+  final selectableText = tester.widget<SelectableText>(textFinder);
+  final renderBox = tester.renderObject<RenderBox>(textFinder);
+  final layoutText = selectableText.textSpan != null
+      ? TextSpan(
+          style: selectableText.style,
+          children: <InlineSpan>[selectableText.textSpan!],
+        )
+      : TextSpan(
+          text: selectableText.data ?? '',
+          style: selectableText.style,
+        );
+  final plainText = layoutText.toPlainText();
+  final substringStart = plainText.indexOf(substring);
+
+  expect(substringStart, isNonNegative);
+
+  final textPainter = TextPainter(
+    text: layoutText,
+    textAlign: selectableText.textAlign ?? TextAlign.start,
+    textDirection: selectableText.textDirection ??
+        Directionality.of(tester.element(textFinder)),
+    textScaler: selectableText.textScaler ?? TextScaler.noScaling,
+    maxLines: selectableText.maxLines,
+    strutStyle: selectableText.strutStyle,
+    textWidthBasis: selectableText.textWidthBasis ?? TextWidthBasis.parent,
+    textHeightBehavior: selectableText.textHeightBehavior,
+  )..layout(maxWidth: tester.getSize(textFinder).width);
+
+  final selectionBoxes = textPainter.getBoxesForSelection(
+    TextSelection(
+      baseOffset: substringStart,
+      extentOffset: substringStart + substring.length,
+    ),
+  );
+
+  expect(selectionBoxes, isNotEmpty);
+
+  final targetBox = selectionBoxes.first.toRect();
+  final globalPosition = renderBox.localToGlobal(
+    Offset(targetBox.left + 2, targetBox.top + (targetBox.height / 2)),
+  );
+
+  await tester.longPressAt(globalPosition);
   await tester.pump();
   await tester.pump(const Duration(milliseconds: 200));
 }
