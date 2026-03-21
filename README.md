@@ -1,8 +1,6 @@
 # BookAI
 
-BookAI is a local-first EPUB reader built with Flutter, with optional AI tools layered on top. You can import EPUB files into a private on-device library, read with adjustable typography and themes, save highlights and resume points, and use your own OpenRouter or Gemini account for reading assistance.
-
-Reading works without any AI key. AI features are bring-your-own-provider.
+BookAI is an EPUB reader built with Flutter. It can explain difficult words, translate text, answer questions about a passage, give a short recap, make difficult text easier to understand, and generate images from scenes in the book. To use these features, you need an OpenRouter or Gemini API key. Both offer free usage with limits.
 
 ## What BookAI Does
 
@@ -13,8 +11,6 @@ Reading works without any AI key. AI features are bring-your-own-provider.
 - Let you choose your own AI provider and models instead of relying on a BookAI backend
 
 ## AI Features
-
-All AI features are optional and use your own OpenRouter and/or Gemini credentials.
 
 - **Resume Here and Catch Me Up**: Creates a short catch-up from selected text or from the range between your last resume point and the current selection.
 - **Simplify Text**: Rewrites a passage in clearer, simpler language without intentionally turning it into a summary.
