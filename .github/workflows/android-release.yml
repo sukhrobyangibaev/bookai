@@ -1,0 +1,87 @@
+name: Android Release APK
+
+on:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: android-release-apk
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  build-release-apk:
+    runs-on: ubuntu-latest
+
+    env:
+      RELEASE_TAG: latest-apk
+      RELEASE_NAME: Latest APK
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.22.3
+          cache: true
+
+      - name: Validate signing secrets and decode keystore
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          for secret_name in \
+            ANDROID_KEYSTORE_BASE64 \
+            ANDROID_KEYSTORE_PASSWORD \
+            ANDROID_KEY_ALIAS \
+            ANDROID_KEY_PASSWORD; do
+            if [ -z "${!secret_name}" ]; then
+              echo "$secret_name is not configured."
+              exit 1
+            fi
+          done
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$GITHUB_WORKSPACE/android/upload-keystore.jks"
+
+      - name: Install Flutter dependencies
+        run: flutter pub get
+
+      - name: Build release APK
+        env:
+          ANDROID_KEYSTORE_PATH: ${{ github.workspace }}/android/upload-keystore.jks
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: flutter build apk --release
+
+      - name: Move rolling release tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -f "$RELEASE_TAG" "$GITHUB_SHA"
+          git push origin "refs/tags/$RELEASE_TAG" --force
+
+      - name: Publish APK to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: ${{ env.RELEASE_NAME }}
+          body: |
+            Automated signed APK build from `${{ github.sha }}`.
+          files: build/app/outputs/flutter-apk/app-release.apk
+          fail_on_unmatched_files: true
+          overwrite_files: true
