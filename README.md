@@ -1,6 +1,8 @@
 # BookAI
 
-BookAI is an EPUB reader built with Flutter. It can explain difficult words, translate text, answer questions about a passage, give a short recap, make difficult text easier to understand, and generate images from scenes in the book. To use these features, you need an OpenRouter or Gemini API key. Both offer free usage with limits.
+BookAI is an EPUB reader with AI. It can explain difficult words, translate text, answer questions about a passage, give a short recap, make difficult text easier to understand, and generate images from scenes in the book. To use these features, you need an OpenRouter or Gemini API key. Both offer free usage with limits.
+
+> For my students: if you figure out how to build this app from source code, install it on your phone, set up the API keys, and open an issue or pull request on GitHub, you are going to make it.
 
 ## What BookAI Does
 
