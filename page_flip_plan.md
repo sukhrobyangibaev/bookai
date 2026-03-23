@@ -345,3 +345,9 @@ Recommended checks:
 - Behavior changes: added nullable `contentOffset` to `ReadingProgress` for mode-neutral chapter anchors while keeping `scrollOffset`; upgraded database schema to version 7 with a `progress.contentOffset` migration path from older databases.
 - Tests run: `flutter test test/models/reading_progress_test.dart` and `flutter test test/services/database_service_test.dart`.
 - Open follow-ups: `ReaderScreen` still persists `scrollOffset` only; Task 3 should add shared mode-aware location plumbing before page mode UI work.
+
+#### 2026-03-23 - Task 3
+- Files changed: `lib/screens/reader_screen.dart`, `lib/services/reader_location_persistence.dart`, and `lib/widgets/scroll_reader_content.dart`.
+- Behavior changes: extracted scroll body rendering into a dedicated `ScrollReaderContent` widget and added a `ReaderLocationPersistence` seam that centralizes mode-aware initial-location restore and progress save plumbing; scroll-mode UX remains unchanged.
+- Tests run: `flutter test test/screens/reader_screen_test.dart`.
+- Open follow-ups: Task 4 should introduce a real pagination engine and map `contentOffset` to measurable text positions so page mode can restore precisely after repagination.

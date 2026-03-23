@@ -20,6 +20,7 @@ import '../services/chapter_loader_service.dart';
 import '../services/database_service.dart';
 import '../services/gemini_service.dart';
 import '../services/openrouter_service.dart';
+import '../services/reader_location_persistence.dart';
 import '../services/resume_summary_service.dart';
 import '../services/settings_controller.dart';
 import '../services/storage_service.dart';
@@ -27,6 +28,7 @@ import '../theme/reader_typography.dart';
 import '../widgets/generated_image_viewer.dart';
 import '../widgets/mobile_scrollbar.dart';
 import '../widgets/reader_selection_toolbar.dart';
+import '../widgets/scroll_reader_content.dart';
 
 /// Displays the content of a [Book] with chapter-by-chapter navigation.
 class ReaderScreen extends StatefulWidget {
@@ -58,6 +60,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
   late final DatabaseService _db;
   late final OpenRouterService _openRouter;
   late final GeminiService _gemini;
+  late final ReaderLocationPersistence _locationPersistence;
   late final ResumeSummaryService _resumeSummaryService;
   late final StorageService _storage;
   final _scrollController = ScrollController();
@@ -96,6 +99,8 @@ class _ReaderScreenState extends State<ReaderScreen> {
   _ActiveAiRequest? _activeAiRequest;
   Timer? _aiLoadingElapsedTimer;
   int _activeAiElapsedSeconds = 0;
+  ReadingMode _activeReadingMode = ReaderSettings.defaults.readingMode;
+  int? _contentOffsetAnchor;
 
   static const double _aiLoadingSheetReservedSpace = 116.0;
   static const double _readerHorizontalPadding = 20.0;
@@ -122,11 +127,21 @@ class _ReaderScreenState extends State<ReaderScreen> {
     _db = widget.databaseService ?? DatabaseService.instance;
     _openRouter = widget.openRouterService ?? OpenRouterService();
     _gemini = widget.geminiService ?? GeminiService();
+    _locationPersistence = ReaderLocationPersistence();
     _resumeSummaryService =
         widget.resumeSummaryService ?? const ResumeSummaryService();
     _storage = widget.storageService ?? StorageService.instance;
     _scrollController.addListener(_onScroll);
     _loadChapters();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final readingMode = SettingsControllerScope.of(context).readingMode;
+    if (_activeReadingMode != readingMode) {
+      _activeReadingMode = readingMode;
+    }
   }
 
   @override
@@ -166,42 +181,27 @@ class _ReaderScreenState extends State<ReaderScreen> {
 
       final savedProgress = savedState.progress;
       final savedMarker = savedState.marker;
-      final markerChapterIndex = savedMarker?.chapterIndex ?? -1;
-      final markerChapterIsValid =
-          markerChapterIndex >= 0 && markerChapterIndex < chapters.length;
-      final progressChapterIndex = savedProgress?.chapterIndex ?? -1;
-      final progressChapterIsValid =
-          progressChapterIndex >= 0 && progressChapterIndex < chapters.length;
-      final restoredFromMarker = markerChapterIsValid;
-
-      final initialChapterIndex = markerChapterIsValid
-          ? markerChapterIndex
-          : (progressChapterIsValid ? progressChapterIndex : 0);
-      final initialScrollOffset = markerChapterIsValid
-          ? (savedMarker?.scrollOffset ?? 0.0)
-          : (savedProgress?.scrollOffset ?? 0.0);
+      final restoreLocation = _locationPersistence.resolveInitialLocation(
+        readingMode: _activeReadingMode,
+        chapters: chapters,
+        savedProgress: savedProgress,
+        savedMarker: savedMarker,
+      );
+      _contentOffsetAnchor = restoreLocation.contentOffset;
 
       if (mounted) {
         setState(() {
           _chapters = chapters;
           _highlights = savedState.highlights;
           _resumeMarker = savedMarker;
-          _currentIndex = initialChapterIndex;
+          _currentIndex = restoreLocation.chapterIndex;
           _loading = false;
         });
 
         // Restore scroll offset after the frame renders.
-        if (initialScrollOffset > 0) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (_scrollController.hasClients) {
-              final maxScroll = _scrollController.position.maxScrollExtent;
-              _scrollController
-                  .jumpTo(initialScrollOffset.clamp(0.0, maxScroll));
-            }
-          });
-        }
+        _restoreReaderLocationAfterFrame(restoreLocation);
 
-        if (restoredFromMarker) {
+        if (restoreLocation.restoredFromResumeMarker) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             _showAutoDismissSnackBar(
               const SnackBar(
@@ -246,10 +246,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
 
     setState(() => _currentIndex = index);
 
-    // Reset scroll position when switching chapters.
-    if (_scrollController.hasClients) {
-      _scrollController.jumpTo(0);
-    }
+    _resetReaderLocationForChapterChange();
 
     // Save progress immediately on chapter change.
     _saveProgressNow();
@@ -266,9 +263,46 @@ class _ReaderScreenState extends State<ReaderScreen> {
   bool get _hasNextChapter =>
       _chapters != null && _currentIndex < _chapters!.length - 1;
 
+  double get _currentScrollOffset =>
+      _scrollController.hasClients ? _scrollController.offset : 0.0;
+
+  void _restoreReaderLocationAfterFrame(ReaderLocation restoreLocation) {
+    if (restoreLocation.scrollOffset <= 0) {
+      return;
+    }
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      switch (_activeReadingMode) {
+        case ReadingMode.scroll:
+        case ReadingMode.pageFlip:
+          if (_scrollController.hasClients) {
+            final maxScroll = _scrollController.position.maxScrollExtent;
+            _scrollController.jumpTo(
+              restoreLocation.scrollOffset.clamp(0.0, maxScroll),
+            );
+          }
+      }
+    });
+  }
+
+  void _resetReaderLocationForChapterChange() {
+    _contentOffsetAnchor = 0;
+    switch (_activeReadingMode) {
+      case ReadingMode.scroll:
+      case ReadingMode.pageFlip:
+        if (_scrollController.hasClients) {
+          _scrollController.jumpTo(0);
+        }
+    }
+  }
+
   // ── Progress persistence ─────────────────────────────────────────────────
 
   void _onScroll() {
+    _scheduleProgressSave();
+  }
+
+  void _scheduleProgressSave() {
     _saveTimer?.cancel();
     _saveTimer = Timer(_saveDebounceDuration, _saveProgressNow);
   }
@@ -278,17 +312,17 @@ class _ReaderScreenState extends State<ReaderScreen> {
     final bookId = widget.book.id;
     if (bookId == null || _chapters == null || _chapters!.isEmpty) return;
 
-    final offset =
-        _scrollController.hasClients ? _scrollController.offset : 0.0;
-
-    _db.upsertProgress(
-      ReadingProgress(
-        bookId: bookId,
-        chapterIndex: _currentIndex,
-        scrollOffset: offset,
-        updatedAt: DateTime.now(),
-      ),
+    final progress = _locationPersistence.buildProgress(
+      bookId: bookId,
+      chapterIndex: _currentIndex,
+      readingMode: _activeReadingMode,
+      scrollOffset: _currentScrollOffset,
+      contentOffset: _contentOffsetAnchor,
+      previousContentOffset: _contentOffsetAnchor,
     );
+
+    _contentOffsetAnchor = progress.contentOffset;
+    _db.upsertProgress(progress);
   }
 
   // ── Resume Marker ────────────────────────────────────────────────────────
@@ -317,8 +351,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
       selectedText: rawSelectedText,
       selectionStart: selectionStart,
       selectionEnd: selectionEnd,
-      scrollOffset:
-          _scrollController.hasClients ? _scrollController.offset : 0.0,
+      scrollOffset: _currentScrollOffset,
       createdAt: DateTime.now(),
     );
 
@@ -2887,73 +2920,40 @@ class _ReaderScreenState extends State<ReaderScreen> {
   Widget _buildContent() {
     final chapter = _currentChapter!;
     final settings = SettingsControllerScope.of(context);
-    final settingsFontSize = settings.fontSize;
-    final settingsFontFamily = settings.fontFamily;
-    final topPadding = _readerTopPadding +
-        (_isNavbarVisible
-            ? 0
-            : _hiddenNavPillHeight + _hiddenNavPillContentGap);
-
-    // Collect highlight texts for the current chapter to display inline
-    // highlighting. Build a set for quick lookups.
-    final currentHighlights =
-        _highlights.where((h) => h.chapterIndex == _currentIndex).toList();
-    final currentResumeMarker =
-        _resumeMarker != null && _resumeMarker!.chapterIndex == _currentIndex
-            ? _resumeMarker
-            : null;
-
-    return MobileScrollbar(
-      controller: _scrollController,
-      child: SingleChildScrollView(
-        controller: _scrollController,
-        padding: EdgeInsets.fromLTRB(
-          _readerHorizontalPadding,
-          topPadding,
-          _readerHorizontalPadding,
-          _readerBottomPadding +
-              (_activeAiRequest == null ? 0 : _aiLoadingSheetReservedSpace),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (_hasPreviousChapter) ...[
-              _buildChapterNavigationButton(
-                label: 'Previous Chapter',
-                alignment: Alignment.centerLeft,
-                onPressed: () => _goToChapter(_currentIndex - 1),
-              ),
-              const SizedBox(height: 16),
-            ],
-            Text(
-              chapter.title,
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-            ),
-            const SizedBox(height: 16),
-            SelectableText.rich(
-              _buildHighlightedText(
-                chapter.content,
-                currentHighlights,
-                currentResumeMarker,
-              ),
-              textAlign: TextAlign.justify,
-              style: buildReaderContentTextStyle(
-                context: context,
-                fontSize: settingsFontSize,
-                fontFamily: settingsFontFamily,
-              ),
-              contextMenuBuilder: (context, editableTextState) {
-                return _buildSelectionToolbar(editableTextState);
-              },
-            ),
-            const SizedBox(height: 24),
-            _buildChapterEndActions(),
-          ],
-        ),
-      ),
+    final contentTextStyle = buildReaderContentTextStyle(
+      context: context,
+      fontSize: settings.fontSize,
+      fontFamily: settings.fontFamily,
     );
+
+    final highlightedText = _buildHighlightedText(
+      chapter.content,
+      _currentChapterHighlights,
+      _currentChapterResumeMarker,
+    );
+
+    switch (_activeReadingMode) {
+      case ReadingMode.scroll:
+      case ReadingMode.pageFlip:
+        return ScrollReaderContent(
+          scrollController: _scrollController,
+          padding: _scrollReaderPadding,
+          previousChapterButton: _hasPreviousChapter
+              ? _buildChapterNavigationButton(
+                  label: 'Previous Chapter',
+                  alignment: Alignment.centerLeft,
+                  onPressed: () => _goToChapter(_currentIndex - 1),
+                )
+              : null,
+          chapterTitle: chapter.title,
+          chapterText: highlightedText,
+          chapterTextStyle: contentTextStyle,
+          contextMenuBuilder: (context, editableTextState) {
+            return _buildSelectionToolbar(editableTextState);
+          },
+          chapterEndActions: _buildChapterEndActions(),
+        );
+    }
   }
 
   Widget _buildChapterEndActions() {
@@ -2990,6 +2990,32 @@ class _ReaderScreenState extends State<ReaderScreen> {
         child: Text(label),
       ),
     );
+  }
+
+  EdgeInsets get _scrollReaderPadding {
+    final topPadding = _readerTopPadding +
+        (_isNavbarVisible
+            ? 0
+            : _hiddenNavPillHeight + _hiddenNavPillContentGap);
+    return EdgeInsets.fromLTRB(
+      _readerHorizontalPadding,
+      topPadding,
+      _readerHorizontalPadding,
+      _readerBottomPadding +
+          (_activeAiRequest == null ? 0 : _aiLoadingSheetReservedSpace),
+    );
+  }
+
+  List<Highlight> get _currentChapterHighlights {
+    return _highlights.where((h) => h.chapterIndex == _currentIndex).toList();
+  }
+
+  ResumeMarker? get _currentChapterResumeMarker {
+    final marker = _resumeMarker;
+    if (marker == null || marker.chapterIndex != _currentIndex) {
+      return null;
+    }
+    return marker;
   }
 
   /// Builds a [TextSpan] tree that highlights saved highlight texts inline.
