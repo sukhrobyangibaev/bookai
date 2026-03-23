@@ -357,3 +357,9 @@ Recommended checks:
 - Behavior changes: added a pure Flutter text-measurement pagination engine that splits chapter text into page slices with stable `startOffset`/`endOffset` boundaries and exposes anchor lookup helpers to map a saved `contentOffset` back to a page after repagination.
 - Tests run: `flutter test test/services/reader_pagination_service_test.dart`.
 - Open follow-ups: Task 5 should wire this engine into a `PageView`-based reader body and persist page-mode location using `contentOffset` during page changes.
+
+#### 2026-03-23 - Task 5
+- Files changed: `lib/screens/reader_screen.dart`, `lib/widgets/page_reader_content.dart`, and `test/screens/reader_screen_test.dart`.
+- Behavior changes: added a `PageView`-based `pageFlip` reader body that paginates the current chapter with the shared pagination engine, restores the visible page from persisted `contentOffset`, saves `contentOffset` when the user flips pages, and keeps chapter navigation explicit while leaving scroll mode unchanged.
+- Tests run: `flutter test test/screens/reader_screen_test.dart --plain-name 'ReaderScreen AI loading flow page flip mode'` and `flutter test test/screens/reader_screen_test.dart`.
+- Open follow-ups: page mode still does not support selection-driven actions; Task 6 should map page-local selections back to chapter-global offsets before enabling highlight/resume/AI actions there.

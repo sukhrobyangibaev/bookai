@@ -21,9 +21,11 @@ import '../services/database_service.dart';
 import '../services/gemini_service.dart';
 import '../services/openrouter_service.dart';
 import '../services/reader_location_persistence.dart';
+import '../services/reader_pagination_service.dart';
 import '../services/resume_summary_service.dart';
 import '../services/settings_controller.dart';
 import '../services/storage_service.dart';
+import '../widgets/page_reader_content.dart';
 import '../theme/reader_typography.dart';
 import '../widgets/generated_image_viewer.dart';
 import '../widgets/mobile_scrollbar.dart';
@@ -112,6 +114,8 @@ class _ReaderScreenState extends State<ReaderScreen> {
   static const double _hiddenNavPillContentGap = 8.0;
   static const ValueKey<String> _hiddenNavPillKey =
       ValueKey<String>('reader-hidden-nav-pill');
+  static const ReaderPaginationService _paginationService =
+      ReaderPaginationService();
 
   static const List<AppThemeMode> _readerThemeModes = <AppThemeMode>[
     AppThemeMode.system,
@@ -274,13 +278,14 @@ class _ReaderScreenState extends State<ReaderScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       switch (_activeReadingMode) {
         case ReadingMode.scroll:
-        case ReadingMode.pageFlip:
           if (_scrollController.hasClients) {
             final maxScroll = _scrollController.position.maxScrollExtent;
             _scrollController.jumpTo(
               restoreLocation.scrollOffset.clamp(0.0, maxScroll),
             );
           }
+        case ReadingMode.pageFlip:
+          return;
       }
     });
   }
@@ -289,10 +294,11 @@ class _ReaderScreenState extends State<ReaderScreen> {
     _contentOffsetAnchor = 0;
     switch (_activeReadingMode) {
       case ReadingMode.scroll:
-      case ReadingMode.pageFlip:
         if (_scrollController.hasClients) {
           _scrollController.jumpTo(0);
         }
+      case ReadingMode.pageFlip:
+        return;
     }
   }
 
@@ -323,6 +329,16 @@ class _ReaderScreenState extends State<ReaderScreen> {
 
     _contentOffsetAnchor = progress.contentOffset;
     _db.upsertProgress(progress);
+  }
+
+  void _handlePageModeVisiblePageChanged(int contentOffset) {
+    final nextContentOffset = contentOffset;
+    if (_contentOffsetAnchor == nextContentOffset) {
+      return;
+    }
+
+    _contentOffsetAnchor = nextContentOffset;
+    _saveProgressNow();
   }
 
   // ── Resume Marker ────────────────────────────────────────────────────────
@@ -2925,16 +2941,17 @@ class _ReaderScreenState extends State<ReaderScreen> {
       fontSize: settings.fontSize,
       fontFamily: settings.fontFamily,
     );
+    final currentHighlights = _currentChapterHighlights;
+    final currentResumeMarker = _currentChapterResumeMarker;
 
     final highlightedText = _buildHighlightedText(
       chapter.content,
-      _currentChapterHighlights,
-      _currentChapterResumeMarker,
+      currentHighlights,
+      currentResumeMarker,
     );
 
     switch (_activeReadingMode) {
       case ReadingMode.scroll:
-      case ReadingMode.pageFlip:
         return ScrollReaderContent(
           scrollController: _scrollController,
           padding: _scrollReaderPadding,
@@ -2952,6 +2969,29 @@ class _ReaderScreenState extends State<ReaderScreen> {
             return _buildSelectionToolbar(editableTextState);
           },
           chapterEndActions: _buildChapterEndActions(),
+        );
+      case ReadingMode.pageFlip:
+        return PageReaderContent(
+          padding: _scrollReaderPadding,
+          previousChapterButton: _hasPreviousChapter
+              ? _buildChapterNavigationButton(
+                  label: 'Previous Chapter',
+                  alignment: Alignment.centerLeft,
+                  onPressed: () => _goToChapter(_currentIndex - 1),
+                )
+              : null,
+          chapterTitle: chapter.title,
+          chapterText: chapter.content,
+          chapterTextStyle: contentTextStyle,
+          chapterEndActions: _buildChapterEndActions(),
+          contentOffsetAnchor: _contentOffsetAnchor,
+          paginationService: _paginationService,
+          onVisiblePageChanged: _handlePageModeVisiblePageChanged,
+          pageTextBuilder: (page) => _buildHighlightedText(
+            page.text,
+            currentHighlights,
+            _buildPageResumeMarker(page, currentResumeMarker),
+          ),
         );
     }
   }
@@ -3016,6 +3056,29 @@ class _ReaderScreenState extends State<ReaderScreen> {
       return null;
     }
     return marker;
+  }
+
+  ResumeMarker? _buildPageResumeMarker(
+    ReaderPageSlice page,
+    ResumeMarker? currentResumeMarker,
+  ) {
+    if (currentResumeMarker == null) {
+      return null;
+    }
+
+    final localStart = currentResumeMarker.selectionStart - page.startOffset;
+    final localEnd = currentResumeMarker.selectionEnd - page.startOffset;
+    final clampedStart = localStart.clamp(0, page.text.length) as int;
+    final clampedEnd = localEnd.clamp(0, page.text.length) as int;
+
+    if (clampedEnd <= clampedStart) {
+      return null;
+    }
+
+    return currentResumeMarker.copyWith(
+      selectionStart: clampedStart,
+      selectionEnd: clampedEnd,
+    );
   }
 
   /// Builds a [TextSpan] tree that highlights saved highlight texts inline.

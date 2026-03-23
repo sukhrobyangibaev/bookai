@@ -11,6 +11,7 @@ import 'package:bookai/models/ai_model_selection.dart';
 import 'package:bookai/models/ai_provider.dart';
 import 'package:bookai/models/chapter.dart';
 import 'package:bookai/models/openrouter_model.dart';
+import 'package:bookai/models/reading_progress.dart';
 import 'package:bookai/models/reader_settings.dart';
 import 'package:bookai/models/resume_marker.dart';
 import 'package:bookai/screens/reader_screen.dart';
@@ -569,6 +570,173 @@ void main() {
       expect(find.text('Chapter 1'), findsOneWidget);
       expect(find.text('Chapter 2'), findsNothing);
       expect(find.text('Next Chapter'), findsOneWidget);
+    });
+
+    testWidgets('page flip mode paginates horizontally and saves contentOffset',
+        (tester) async {
+      final tempDir = (await tester.runAsync(
+        () => Directory.systemTemp.createTemp('bookai_page_flip_nav_test_'),
+      ))!;
+      addTearDown(() async {
+        if (await tempDir.exists()) {
+          await tempDir.delete(recursive: true);
+        }
+      });
+
+      final databaseService = DatabaseService.instance;
+      final databasePath = p.join(tempDir.path, 'page_flip_navigation.db');
+      await tester.runAsync(
+        () => databaseService.resetForTesting(databasePath: databasePath),
+      );
+      addTearDown(() async {
+        await databaseService.resetForTesting();
+      });
+      addTearDown(() async {
+        await _disposeReaderTestApp(tester);
+      });
+
+      final savedBook = (await tester.runAsync(
+        () => databaseService.insertBook(
+          Book(
+            title: 'Paginated Book',
+            author: 'Author',
+            filePath: '/tmp/paginated-reader.epub',
+            totalChapters: 1,
+            createdAt: DateTime.utc(2025, 1, 1),
+          ),
+        ),
+      ))!;
+      final chapterText = _buildPaginatedChapterText(sectionCount: 8);
+      final openRouter = _FakeOpenRouterService(
+        generateTextHandler: ({
+          required apiKey,
+          required modelId,
+          required prompt,
+          temperature,
+        }) async =>
+            'Unused',
+      );
+
+      await _pumpReaderScreen(
+        tester,
+        openRouterService: openRouter,
+        databaseService: databaseService,
+        savedBook: savedBook,
+        readingMode: ReadingMode.pageFlip,
+        chapters: [
+          Chapter(
+            bookId: savedBook.id,
+            index: 0,
+            title: 'Chapter 1',
+            content: chapterText,
+          ),
+        ],
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(PageView), findsOneWidget);
+      expect(find.text('Chapter 1'), findsOneWidget);
+      expect(find.textContaining('Section 1 start.'), findsNothing);
+      expect(find.text('Chapter Catch-Up'), findsNothing);
+
+      await tester.drag(find.byType(PageView), const Offset(-500, 0));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('Section 1 start.'), findsOneWidget);
+
+      await tester.drag(find.byType(PageView), const Offset(-500, 0));
+      await tester.pumpAndSettle();
+
+      final progress = await tester.runAsync(
+        () => databaseService.getProgressByBookId(savedBook.id!),
+      );
+
+      expect(progress, isNotNull);
+      expect(progress!.chapterIndex, 0);
+      expect(progress.contentOffset, isNotNull);
+      expect(progress.contentOffset, greaterThan(0));
+    });
+
+    testWidgets('page flip mode restores the saved page from contentOffset',
+        (tester) async {
+      final tempDir = (await tester.runAsync(
+        () => Directory.systemTemp.createTemp('bookai_page_flip_restore_test_'),
+      ))!;
+      addTearDown(() async {
+        if (await tempDir.exists()) {
+          await tempDir.delete(recursive: true);
+        }
+      });
+
+      final databaseService = DatabaseService.instance;
+      final databasePath = p.join(tempDir.path, 'page_flip_restore.db');
+      await tester.runAsync(
+        () => databaseService.resetForTesting(databasePath: databasePath),
+      );
+      addTearDown(() async {
+        await databaseService.resetForTesting();
+      });
+      addTearDown(() async {
+        await _disposeReaderTestApp(tester);
+      });
+
+      final savedBook = (await tester.runAsync(
+        () => databaseService.insertBook(
+          Book(
+            title: 'Restored Book',
+            author: 'Author',
+            filePath: '/tmp/page-flip-restore.epub',
+            totalChapters: 1,
+            createdAt: DateTime.utc(2025, 1, 1),
+          ),
+        ),
+      ))!;
+      final chapterText = _buildPaginatedChapterText(sectionCount: 8);
+      final savedContentOffset = chapterText.indexOf('Section 5 start.');
+      expect(savedContentOffset, isNonNegative);
+
+      await tester.runAsync(
+        () => databaseService.upsertProgress(
+          ReadingProgress(
+            bookId: savedBook.id!,
+            chapterIndex: 0,
+            scrollOffset: 9999,
+            contentOffset: savedContentOffset,
+            updatedAt: DateTime.utc(2025, 1, 2),
+          ),
+        ),
+      );
+
+      final openRouter = _FakeOpenRouterService(
+        generateTextHandler: ({
+          required apiKey,
+          required modelId,
+          required prompt,
+          temperature,
+        }) async =>
+            'Unused',
+      );
+
+      await _pumpReaderScreen(
+        tester,
+        openRouterService: openRouter,
+        databaseService: databaseService,
+        savedBook: savedBook,
+        readingMode: ReadingMode.pageFlip,
+        chapters: [
+          Chapter(
+            bookId: savedBook.id,
+            index: 0,
+            title: 'Chapter 1',
+            content: chapterText,
+          ),
+        ],
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(PageView), findsOneWidget);
+      expect(find.textContaining('Section 5 start.'), findsOneWidget);
+      expect(find.textContaining('Section 1 start.'), findsNothing);
     });
 
     testWidgets('summary result sheet shows switch action for simplify text',
@@ -2370,8 +2538,11 @@ Future<void> _pumpReaderScreen(
   DatabaseService? databaseService,
   StorageService? storageService,
   EdgeInsets mediaQueryPadding = EdgeInsets.zero,
+  ReadingMode readingMode = ReadingMode.scroll,
 }) async {
   SharedPreferences.setMockInitialValues({
+    if (readingMode != ReadingMode.scroll)
+      'reader_reading_mode': readingMode.name,
     if (openRouterApiKey.isNotEmpty)
       'reader_openrouter_api_key': openRouterApiKey,
     if (geminiApiKey.isNotEmpty) 'reader_gemini_api_key': geminiApiKey,
@@ -2473,6 +2644,28 @@ Future<void> _pumpReaderScreen(
     );
     await tester.pump();
   }
+}
+
+String _buildPaginatedChapterText({required int sectionCount}) {
+  final buffer = StringBuffer();
+  for (int section = 1; section <= sectionCount; section++) {
+    buffer.writeln('Section $section start.');
+    for (int word = 0; word < 180; word++) {
+      buffer.write('section_${section}_word_$word ');
+    }
+    buffer.writeln();
+    buffer.writeln('Section $section end.');
+    buffer.writeln();
+  }
+  return buffer.toString();
+}
+
+Future<void> _disposeReaderTestApp(WidgetTester tester) async {
+  await tester.pumpWidget(const SizedBox.shrink());
+  await tester.pumpAndSettle();
+  await tester.runAsync(
+    () => Future<void>.delayed(const Duration(milliseconds: 100)),
+  );
 }
 
 List<Chapter> _buildTestChapters({int count = 1}) {
