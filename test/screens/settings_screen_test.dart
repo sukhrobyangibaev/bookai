@@ -5,7 +5,6 @@ import 'package:bookai/models/ai_feature.dart';
 import 'package:bookai/models/ai_model_info.dart';
 import 'package:bookai/models/ai_model_selection.dart';
 import 'package:bookai/models/ai_provider.dart';
-import 'package:bookai/models/reader_settings.dart';
 import 'package:bookai/screens/settings_screen.dart';
 import 'package:bookai/services/gemini_service.dart';
 import 'package:bookai/services/openrouter_service.dart';
@@ -59,30 +58,6 @@ void main() {
       expect(systemChip.showCheckmark, isFalse);
     });
 
-    testWidgets('shows reading mode options and updates the controller',
-        (tester) async {
-      SharedPreferences.setMockInitialValues({});
-
-      final controller = SettingsController();
-      await tester.runAsync(() => controller.load());
-
-      await tester.pumpWidget(_buildSettingsApp(controller));
-      await tester.pumpAndSettle();
-
-      expect(find.text('Reading Mode'), findsOneWidget);
-      expect(find.widgetWithText(ChoiceChip, 'Scroll'), findsOneWidget);
-      expect(find.widgetWithText(ChoiceChip, 'Page Flip'), findsOneWidget);
-      expect(controller.readingMode, ReadingMode.scroll);
-
-      final pageFlipChip = find.widgetWithText(ChoiceChip, 'Page Flip');
-      await tester.ensureVisible(pageFlipChip);
-      await tester.tap(pageFlipChip);
-      await tester.pump();
-
-      expect(controller.readingMode, ReadingMode.pageFlip);
-      expect(tester.widget<ChoiceChip>(pageFlipChip).selected, isTrue);
-    });
-
     testWidgets('shows reader font options', (tester) async {
       SharedPreferences.setMockInitialValues({});
 
@@ -102,7 +77,6 @@ void main() {
 
     testWidgets('shows both API key fields and provider-aware selections',
         (tester) async {
-      await _useTallSurface(tester);
       SharedPreferences.setMockInitialValues({
         'reader_openrouter_api_key': 'or-key',
         'reader_gemini_api_key': 'gem-key',
@@ -129,7 +103,6 @@ void main() {
 
     testWidgets('editing both API keys updates controller values',
         (tester) async {
-      await _useTallSurface(tester);
       SharedPreferences.setMockInitialValues({});
 
       final controller = SettingsController();

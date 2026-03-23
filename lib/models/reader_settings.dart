@@ -7,8 +7,6 @@ enum AppThemeMode { system, light, dark, sepia }
 
 enum ReaderFontFamily { system, literata, bitter, atkinsonHyperlegible }
 
-enum ReadingMode { scroll, pageFlip }
-
 extension ReaderFontFamilyX on ReaderFontFamily {
   String get label {
     switch (this) {
@@ -24,22 +22,10 @@ extension ReaderFontFamilyX on ReaderFontFamily {
   }
 }
 
-extension ReadingModeX on ReadingMode {
-  String get label {
-    switch (this) {
-      case ReadingMode.scroll:
-        return 'Scroll';
-      case ReadingMode.pageFlip:
-        return 'Page Flip';
-    }
-  }
-}
-
 class ReaderSettings {
   final double fontSize;
   final AppThemeMode themeMode;
   final ReaderFontFamily fontFamily;
-  final ReadingMode readingMode;
   final String openRouterApiKey;
   final String geminiApiKey;
   final AiModelSelection defaultModelSelection;
@@ -51,7 +37,6 @@ class ReaderSettings {
     required this.fontSize,
     required this.themeMode,
     this.fontFamily = ReaderFontFamily.system,
-    this.readingMode = ReadingMode.scroll,
     this.openRouterApiKey = '',
     this.geminiApiKey = '',
     this.defaultModelSelection = AiModelSelection.none,
@@ -64,7 +49,6 @@ class ReaderSettings {
     fontSize: 18.0,
     themeMode: AppThemeMode.system,
     fontFamily: ReaderFontFamily.system,
-    readingMode: ReadingMode.scroll,
     openRouterApiKey: '',
     geminiApiKey: '',
     defaultModelSelection: AiModelSelection.none,
@@ -76,7 +60,6 @@ class ReaderSettings {
     double? fontSize,
     AppThemeMode? themeMode,
     ReaderFontFamily? fontFamily,
-    ReadingMode? readingMode,
     String? openRouterApiKey,
     String? geminiApiKey,
     AiModelSelection? defaultModelSelection,
@@ -88,7 +71,6 @@ class ReaderSettings {
       fontSize: fontSize ?? this.fontSize,
       themeMode: themeMode ?? this.themeMode,
       fontFamily: fontFamily ?? this.fontFamily,
-      readingMode: readingMode ?? this.readingMode,
       openRouterApiKey: openRouterApiKey ?? this.openRouterApiKey,
       geminiApiKey: geminiApiKey ?? this.geminiApiKey,
       defaultModelSelection:
@@ -120,7 +102,6 @@ class ReaderSettings {
       'fontSize': fontSize,
       'themeMode': themeMode.name,
       'fontFamily': fontFamily.name,
-      'readingMode': readingMode.name,
       'openRouterApiKey': openRouterApiKey,
       'geminiApiKey': geminiApiKey,
       'defaultModelSelection': defaultModelSelection.toMap(),
@@ -144,17 +125,10 @@ class ReaderSettings {
       (e) => e.name == fontFamilyStr,
       orElse: () => ReaderFontFamily.system,
     );
-    final readingModeStr = map['readingMode'] as String? ??
-        ReaderSettings.defaults.readingMode.name;
-    final readingMode = ReadingMode.values.firstWhere(
-      (e) => e.name == readingModeStr,
-      orElse: () => ReaderSettings.defaults.readingMode,
-    );
     return ReaderSettings(
       fontSize: (map['fontSize'] as num?)?.toDouble() ?? 18.0,
       themeMode: themeMode,
       fontFamily: fontFamily,
-      readingMode: readingMode,
       openRouterApiKey: map['openRouterApiKey'] as String? ?? '',
       geminiApiKey: map['geminiApiKey'] as String? ?? '',
       defaultModelSelection: _parseSelection(
@@ -228,7 +202,6 @@ class ReaderSettings {
   String toString() {
     return 'ReaderSettings(fontSize: $fontSize, themeMode: $themeMode, '
         'fontFamily: $fontFamily, '
-        'readingMode: $readingMode, '
         'openRouterApiKey: ${openRouterApiKey.isEmpty ? '<empty>' : '<redacted>'}, '
         'geminiApiKey: ${geminiApiKey.isEmpty ? '<empty>' : '<redacted>'}, '
         'defaultModelSelection: $defaultModelSelection, '
@@ -244,7 +217,6 @@ class ReaderSettings {
         other.fontSize == fontSize &&
         other.themeMode == themeMode &&
         other.fontFamily == fontFamily &&
-        other.readingMode == readingMode &&
         other.openRouterApiKey == openRouterApiKey &&
         other.geminiApiKey == geminiApiKey &&
         other.defaultModelSelection == defaultModelSelection &&
@@ -258,7 +230,6 @@ class ReaderSettings {
         fontSize,
         themeMode,
         fontFamily,
-        readingMode,
         openRouterApiKey,
         geminiApiKey,
         defaultModelSelection,

@@ -333,9 +333,3 @@ Recommended checks:
 - Key finding: current reader architecture is scroll-centric at the UI, persistence, and selection-action levels.
 - Key decision: first ship page-based snap navigation on top of the plain-text chapter model; defer literal page-curl animation until the state model is stable.
 - Baseline verification: targeted reader/settings/database tests passed before planning.
-
-#### 2026-03-23 - Task 1
-- Files changed: `lib/models/reader_settings.dart`, `lib/services/settings_service.dart`, `lib/services/settings_controller.dart`, `lib/screens/settings_screen.dart`, `test/models/reader_settings_test.dart`, `test/services/settings_test.dart`, and `test/screens/settings_screen_test.dart`.
-- Behavior changes: added a persisted `readingMode` setting with `scroll` and `pageFlip` values, defaulted it to `scroll`, and exposed it in Settings with chip controls; reader behavior remains unchanged.
-- Tests run: `flutter test test/models/reader_settings_test.dart`, `flutter test test/services/settings_test.dart`, and `flutter test test/screens/settings_screen_test.dart`.
-- Open follow-ups: Task 2 should add a mode-neutral progress anchor before `readingMode` is used by `ReaderScreen`.
