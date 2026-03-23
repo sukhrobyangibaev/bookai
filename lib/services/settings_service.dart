@@ -11,6 +11,7 @@ class SettingsService {
   static const _keyFontSize = 'reader_font_size';
   static const _keyThemeMode = 'reader_theme_mode';
   static const _keyFontFamily = 'reader_font_family';
+  static const _keyReadingMode = 'reader_reading_mode';
   static const _keyOpenRouterApiKey = 'reader_openrouter_api_key';
   static const _keyGeminiApiKey = 'reader_gemini_api_key';
   static const _keyOpenRouterModelId = 'reader_openrouter_model_id';
@@ -45,6 +46,13 @@ class SettingsService {
             orElse: () => ReaderSettings.defaults.fontFamily,
           )
         : ReaderSettings.defaults.fontFamily;
+    final readingModeStr = prefs.getString(_keyReadingMode);
+    final readingMode = readingModeStr != null
+        ? ReadingMode.values.firstWhere(
+            (e) => e.name == readingModeStr,
+            orElse: () => ReaderSettings.defaults.readingMode,
+          )
+        : ReaderSettings.defaults.readingMode;
 
     final openRouterApiKey = prefs.getString(_keyOpenRouterApiKey) ??
         ReaderSettings.defaults.openRouterApiKey;
@@ -76,6 +84,7 @@ class SettingsService {
       'fontSize': fontSize,
       'themeMode': themeMode.name,
       'fontFamily': fontFamily.name,
+      'readingMode': readingMode.name,
       'openRouterApiKey': openRouterApiKey,
       'geminiApiKey': geminiApiKey,
       'defaultModelSelection': defaultSelection.toMap(),
@@ -98,6 +107,11 @@ class SettingsService {
   Future<void> saveFontFamily(ReaderFontFamily fontFamily) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_keyFontFamily, fontFamily.name);
+  }
+
+  Future<void> saveReadingMode(ReadingMode readingMode) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_keyReadingMode, readingMode.name);
   }
 
   Future<void> saveOpenRouterApiKey(String apiKey) async {

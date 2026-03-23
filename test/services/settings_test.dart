@@ -26,6 +26,7 @@ void main() {
         'reader_font_size': 24.0,
         'reader_theme_mode': 'dark',
         'reader_font_family': 'literata',
+        'reader_reading_mode': 'pageFlip',
         'reader_openrouter_api_key': 'or-key',
         'reader_gemini_api_key': 'gem-key',
         'reader_ai_default_provider': 'gemini',
@@ -43,6 +44,7 @@ void main() {
       expect(settings.fontSize, 24.0);
       expect(settings.themeMode, AppThemeMode.dark);
       expect(settings.fontFamily, ReaderFontFamily.literata);
+      expect(settings.readingMode, ReadingMode.pageFlip);
       expect(settings.openRouterApiKey, 'or-key');
       expect(settings.geminiApiKey, 'gem-key');
       expect(
@@ -127,6 +129,7 @@ void main() {
 
       final service = SettingsService();
       await service.saveThemeMode(AppThemeMode.system);
+      await service.saveReadingMode(ReadingMode.pageFlip);
       await service.saveOpenRouterApiKey('or-key');
       await service.saveGeminiApiKey('gem-key');
       await service.saveDefaultModelSelection(
@@ -159,6 +162,7 @@ void main() {
 
       final loaded = await service.load();
       expect(loaded.themeMode, AppThemeMode.system);
+      expect(loaded.readingMode, ReadingMode.pageFlip);
       expect(loaded.openRouterApiKey, 'or-key');
       expect(loaded.geminiApiKey, 'gem-key');
       expect(
@@ -199,10 +203,12 @@ void main() {
     test('starts with default settings', () {
       final controller = SettingsController();
       expect(controller.settings, ReaderSettings.defaults);
+      expect(controller.readingMode, ReadingMode.scroll);
     });
 
     test('load reads persisted provider-aware settings and notifies', () async {
       SharedPreferences.setMockInitialValues({
+        'reader_reading_mode': 'pageFlip',
         'reader_openrouter_api_key': 'or-key',
         'reader_gemini_api_key': 'gem-key',
         'reader_ai_default_provider': 'gemini',
@@ -218,6 +224,7 @@ void main() {
       await controller.load();
 
       expect(notified, 1);
+      expect(controller.readingMode, ReadingMode.pageFlip);
       expect(controller.openRouterApiKey, 'or-key');
       expect(controller.geminiApiKey, 'gem-key');
       expect(
@@ -243,6 +250,7 @@ void main() {
       var notified = 0;
       controller.addListener(() => notified += 1);
 
+      await controller.setReadingMode(ReadingMode.pageFlip);
       await controller.setOpenRouterApiKey('  or-key  ');
       await controller.setGeminiApiKey('  gem-key  ');
       await controller.setDefaultModelSelection(
@@ -264,7 +272,8 @@ void main() {
         ),
       );
 
-      expect(notified, 5);
+      expect(notified, 6);
+      expect(controller.readingMode, ReadingMode.pageFlip);
       expect(controller.openRouterApiKey, 'or-key');
       expect(controller.geminiApiKey, 'gem-key');
       expect(

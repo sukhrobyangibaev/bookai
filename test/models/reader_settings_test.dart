@@ -11,6 +11,7 @@ void main() {
       expect(ReaderSettings.defaults.fontSize, 18.0);
       expect(ReaderSettings.defaults.themeMode, AppThemeMode.system);
       expect(ReaderSettings.defaults.fontFamily, ReaderFontFamily.system);
+      expect(ReaderSettings.defaults.readingMode, ReadingMode.scroll);
       expect(ReaderSettings.defaults.openRouterApiKey, '');
       expect(ReaderSettings.defaults.geminiApiKey, '');
       expect(
@@ -38,6 +39,7 @@ void main() {
         fontSize: 22.0,
         themeMode: AppThemeMode.dark,
         fontFamily: ReaderFontFamily.bitter,
+        readingMode: ReadingMode.pageFlip,
         openRouterApiKey: 'or-key',
         geminiApiKey: 'gem-key',
         defaultModelSelection: AiModelSelection(
@@ -59,6 +61,7 @@ void main() {
       expect(map['fontSize'], 22.0);
       expect(map['themeMode'], 'dark');
       expect(map['fontFamily'], 'bitter');
+      expect(map['readingMode'], 'pageFlip');
       expect(map['openRouterApiKey'], 'or-key');
       expect(map['geminiApiKey'], 'gem-key');
       expect(
@@ -80,6 +83,7 @@ void main() {
         'fontSize': 24.0,
         'themeMode': 'dark',
         'fontFamily': 'literata',
+        'readingMode': 'pageFlip',
         'openRouterApiKey': 'or-key',
         'geminiApiKey': 'gem-key',
         'defaultModelSelection': {
@@ -108,6 +112,7 @@ void main() {
       expect(settings.fontSize, 24.0);
       expect(settings.themeMode, AppThemeMode.dark);
       expect(settings.fontFamily, ReaderFontFamily.literata);
+      expect(settings.readingMode, ReadingMode.pageFlip);
       expect(settings.openRouterApiKey, 'or-key');
       expect(settings.geminiApiKey, 'gem-key');
       expect(
@@ -232,6 +237,7 @@ Be clear, direct, and helpful.
         fontSize: 14.0,
         themeMode: AppThemeMode.system,
         fontFamily: ReaderFontFamily.literata,
+        readingMode: ReadingMode.pageFlip,
         openRouterApiKey: 'or-key',
         geminiApiKey: 'gem-key',
         defaultModelSelection: AiModelSelection(
@@ -256,6 +262,7 @@ Be clear, direct, and helpful.
       const original = ReaderSettings(
         fontSize: 18.0,
         themeMode: AppThemeMode.light,
+        readingMode: ReadingMode.pageFlip,
         openRouterApiKey: 'or-key',
         geminiApiKey: 'gem-key',
         defaultModelSelection: AiModelSelection(
@@ -276,6 +283,7 @@ Be clear, direct, and helpful.
 
       expect(modified.themeMode, AppThemeMode.dark);
       expect(modified.fontSize, 18.0);
+      expect(modified.readingMode, ReadingMode.pageFlip);
       expect(modified.openRouterApiKey, 'or-key');
       expect(modified.geminiApiKey, 'gem-key');
       expect(modified.defaultModelSelection, original.defaultModelSelection);
@@ -329,6 +337,17 @@ Be clear, direct, and helpful.
         ReaderFontFamily.atkinsonHyperlegible.label,
         'Atkinson Hyperlegible',
       );
+    });
+  });
+
+  group('ReadingMode', () {
+    test('has exactly two values', () {
+      expect(ReadingMode.values.length, 2);
+    });
+
+    test('label returns expected strings', () {
+      expect(ReadingMode.scroll.label, 'Scroll');
+      expect(ReadingMode.pageFlip.label, 'Page Flip');
     });
   });
 }
