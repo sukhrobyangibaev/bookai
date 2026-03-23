@@ -34,10 +34,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     AppThemeMode.dark,
     AppThemeMode.sepia,
   ];
-  static const List<ReadingMode> _readingModes = <ReadingMode>[
-    ReadingMode.scroll,
-    ReadingMode.pageFlip,
-  ];
 
   late final TextEditingController _openRouterApiKeyController;
   late final TextEditingController _geminiApiKeyController;
@@ -395,8 +391,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 const Divider(height: 32),
                 _buildThemeSection(context, controller),
                 const Divider(height: 32),
-                _buildReadingModeSection(context, controller),
-                const Divider(height: 32),
                 _buildAiSection(context, controller),
               ],
             ),
@@ -541,47 +535,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   onSelected: (selected) {
                     if (!selected) return;
                     controller.setThemeMode(mode);
-                  },
-                ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildReadingModeSection(
-    BuildContext context,
-    SettingsController controller,
-  ) {
-    final currentMode = controller.readingMode;
-    final labelStyle =
-        Theme.of(context).textTheme.bodyMedium ?? const TextStyle();
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Reading Mode',
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              for (final mode in _readingModes)
-                ChoiceChip(
-                  label: Text(
-                    mode.label,
-                    style: labelStyle,
-                  ),
-                  selected: currentMode == mode,
-                  onSelected: (selected) {
-                    if (!selected) return;
-                    controller.setReadingMode(mode);
                   },
                 ),
             ],

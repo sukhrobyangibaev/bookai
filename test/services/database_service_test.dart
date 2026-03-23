@@ -7,7 +7,6 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:bookai/models/book.dart';
 import 'package:bookai/models/chapter.dart';
 import 'package:bookai/models/generated_image.dart';
-import 'package:bookai/models/reading_progress.dart';
 import 'package:bookai/services/database_service.dart';
 
 void main() {
@@ -84,64 +83,6 @@ void main() {
     });
   });
 
-  group('DatabaseService reading progress', () {
-    test('stores and loads contentOffset in progress', () async {
-      final book = await service.insertBook(
-        Book(
-          title: 'Progress Book',
-          author: 'Author',
-          filePath: '/tmp/progress.epub',
-          totalChapters: 2,
-          createdAt: DateTime.utc(2025, 1, 9),
-        ),
-      );
-
-      await service.upsertProgress(
-        ReadingProgress(
-          bookId: book.id!,
-          chapterIndex: 1,
-          scrollOffset: 42.5,
-          contentOffset: 314,
-          updatedAt: DateTime.utc(2025, 1, 10),
-        ),
-      );
-
-      final progress = await service.getProgressByBookId(book.id!);
-
-      expect(progress, isNotNull);
-      expect(progress!.chapterIndex, 1);
-      expect(progress.scrollOffset, 42.5);
-      expect(progress.contentOffset, 314);
-    });
-
-    test('stores and loads null contentOffset in progress', () async {
-      final book = await service.insertBook(
-        Book(
-          title: 'Null Progress Book',
-          author: 'Author',
-          filePath: '/tmp/progress-null.epub',
-          totalChapters: 2,
-          createdAt: DateTime.utc(2025, 1, 11),
-        ),
-      );
-
-      await service.upsertProgress(
-        ReadingProgress(
-          bookId: book.id!,
-          chapterIndex: 0,
-          scrollOffset: 10.0,
-          contentOffset: null,
-          updatedAt: DateTime.utc(2025, 1, 12),
-        ),
-      );
-
-      final progress = await service.getProgressByBookId(book.id!);
-
-      expect(progress, isNotNull);
-      expect(progress!.contentOffset, isNull);
-    });
-  });
-
   test('stores and cascades generated images', () async {
     final book = await service.insertBook(
       Book(
@@ -207,7 +148,7 @@ void main() {
     expect(images.single.name, isNull);
   });
 
-  test('openDatabaseAt migrates version 5 databases to version 7', () async {
+  test('openDatabaseAt migrates version 5 databases to version 6', () async {
     final oldDb = await openDatabase(
       databasePath,
       version: 5,
@@ -280,72 +221,5 @@ void main() {
 
     final remainingGeneratedImages = await migrated.query('generated_images');
     expect(remainingGeneratedImages, isEmpty);
-  });
-
-  test('openDatabaseAt migrates version 6 progress table to version 7',
-      () async {
-    final oldDb = await openDatabase(
-      databasePath,
-      version: 6,
-      onConfigure: (db) async {
-        await db.execute('PRAGMA foreign_keys = ON');
-      },
-      onCreate: (db, version) async {
-        await db.execute('''
-          CREATE TABLE books (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
-            title       TEXT    NOT NULL,
-            author      TEXT    NOT NULL,
-            filePath    TEXT    NOT NULL UNIQUE,
-            coverPath   TEXT,
-            totalChapters INTEGER NOT NULL DEFAULT 0,
-            createdAt   TEXT    NOT NULL
-          )
-        ''');
-        await db.execute('''
-          CREATE TABLE progress (
-            bookId        INTEGER PRIMARY KEY,
-            chapterIndex  INTEGER NOT NULL DEFAULT 0,
-            scrollOffset  REAL    NOT NULL DEFAULT 0.0,
-            updatedAt     TEXT    NOT NULL,
-            FOREIGN KEY (bookId) REFERENCES books(id) ON DELETE CASCADE
-          )
-        ''');
-        await db.insert('books', {
-          'id': 1,
-          'title': 'Migrated Progress Book',
-          'author': 'Author',
-          'filePath': '/tmp/migrated-progress.epub',
-          'coverPath': null,
-          'totalChapters': 3,
-          'createdAt': DateTime.utc(2025, 1, 13).toIso8601String(),
-        });
-        await db.insert('progress', {
-          'bookId': 1,
-          'chapterIndex': 2,
-          'scrollOffset': 88.0,
-          'updatedAt': DateTime.utc(2025, 1, 14).toIso8601String(),
-        });
-      },
-    );
-    await oldDb.close();
-
-    final migrated = await service.openDatabaseAt(databasePath);
-    addTearDown(() async => migrated.close());
-
-    final progressColumns =
-        await migrated.rawQuery('PRAGMA table_info(progress)');
-    expect(progressColumns, isNotEmpty);
-    expect(
-      progressColumns.any((column) => column['name'] == 'contentOffset'),
-      isTrue,
-    );
-
-    final migratedProgress = await migrated.query('progress');
-    expect(migratedProgress, hasLength(1));
-    expect(migratedProgress.single['bookId'], 1);
-    expect(migratedProgress.single['chapterIndex'], 2);
-    expect(migratedProgress.single['scrollOffset'], 88.0);
-    expect(migratedProgress.single['contentOffset'], isNull);
   });
 }

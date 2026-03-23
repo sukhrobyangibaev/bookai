@@ -16,7 +16,6 @@ class SettingsController extends ChangeNotifier {
   double get fontSize => _settings.fontSize;
   AppThemeMode get themeMode => _settings.themeMode;
   ReaderFontFamily get fontFamily => _settings.fontFamily;
-  ReadingMode get readingMode => _settings.readingMode;
   String get openRouterApiKey => _settings.openRouterApiKey;
   String get geminiApiKey => _settings.geminiApiKey;
   AiModelSelection get defaultModelSelection => _settings.defaultModelSelection;
@@ -56,13 +55,6 @@ class SettingsController extends ChangeNotifier {
     _settings = _settings.copyWith(fontFamily: fontFamily);
     notifyListeners();
     await _service.saveFontFamily(fontFamily);
-  }
-
-  Future<void> setReadingMode(ReadingMode readingMode) async {
-    if (_settings.readingMode == readingMode) return;
-    _settings = _settings.copyWith(readingMode: readingMode);
-    notifyListeners();
-    await _service.saveReadingMode(readingMode);
   }
 
   Future<void> setOpenRouterApiKey(String apiKey) async {
