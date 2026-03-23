@@ -339,3 +339,9 @@ Recommended checks:
 - Behavior changes: added a persisted `readingMode` setting with `scroll` and `pageFlip` values, defaulted it to `scroll`, and exposed it in Settings with chip controls; reader behavior remains unchanged.
 - Tests run: `flutter test test/models/reader_settings_test.dart`, `flutter test test/services/settings_test.dart`, and `flutter test test/screens/settings_screen_test.dart`.
 - Open follow-ups: Task 2 should add a mode-neutral progress anchor before `readingMode` is used by `ReaderScreen`.
+
+#### 2026-03-23 - Task 2
+- Files changed: `lib/models/reading_progress.dart`, `lib/services/database_service.dart`, `test/models/reading_progress_test.dart`, and `test/services/database_service_test.dart`.
+- Behavior changes: added nullable `contentOffset` to `ReadingProgress` for mode-neutral chapter anchors while keeping `scrollOffset`; upgraded database schema to version 7 with a `progress.contentOffset` migration path from older databases.
+- Tests run: `flutter test test/models/reading_progress_test.dart` and `flutter test test/services/database_service_test.dart`.
+- Open follow-ups: `ReaderScreen` still persists `scrollOffset` only; Task 3 should add shared mode-aware location plumbing before page mode UI work.
