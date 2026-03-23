@@ -351,3 +351,9 @@ Recommended checks:
 - Behavior changes: extracted scroll body rendering into a dedicated `ScrollReaderContent` widget and added a `ReaderLocationPersistence` seam that centralizes mode-aware initial-location restore and progress save plumbing; scroll-mode UX remains unchanged.
 - Tests run: `flutter test test/screens/reader_screen_test.dart`.
 - Open follow-ups: Task 4 should introduce a real pagination engine and map `contentOffset` to measurable text positions so page mode can restore precisely after repagination.
+
+#### 2026-03-23 - Task 4
+- Files changed: `lib/services/reader_pagination_service.dart` and `test/services/reader_pagination_service_test.dart`.
+- Behavior changes: added a pure Flutter text-measurement pagination engine that splits chapter text into page slices with stable `startOffset`/`endOffset` boundaries and exposes anchor lookup helpers to map a saved `contentOffset` back to a page after repagination.
+- Tests run: `flutter test test/services/reader_pagination_service_test.dart`.
+- Open follow-ups: Task 5 should wire this engine into a `PageView`-based reader body and persist page-mode location using `contentOffset` during page changes.
