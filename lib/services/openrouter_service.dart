@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 import '../models/ai_model_info.dart';
 import '../models/ai_chat_message.dart';
 import '../models/openrouter_model.dart';
+import 'ai_request_log_service.dart';
 
 class OpenRouterException implements Exception {
   final String message;
@@ -37,6 +38,7 @@ class OpenRouterService {
   static const String _appTitle = 'BookAI';
 
   final http.Client _client;
+  final AiRequestLogService _aiRequestLogService;
   final DateTime Function() _clock;
   final Duration _cacheTtl;
   final Duration _requestTimeout;
@@ -47,10 +49,12 @@ class OpenRouterService {
 
   OpenRouterService({
     http.Client? client,
+    AiRequestLogService? aiRequestLogService,
     DateTime Function()? clock,
     Duration cacheTtl = const Duration(minutes: 10),
     Duration requestTimeout = const Duration(seconds: 75),
   })  : _client = client ?? http.Client(),
+        _aiRequestLogService = aiRequestLogService ?? AiRequestLogService(),
         _clock = clock ?? DateTime.now,
         _cacheTtl = cacheTtl,
         _requestTimeout = requestTimeout;
@@ -70,25 +74,66 @@ class OpenRouterService {
       return _cachedModels!;
     }
 
+    final headers = _buildHeaders(apiKey: normalizedApiKey);
+    final requestStartedAt = _clock();
     final http.Response response;
     try {
       response = await _client
           .get(
             _modelsUri,
-            headers: _buildHeaders(apiKey: normalizedApiKey),
+            headers: headers,
           )
           .timeout(_requestTimeout);
     } on TimeoutException catch (error) {
+      unawaited(
+        _aiRequestLogService.logExchange(
+          provider: 'openrouter',
+          requestKind: AiRequestLogKinds.modelList,
+          attempt: 1,
+          method: 'GET',
+          uri: _modelsUri,
+          requestHeaders: headers,
+          response: null,
+          error: error,
+          duration: _clock().difference(requestStartedAt),
+        ),
+      );
       throw OpenRouterException(
         'OpenRouter timed out while loading models. Please try again.',
         cause: error,
       );
     } catch (error) {
+      unawaited(
+        _aiRequestLogService.logExchange(
+          provider: 'openrouter',
+          requestKind: AiRequestLogKinds.modelList,
+          attempt: 1,
+          method: 'GET',
+          uri: _modelsUri,
+          requestHeaders: headers,
+          response: null,
+          error: error,
+          duration: _clock().difference(requestStartedAt),
+        ),
+      );
       throw OpenRouterException(
         'Failed to connect to OpenRouter.',
         cause: error,
       );
     }
+
+    unawaited(
+      _aiRequestLogService.logExchange(
+        provider: 'openrouter',
+        requestKind: AiRequestLogKinds.modelList,
+        attempt: 1,
+        method: 'GET',
+        uri: _modelsUri,
+        requestHeaders: headers,
+        response: response,
+        duration: _clock().difference(requestStartedAt),
+      ),
+    );
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw OpenRouterException(
@@ -161,6 +206,7 @@ class OpenRouterService {
         AiChatMessage.user(prompt),
       ],
       temperature: temperature,
+      requestKind: AiRequestLogKinds.textGeneration,
     );
   }
 
@@ -169,6 +215,7 @@ class OpenRouterService {
     required String modelId,
     required List<AiChatMessage> messages,
     double? temperature,
+    String requestKind = AiRequestLogKinds.chatGeneration,
   }) async {
     final decoded = await _sendChatCompletion(
       apiKey: apiKey,
@@ -176,6 +223,7 @@ class OpenRouterService {
       messages: messages,
       temperature: temperature,
       action: 'generating text',
+      requestKind: requestKind,
     );
     return _extractGeneratedText(decoded);
   }
@@ -203,6 +251,7 @@ class OpenRouterService {
       prompt: prompt,
       temperature: temperature,
       action: 'generating images',
+      requestKind: AiRequestLogKinds.imageGeneration,
       modalities: normalizedModalities,
     );
     return _extractGeneratedImages(decoded);
@@ -232,6 +281,7 @@ class OpenRouterService {
     required String apiKey,
     required String modelId,
     required String action,
+    required String requestKind,
     String? prompt,
     List<AiChatMessage>? messages,
     List<String>? modalities,
@@ -270,32 +320,80 @@ class OpenRouterService {
       payload['temperature'] = temperature;
     }
 
+    final requestHeaders = _buildHeaders(
+      apiKey: normalizedApiKey,
+      includeJsonContentType: true,
+    );
+    final requestBody = jsonEncode(payload);
+    final requestStartedAt = _clock();
     final http.Response response;
     try {
       if (kDebugMode) {
-        _debugLog('Request payload: ${jsonEncode(payload)}');
+        _debugLog('Request payload: $requestBody');
       }
       response = await _client
           .post(
             _chatCompletionsUri,
-            headers: _buildHeaders(
-              apiKey: normalizedApiKey,
-              includeJsonContentType: true,
-            ),
-            body: jsonEncode(payload),
+            headers: requestHeaders,
+            body: requestBody,
           )
           .timeout(_requestTimeout);
     } on TimeoutException catch (error) {
+      unawaited(
+        _aiRequestLogService.logExchange(
+          provider: 'openrouter',
+          requestKind: requestKind,
+          attempt: 1,
+          method: 'POST',
+          uri: _chatCompletionsUri,
+          modelId: normalizedModelId,
+          requestHeaders: requestHeaders,
+          requestBody: requestBody,
+          response: null,
+          error: error,
+          duration: _clock().difference(requestStartedAt),
+        ),
+      );
       throw OpenRouterException(
         'OpenRouter timed out while $action. Please try again.',
         cause: error,
       );
     } catch (error) {
+      unawaited(
+        _aiRequestLogService.logExchange(
+          provider: 'openrouter',
+          requestKind: requestKind,
+          attempt: 1,
+          method: 'POST',
+          uri: _chatCompletionsUri,
+          modelId: normalizedModelId,
+          requestHeaders: requestHeaders,
+          requestBody: requestBody,
+          response: null,
+          error: error,
+          duration: _clock().difference(requestStartedAt),
+        ),
+      );
       throw OpenRouterException(
         'Failed to connect to OpenRouter.',
         cause: error,
       );
     }
+
+    unawaited(
+      _aiRequestLogService.logExchange(
+        provider: 'openrouter',
+        requestKind: requestKind,
+        attempt: 1,
+        method: 'POST',
+        uri: _chatCompletionsUri,
+        modelId: normalizedModelId,
+        requestHeaders: requestHeaders,
+        requestBody: requestBody,
+        response: response,
+        duration: _clock().difference(requestStartedAt),
+      ),
+    );
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw OpenRouterException(

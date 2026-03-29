@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 import '../models/ai_model_info.dart';
 import '../models/ai_chat_message.dart';
 import '../models/ai_provider.dart';
+import 'ai_request_log_service.dart';
 
 class GeminiException implements Exception {
   final String message;
@@ -54,6 +55,7 @@ class GeminiService {
   ];
 
   final http.Client _client;
+  final AiRequestLogService _aiRequestLogService;
   final DateTime Function() _clock;
   final Duration _cacheTtl;
   final Duration _requestTimeout;
@@ -69,6 +71,7 @@ class GeminiService {
 
   GeminiService({
     http.Client? client,
+    AiRequestLogService? aiRequestLogService,
     DateTime Function()? clock,
     Duration cacheTtl = const Duration(minutes: 10),
     Duration requestTimeout = _defaultRequestTimeout,
@@ -76,6 +79,7 @@ class GeminiService {
     Future<void> Function(Duration)? sleep,
     math.Random? random,
   })  : _client = client ?? http.Client(),
+        _aiRequestLogService = aiRequestLogService ?? AiRequestLogService(),
         _clock = clock ?? DateTime.now,
         _cacheTtl = cacheTtl,
         _requestTimeout = requestTimeout,
@@ -111,12 +115,19 @@ class GeminiService {
         if (nextPageToken != null && nextPageToken.isNotEmpty)
           'pageToken': nextPageToken,
       };
+      final requestUri = _modelsUri.replace(queryParameters: queryParameters);
+      final requestHeaders = _buildHeaders(apiKey: normalizedApiKey);
 
       final response = await _sendRequest(
         action: 'loading models',
+        provider: 'gemini',
+        requestKind: AiRequestLogKinds.modelList,
+        method: 'GET',
+        uri: requestUri,
+        requestHeaders: requestHeaders,
         send: () => _client.get(
-          _modelsUri.replace(queryParameters: queryParameters),
-          headers: _buildHeaders(apiKey: normalizedApiKey),
+          requestUri,
+          headers: requestHeaders,
         ),
       );
 
@@ -186,6 +197,7 @@ class GeminiService {
         AiChatMessage.user(prompt),
       ],
       temperature: temperature,
+      requestKind: AiRequestLogKinds.textGeneration,
     );
   }
 
@@ -194,6 +206,7 @@ class GeminiService {
     required String modelId,
     required List<AiChatMessage> messages,
     double? temperature,
+    String requestKind = AiRequestLogKinds.chatGeneration,
   }) async {
     final decoded = await _generateContent(
       apiKey: apiKey,
@@ -201,6 +214,7 @@ class GeminiService {
       messages: messages,
       temperature: temperature,
       action: 'generating text',
+      requestKind: requestKind,
       thinkingConfig: _thinkingConfigForTextModel(modelId),
       safetySettings: _safetySettingsForTextModel(modelId),
     );
@@ -234,6 +248,7 @@ class GeminiService {
       prompt: prompt,
       temperature: temperature,
       action: 'generating images',
+      requestKind: AiRequestLogKinds.imageGeneration,
       responseModalities: _responseModalitiesForImageModel(normalizedModelId),
       requestTimeout: _requestTimeoutForImageModel(normalizedModelId),
       maxAttempts: _maxAttemptsForImageModel(normalizedModelId),
@@ -258,6 +273,7 @@ class GeminiService {
     required String apiKey,
     required String modelId,
     required String action,
+    required String requestKind,
     String? prompt,
     List<AiChatMessage>? messages,
     List<String>? responseModalities,
@@ -314,17 +330,28 @@ class GeminiService {
       payload['safetySettings'] = safetySettings;
     }
 
+    final requestUri = _contentUri(modelId: normalizedModelId);
+    final requestHeaders = _buildHeaders(
+      apiKey: normalizedApiKey,
+      includeJsonContentType: true,
+    );
+    final requestBody = jsonEncode(payload);
+
     final response = await _sendRequest(
       action: action,
+      provider: 'gemini',
+      requestKind: requestKind,
+      method: 'POST',
+      uri: requestUri,
+      modelId: normalizedModelId,
+      requestHeaders: requestHeaders,
+      requestBody: requestBody,
       requestTimeout: requestTimeout,
       maxAttempts: maxAttempts,
       send: () => _client.post(
-        _contentUri(modelId: normalizedModelId),
-        headers: _buildHeaders(
-          apiKey: normalizedApiKey,
-          includeJsonContentType: true,
-        ),
-        body: jsonEncode(payload),
+        requestUri,
+        headers: requestHeaders,
+        body: requestBody,
       ),
     );
 
@@ -394,15 +421,26 @@ class GeminiService {
       },
     };
 
+    final requestUri = _predictUri(modelId: modelId);
+    final requestHeaders = _buildHeaders(
+      apiKey: normalizedApiKey,
+      includeJsonContentType: true,
+    );
+    final requestBody = jsonEncode(payload);
+
     final response = await _sendRequest(
       action: 'generating images',
+      provider: 'gemini',
+      requestKind: AiRequestLogKinds.imageGeneration,
+      method: 'POST',
+      uri: requestUri,
+      modelId: modelId,
+      requestHeaders: requestHeaders,
+      requestBody: requestBody,
       send: () => _client.post(
-        _predictUri(modelId: modelId),
-        headers: _buildHeaders(
-          apiKey: normalizedApiKey,
-          includeJsonContentType: true,
-        ),
-        body: jsonEncode(payload),
+        requestUri,
+        headers: requestHeaders,
+        body: requestBody,
       ),
     );
 
@@ -473,6 +511,13 @@ class GeminiService {
 
   Future<http.Response> _sendRequest({
     required String action,
+    required String provider,
+    required String requestKind,
+    required String method,
+    required Uri uri,
+    String? modelId,
+    required Map<String, String> requestHeaders,
+    String? requestBody,
     Duration? requestTimeout,
     int? maxAttempts,
     required Future<http.Response> Function() send,
@@ -481,8 +526,23 @@ class GeminiService {
     final effectiveMaxAttempts = math.max(1, maxAttempts ?? _maxAttempts);
 
     for (var attempt = 1; attempt <= effectiveMaxAttempts; attempt++) {
+      final requestStartedAt = _clock();
       try {
         final response = await send().timeout(effectiveTimeout);
+        unawaited(
+          _aiRequestLogService.logExchange(
+            provider: provider,
+            requestKind: requestKind,
+            attempt: attempt,
+            method: method,
+            uri: uri,
+            modelId: modelId,
+            requestHeaders: requestHeaders,
+            requestBody: requestBody,
+            response: response,
+            duration: _clock().difference(requestStartedAt),
+          ),
+        );
         if (_isRetriableStatusCode(response.statusCode) &&
             attempt < effectiveMaxAttempts) {
           await _sleepBeforeRetry(
@@ -493,6 +553,21 @@ class GeminiService {
         }
         return response;
       } on TimeoutException catch (error) {
+        unawaited(
+          _aiRequestLogService.logExchange(
+            provider: provider,
+            requestKind: requestKind,
+            attempt: attempt,
+            method: method,
+            uri: uri,
+            modelId: modelId,
+            requestHeaders: requestHeaders,
+            requestBody: requestBody,
+            response: null,
+            error: error,
+            duration: _clock().difference(requestStartedAt),
+          ),
+        );
         if (attempt < effectiveMaxAttempts) {
           await _sleepBeforeRetry(
             attempt: attempt,
@@ -505,6 +580,21 @@ class GeminiService {
           cause: error,
         );
       } catch (error) {
+        unawaited(
+          _aiRequestLogService.logExchange(
+            provider: provider,
+            requestKind: requestKind,
+            attempt: attempt,
+            method: method,
+            uri: uri,
+            modelId: modelId,
+            requestHeaders: requestHeaders,
+            requestBody: requestBody,
+            response: null,
+            error: error,
+            duration: _clock().difference(requestStartedAt),
+          ),
+        );
         throw GeminiException(
           'Failed to connect to Gemini.',
           cause: error,

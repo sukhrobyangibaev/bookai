@@ -7,6 +7,7 @@ import '../models/ai_model_info.dart';
 import '../models/ai_model_selection.dart';
 import '../models/ai_provider.dart';
 import '../models/reader_settings.dart';
+import 'ai_logs_screen.dart';
 import '../services/gemini_service.dart';
 import '../services/openrouter_service.dart';
 import '../services/settings_controller.dart';
@@ -646,6 +647,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
           const SizedBox(height: 8),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('AI Logs'),
+            subtitle: const Text(
+              'View exact request and response records saved locally.',
+            ),
+            trailing: const Icon(Icons.history),
+            onTap: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const AiLogsScreen()),
+              );
+            },
+          ),
           ListTile(
             contentPadding: EdgeInsets.zero,
             title: const Text('Default Model'),

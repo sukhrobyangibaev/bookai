@@ -222,4 +222,77 @@ void main() {
     final remainingGeneratedImages = await migrated.query('generated_images');
     expect(remainingGeneratedImages, isEmpty);
   });
+
+  test('openDatabaseAt migrates version 6 databases to version 7', () async {
+    final oldDb = await openDatabase(
+      databasePath,
+      version: 6,
+      onConfigure: (db) async {
+        await db.execute('PRAGMA foreign_keys = ON');
+      },
+      onCreate: (db, version) async {
+        await db.execute('''
+          CREATE TABLE books (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            title       TEXT    NOT NULL,
+            author      TEXT    NOT NULL,
+            filePath    TEXT    NOT NULL UNIQUE,
+            coverPath   TEXT,
+            totalChapters INTEGER NOT NULL DEFAULT 0,
+            createdAt   TEXT    NOT NULL
+          )
+        ''');
+      },
+    );
+    await oldDb.close();
+
+    final migrated = await service.openDatabaseAt(databasePath);
+    addTearDown(() async => migrated.close());
+
+    final columns =
+        await migrated.rawQuery('PRAGMA table_info(ai_request_logs)');
+    expect(columns, isNotEmpty);
+    expect(columns.any((column) => column['name'] == 'provider'), isTrue);
+    expect(columns.any((column) => column['name'] == 'requestBody'), isTrue);
+    expect(columns.any((column) => column['name'] == 'responseBody'), isTrue);
+
+    final indexes = await migrated.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type = 'index'",
+    );
+    expect(
+      indexes.any(
+        (index) => index['name'] == 'idx_ai_request_logs_createdAt',
+      ),
+      isTrue,
+    );
+  });
+
+  test('ai request logs support pagination, count, and clear', () async {
+    final db = await service.database;
+
+    for (var i = 0; i < 3; i++) {
+      await db.insert('ai_request_logs', {
+        'createdAt': DateTime.utc(2026, 3, 29, 16, 0, i).toIso8601String(),
+        'provider': 'openrouter',
+        'requestKind': 'chat_generation',
+        'attempt': 1,
+        'method': 'POST',
+        'url': 'https://example.com/$i',
+        'requestHeaders': '{}',
+        'requestBody': '{"i":$i}',
+      });
+    }
+
+    final count = await service.countAiRequestLogEntries();
+    expect(count, 3);
+
+    final page = await service.getAiRequestLogEntries(limit: 2, offset: 1);
+    expect(page, hasLength(2));
+    expect(page.first.url, 'https://example.com/1');
+    expect(page.last.url, 'https://example.com/0');
+
+    final removed = await service.clearAiRequestLogEntries();
+    expect(removed, 3);
+    expect(await service.countAiRequestLogEntries(), 0);
+  });
 }

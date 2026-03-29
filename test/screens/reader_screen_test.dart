@@ -15,6 +15,7 @@ import 'package:bookai/models/reader_settings.dart';
 import 'package:bookai/models/resume_marker.dart';
 import 'package:bookai/screens/reader_screen.dart';
 import 'package:bookai/services/chapter_loader_service.dart';
+import 'package:bookai/services/ai_request_log_service.dart';
 import 'package:bookai/services/database_service.dart';
 import 'package:bookai/services/gemini_service.dart';
 import 'package:bookai/services/openrouter_service.dart';
@@ -2775,6 +2776,7 @@ class _FakeOpenRouterService extends OpenRouterService {
     required String modelId,
     required List<AiChatMessage> messages,
     double? temperature,
+    String requestKind = AiRequestLogKinds.chatGeneration,
   }) {
     generateTextMessagesCallCount += 1;
     generateTextMessagesCalls.add(
@@ -2960,6 +2962,7 @@ class _FakeGeminiService extends GeminiService {
     required String modelId,
     required List<AiChatMessage> messages,
     double? temperature,
+    String requestKind = AiRequestLogKinds.chatGeneration,
   }) {
     generateTextMessagesCallCount += 1;
     generateTextMessagesCalls.add(

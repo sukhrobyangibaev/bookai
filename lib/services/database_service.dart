@@ -3,6 +3,7 @@ import 'package:path/path.dart';
 
 import '../models/book.dart';
 import '../models/chapter.dart';
+import '../models/ai_request_log_entry.dart';
 import '../models/generated_image.dart';
 import '../models/highlight.dart';
 import '../models/reading_progress.dart';
@@ -34,7 +35,7 @@ class DatabaseService {
   Future<Database> openDatabaseAt(String path) {
     return openDatabase(
       path,
-      version: 6,
+      version: 7,
       onConfigure: _onConfigure,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
@@ -99,6 +100,7 @@ class DatabaseService {
     await _createResumeMarkersTable(db);
     await _createChaptersTable(db);
     await _createGeneratedImagesTable(db);
+    await _createAiRequestLogsTable(db);
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -117,6 +119,9 @@ class DatabaseService {
     }
     if (oldVersion < 6) {
       await _ensureGeneratedImagesNameColumn(db);
+    }
+    if (oldVersion < 7) {
+      await _createAiRequestLogsTable(db);
     }
   }
 
@@ -179,6 +184,33 @@ class DatabaseService {
     if (!hasNameColumn) {
       await db.execute('ALTER TABLE generated_images ADD COLUMN name TEXT');
     }
+  }
+
+  Future<void> _createAiRequestLogsTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS ai_request_logs (
+        id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+        createdAt            TEXT    NOT NULL,
+        provider             TEXT    NOT NULL,
+        requestKind          TEXT    NOT NULL,
+        attempt              INTEGER NOT NULL DEFAULT 1,
+        method               TEXT    NOT NULL,
+        url                  TEXT    NOT NULL,
+        modelId              TEXT,
+        requestHeaders       TEXT    NOT NULL,
+        requestBody          TEXT,
+        responseStatusCode   INTEGER,
+        responseHeaders      TEXT,
+        responseBody         TEXT,
+        responseMetadataOnly INTEGER NOT NULL DEFAULT 0,
+        durationMs           INTEGER,
+        errorMessage         TEXT
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_ai_request_logs_createdAt '
+      'ON ai_request_logs(createdAt DESC)',
+    );
   }
 
   // ── Books ─────────────────────────────────────────────────────────────────
@@ -389,5 +421,58 @@ class DatabaseService {
       where: 'id = ?',
       whereArgs: [generatedImageId],
     );
+  }
+
+  // ── AI Request Logs ───────────────────────────────────────────────────────
+
+  Future<AiRequestLogEntry> addAiRequestLogEntry(
+      AiRequestLogEntry entry) async {
+    final db = await database;
+    final id = await db.insert('ai_request_logs', entry.toMap());
+    return entry.copyWith(id: id);
+  }
+
+  Future<List<AiRequestLogEntry>> getAiRequestLogEntries({
+    int limit = 100,
+    int offset = 0,
+  }) async {
+    final db = await database;
+    final rows = await db.query(
+      'ai_request_logs',
+      orderBy: 'createdAt DESC, id DESC',
+      limit: limit,
+      offset: offset,
+    );
+    return rows.map(AiRequestLogEntry.fromMap).toList();
+  }
+
+  Future<void> trimAiRequestLogEntries({int keepLatest = 1000}) async {
+    final db = await database;
+
+    if (keepLatest <= 0) {
+      await db.delete('ai_request_logs');
+      return;
+    }
+
+    await db.delete(
+      'ai_request_logs',
+      where: 'id NOT IN ('
+          'SELECT id FROM ai_request_logs '
+          'ORDER BY createdAt DESC, id DESC '
+          'LIMIT ?'
+          ')',
+      whereArgs: [keepLatest],
+    );
+  }
+
+  Future<int> clearAiRequestLogEntries() async {
+    final db = await database;
+    return db.delete('ai_request_logs');
+  }
+
+  Future<int> countAiRequestLogEntries() async {
+    final db = await database;
+    final rows = await db.rawQuery('SELECT COUNT(*) FROM ai_request_logs');
+    return Sqflite.firstIntValue(rows) ?? 0;
   }
 }

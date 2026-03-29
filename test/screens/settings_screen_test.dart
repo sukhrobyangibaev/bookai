@@ -137,6 +137,26 @@ void main() {
       expect(askAiFeature, findsOneWidget);
     });
 
+    testWidgets('shows AI Logs entry in AI section', (tester) async {
+      await _useTallSurface(tester);
+      SharedPreferences.setMockInitialValues({});
+
+      final controller = SettingsController();
+      await tester.runAsync(() => controller.load());
+
+      await tester.pumpWidget(_buildSettingsApp(controller));
+      await tester.pumpAndSettle();
+
+      final logsTile = find.widgetWithText(ListTile, 'AI Logs');
+      await tester.ensureVisible(logsTile);
+
+      expect(logsTile, findsOneWidget);
+      expect(
+        find.text('View exact request and response records saved locally.'),
+        findsOneWidget,
+      );
+    });
+
     testWidgets(
         'default model picker is provider-first and shows OpenRouter pricing',
         (tester) async {
