@@ -50,6 +50,7 @@ void main() {
       expect(find.text('System'), findsOneWidget);
       expect(find.text('Light'), findsOneWidget);
       expect(find.text('Dark'), findsOneWidget);
+      expect(find.text('Night'), findsOneWidget);
       expect(find.text('Sepia'), findsOneWidget);
 
       final systemChip = tester.widget<ChoiceChip>(

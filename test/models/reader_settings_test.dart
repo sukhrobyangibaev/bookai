@@ -315,8 +315,8 @@ Be clear, direct, and helpful.
   });
 
   group('AppThemeMode', () {
-    test('has exactly four values', () {
-      expect(AppThemeMode.values.length, 4);
+    test('has exactly five values', () {
+      expect(AppThemeMode.values.length, 5);
     });
   });
 

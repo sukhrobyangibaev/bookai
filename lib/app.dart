@@ -30,6 +30,31 @@ class BookAiApp extends StatefulWidget {
 }
 
 class _BookAiAppState extends State<BookAiApp> {
+  static const List<double> _nightModeColorMatrix = <double>[
+    1.15,
+    0.08,
+    0,
+    0,
+    0,
+    0,
+    0.82,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0.16,
+    0,
+    0,
+    0,
+    0,
+    0,
+    1,
+    0,
+  ];
+  static const ValueKey<String> _nightModeFilterKey =
+      ValueKey<String>('app-night-mode-filter');
+
   late final SettingsController _controller;
 
   @override
@@ -103,6 +128,7 @@ class _BookAiAppState extends State<BookAiApp> {
       case AppThemeMode.sepia:
         return ThemeMode.light;
       case AppThemeMode.dark:
+      case AppThemeMode.night:
         return ThemeMode.dark;
     }
   }
@@ -127,6 +153,18 @@ class _BookAiAppState extends State<BookAiApp> {
                 : lightTheme,
             darkTheme: darkTheme,
             themeMode: _materialThemeMode(themeMode),
+            builder: (context, child) {
+              final appChild = child ?? const SizedBox.shrink();
+              if (themeMode != AppThemeMode.night) {
+                return appChild;
+              }
+
+              return ColorFiltered(
+                key: _nightModeFilterKey,
+                colorFilter: const ColorFilter.matrix(_nightModeColorMatrix),
+                child: appChild,
+              );
+            },
             home: const LibraryScreen(),
           ),
         );

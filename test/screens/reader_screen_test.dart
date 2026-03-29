@@ -296,16 +296,17 @@ void main() {
       expect(find.text('System'), findsOneWidget);
       expect(find.text('Light'), findsOneWidget);
       expect(find.text('Dark'), findsOneWidget);
+      expect(find.text('Night'), findsOneWidget);
       expect(find.text('Sepia'), findsOneWidget);
 
-      await tester.tap(find.text('Dark'));
+      await tester.tap(find.text('Night'));
       await tester.pumpAndSettle();
 
       final readerContext = tester.element(find.byType(ReaderScreen));
       expect(SettingsControllerScope.of(readerContext).themeMode,
-          AppThemeMode.dark);
+          AppThemeMode.night);
       expect(find.byTooltip('Theme'), findsOneWidget);
-      expect(find.byIcon(Icons.dark_mode_outlined), findsOneWidget);
+      expect(find.byIcon(Icons.bedtime_outlined), findsOneWidget);
 
       await tester.tap(find.byTooltip('Theme'));
       await tester.pumpAndSettle();

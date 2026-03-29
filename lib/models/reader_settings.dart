@@ -3,7 +3,7 @@ import 'ai_feature_config.dart';
 import 'ai_model_selection.dart';
 import 'ai_provider.dart';
 
-enum AppThemeMode { system, light, dark, sepia }
+enum AppThemeMode { system, light, dark, night, sepia }
 
 enum ReaderFontFamily { system, literata, bitter, atkinsonHyperlegible }
 

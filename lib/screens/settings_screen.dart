@@ -32,6 +32,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     AppThemeMode.system,
     AppThemeMode.light,
     AppThemeMode.dark,
+    AppThemeMode.night,
     AppThemeMode.sepia,
   ];
 
@@ -552,6 +553,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         return Icons.light_mode_outlined;
       case AppThemeMode.dark:
         return Icons.dark_mode_outlined;
+      case AppThemeMode.night:
+        return Icons.bedtime_outlined;
       case AppThemeMode.sepia:
         return Icons.auto_stories_outlined;
     }
@@ -565,6 +568,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         return 'Light';
       case AppThemeMode.dark:
         return 'Dark';
+      case AppThemeMode.night:
+        return 'Night';
       case AppThemeMode.sepia:
         return 'Sepia';
     }

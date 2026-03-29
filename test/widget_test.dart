@@ -188,6 +188,39 @@ void main() {
       await tester.pump();
     });
 
+    testWidgets('night theme applies global red-tint filter',
+        (WidgetTester tester) async {
+      SharedPreferences.setMockInitialValues({});
+
+      await tester.runAsync(() async {
+        await DatabaseService.instance.database;
+      });
+
+      final controller = SettingsController();
+      await tester.runAsync(() => controller.load());
+      await controller.setThemeMode(AppThemeMode.night);
+
+      await tester.pumpWidget(BookAiApp(settingsController: controller));
+      for (int i = 0; i < 5; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 50)),
+        );
+        await tester.pump();
+      }
+
+      expect(
+        find.byKey(const ValueKey<String>('app-night-mode-filter')),
+        findsOneWidget,
+      );
+      expect(
+        Theme.of(tester.element(find.byType(LibraryScreen))).brightness,
+        Brightness.dark,
+      );
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+    });
+
     testWidgets('library image detail shows file size and opens zoom viewer',
         (WidgetTester tester) async {
       SharedPreferences.setMockInitialValues({});
