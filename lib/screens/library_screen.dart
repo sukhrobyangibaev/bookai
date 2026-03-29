@@ -113,7 +113,7 @@ class _LibraryScreenState extends State<LibraryScreen>
           _showSnackBar('Imported "${book.title}"');
 
         case ImportCancelled():
-          break;
+          _showSnackBar('Import cancelled.');
 
         case ImportDuplicate(:final existing):
           _showSnackBar('"${existing.title}" is already in your library.');
