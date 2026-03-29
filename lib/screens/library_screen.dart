@@ -128,6 +128,52 @@ class _LibraryScreenState extends State<LibraryScreen>
     }
   }
 
+  Future<void> _pasteText() async {
+    if (_importing) return;
+
+    final draft = await _showPastedTextComposerSheet();
+    if (draft == null || !mounted) {
+      return;
+    }
+
+    setState(() => _importing = true);
+    try {
+      final book = await _library.importPastedText(
+        title: draft.title,
+        author: draft.author,
+        text: draft.text,
+      );
+
+      if (!mounted) return;
+
+      await _loadLibraryData();
+      _showSnackBar('Added "${book.title}"');
+    } on FormatException catch (error) {
+      if (mounted) {
+        _showSnackBar(error.message, isError: true);
+      }
+    } catch (error) {
+      if (mounted) {
+        _showSnackBar('Paste failed: $error', isError: true);
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _importing = false);
+      }
+    }
+  }
+
+  Future<_PastedTextDraft?> _showPastedTextComposerSheet() {
+    return showModalBottomSheet<_PastedTextDraft>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        return const _PastedTextComposerSheet();
+      },
+    );
+  }
+
   Future<void> _deleteBook(Book book) async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -411,6 +457,11 @@ class _LibraryScreenState extends State<LibraryScreen>
         ),
         actions: [
           IconButton(
+            icon: const Icon(Icons.paste_outlined),
+            tooltip: 'Paste Text',
+            onPressed: _importing ? null : _pasteText,
+          ),
+          IconButton(
             icon: const Icon(Icons.settings_outlined),
             tooltip: 'Settings',
             onPressed: () {
@@ -540,7 +591,7 @@ class _LibraryScreenState extends State<LibraryScreen>
             ),
             const SizedBox(height: 8),
             Text(
-              'Import an EPUB file to start reading.\n'
+              'Import an EPUB or paste text to start reading.\n'
               'Your books, progress, highlights, and generated images are stored locally.',
               textAlign: TextAlign.center,
               style: theme.textTheme.bodyMedium?.copyWith(
@@ -549,16 +600,28 @@ class _LibraryScreenState extends State<LibraryScreen>
               ),
             ),
             const SizedBox(height: 32),
-            FilledButton.icon(
-              onPressed: _importing ? null : _importEpub,
-              icon: _importing
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.add),
-              label: const Text('Import Your First Book'),
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              alignment: WrapAlignment.center,
+              children: [
+                FilledButton.icon(
+                  onPressed: _importing ? null : _importEpub,
+                  icon: _importing
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.add),
+                  label: const Text('Import EPUB'),
+                ),
+                FilledButton.tonalIcon(
+                  onPressed: _importing ? null : _pasteText,
+                  icon: const Icon(Icons.paste_outlined),
+                  label: const Text('Paste Text'),
+                ),
+              ],
             ),
           ],
         ),
@@ -937,6 +1000,138 @@ class _GeneratedImageNameEditorSheetState
                 FilledButton(
                   onPressed: () => Navigator.of(context).pop(_controller.text),
                   child: const Text('Save'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PastedTextDraft {
+  const _PastedTextDraft({
+    required this.title,
+    required this.author,
+    required this.text,
+  });
+
+  final String title;
+  final String author;
+  final String text;
+}
+
+class _PastedTextComposerSheet extends StatefulWidget {
+  const _PastedTextComposerSheet();
+
+  @override
+  State<_PastedTextComposerSheet> createState() =>
+      _PastedTextComposerSheetState();
+}
+
+class _PastedTextComposerSheetState extends State<_PastedTextComposerSheet> {
+  late final TextEditingController _titleController;
+  late final TextEditingController _authorController;
+  late final TextEditingController _textController;
+
+  bool get _canSave => _textController.text.trim().isNotEmpty;
+
+  @override
+  void initState() {
+    super.initState();
+    _titleController = TextEditingController();
+    _authorController = TextEditingController();
+    _textController = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _titleController.dispose();
+    _authorController.dispose();
+    _textController.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    if (!_canSave) return;
+    Navigator.of(context).pop(
+      _PastedTextDraft(
+        title: _titleController.text,
+        author: _authorController.text,
+        text: _textController.text,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: SingleChildScrollView(
+        padding: EdgeInsets.only(
+          left: 16,
+          right: 16,
+          top: 8,
+          bottom: MediaQuery.viewInsetsOf(context).bottom + 16,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Paste Text',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Paste any text and save it as a book. Leave title/author blank to auto-fill.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _titleController,
+              textInputAction: TextInputAction.next,
+              decoration: const InputDecoration(
+                border: OutlineInputBorder(),
+                labelText: 'Title (Optional)',
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _authorController,
+              textInputAction: TextInputAction.next,
+              decoration: const InputDecoration(
+                border: OutlineInputBorder(),
+                labelText: 'Author (Optional)',
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              key: const ValueKey<String>('paste-text-book-text-field'),
+              controller: _textController,
+              minLines: 8,
+              maxLines: 16,
+              textInputAction: TextInputAction.newline,
+              decoration: const InputDecoration(
+                border: OutlineInputBorder(),
+                labelText: 'Book Text',
+                hintText: 'Paste the text you want to read...',
+              ),
+              onChanged: (value) => setState(() {}),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('Cancel'),
+                ),
+                const Spacer(),
+                FilledButton.icon(
+                  key: const ValueKey<String>('paste-text-save-button'),
+                  onPressed: _canSave ? _submit : null,
+                  icon: const Icon(Icons.menu_book_outlined),
+                  label: const Text('Save Book'),
                 ),
               ],
             ),

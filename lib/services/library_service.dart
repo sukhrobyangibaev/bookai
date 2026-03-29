@@ -4,6 +4,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:path/path.dart' as p;
 
 import '../models/book.dart';
+import '../models/chapter.dart';
 import '../models/generated_image.dart';
 import 'database_service.dart';
 import 'epub_service.dart';
@@ -33,7 +34,7 @@ final class ImportError extends ImportResult {
   ImportError(this.message);
 }
 
-/// Orchestrates the EPUB import flow and library queries.
+/// Orchestrates import flows and library queries.
 class LibraryService {
   LibraryService._();
   static final LibraryService instance = LibraryService._();
@@ -143,6 +144,45 @@ class LibraryService {
     return ImportSuccess(saved);
   }
 
+  Future<Book> importPastedText({
+    String? title,
+    String? author,
+    required String text,
+  }) async {
+    final normalizedText = _normalizePastedText(text);
+    if (normalizedText.isEmpty) {
+      throw const FormatException('Pasted text is empty.');
+    }
+
+    final draft = Book(
+      title: _resolvePastedTextTitle(title, normalizedText),
+      author: _resolveAuthor(author),
+      filePath: await _nextPastedBookPath(),
+      totalChapters: 1,
+      createdAt: DateTime.now(),
+    );
+
+    final saved = await _db.insertBook(draft);
+    if (saved.id == null || saved.id == 0) {
+      throw StateError('Failed to save pasted text book.');
+    }
+
+    try {
+      await _db.replaceChaptersForBook(saved.id!, <Chapter>[
+        Chapter(
+          index: 0,
+          title: 'Chapter 1',
+          content: normalizedText,
+        ),
+      ]);
+    } catch (error) {
+      await _db.deleteBook(saved.id!);
+      rethrow;
+    }
+
+    return saved;
+  }
+
   // ── Delete ──────────────────────────────────────────────────────────────────
 
   /// Deletes a book and all associated data (progress, highlights,
@@ -197,6 +237,47 @@ class LibraryService {
   String _resolveAuthor(String? author) {
     final normalized = (author ?? '').trim();
     return normalized.isNotEmpty ? normalized : 'Unknown Author';
+  }
+
+  String _resolvePastedTextTitle(String? title, String text) {
+    final normalized = (title ?? '').trim();
+    if (normalized.isNotEmpty) {
+      return normalized;
+    }
+
+    for (final rawLine in text.split('\n')) {
+      final line = rawLine.trim();
+      if (line.isEmpty) {
+        continue;
+      }
+      if (line.length <= 80) {
+        return line;
+      }
+      return '${line.substring(0, 80).trimRight()}...';
+    }
+
+    return 'Untitled Book';
+  }
+
+  String _normalizePastedText(String text) {
+    return text.replaceAll('\r\n', '\n').replaceAll('\r', '\n').trim();
+  }
+
+  Future<String> _nextPastedBookPath() async {
+    final booksDir = await _storage.getBooksDirectory();
+    final nowMicros = DateTime.now().microsecondsSinceEpoch;
+    var suffix = 0;
+
+    while (true) {
+      final suffixPart = suffix == 0 ? '' : '_$suffix';
+      final candidate =
+          p.join(booksDir.path, 'pasted_$nowMicros$suffixPart.bookai');
+      final existing = await _db.getBookByFilePath(candidate);
+      if (existing == null) {
+        return candidate;
+      }
+      suffix += 1;
+    }
   }
 
   String _titleFromPath(String filePath) {

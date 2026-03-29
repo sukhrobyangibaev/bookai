@@ -70,6 +70,7 @@ void main() {
 
       // ── App bar ──────────────────────────────────────────────────────────
       expect(find.text('BookAI Library'), findsOneWidget);
+      expect(find.byTooltip('Paste Text'), findsOneWidget);
       expect(find.byIcon(Icons.settings_outlined), findsOneWidget);
       expect(find.text('Books'), findsOneWidget);
       expect(find.text('Images'), findsOneWidget);
@@ -87,17 +88,17 @@ void main() {
       expect(find.text('Your library is empty'), findsOneWidget);
       expect(
         find.text(
-          'Import an EPUB file to start reading.\n'
+          'Import an EPUB or paste text to start reading.\n'
           'Your books, progress, highlights, and generated images are stored locally.',
         ),
         findsOneWidget,
       );
 
-      // ── Import CTA button in empty state ─────────────────────────────────
-      expect(find.text('Import Your First Book'), findsOneWidget);
+      // ── Import CTA buttons in empty state ────────────────────────────────
+      expect(find.text('Import EPUB'), findsNWidgets(2));
+      expect(find.text('Paste Text'), findsOneWidget);
 
       // ── FAB ──────────────────────────────────────────────────────────────
-      expect(find.text('Import EPUB'), findsOneWidget);
       final fab = tester.widget<FloatingActionButton>(
         find.byType(FloatingActionButton),
       );
@@ -105,6 +106,75 @@ void main() {
 
       // ── No loading indicator (data has loaded) ───────────────────────────
       expect(find.byType(CircularProgressIndicator), findsNothing);
+    });
+
+    testWidgets('paste text saves a new book with default metadata',
+        (WidgetTester tester) async {
+      SharedPreferences.setMockInitialValues({});
+
+      await tester.runAsync(() async {
+        await DatabaseService.instance.database;
+      });
+
+      final controller = SettingsController();
+      await tester.runAsync(() => controller.load());
+
+      await tester.pumpWidget(BookAiApp(settingsController: controller));
+
+      for (int i = 0; i < 10; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 50)),
+        );
+        await tester.pump();
+      }
+
+      await tester.tap(find.byTooltip('Paste Text'));
+      await tester.pumpAndSettle();
+
+      final bookTextField =
+          find.byKey(const ValueKey<String>('paste-text-book-text-field'));
+      await tester.enterText(
+        bookTextField,
+        '\n\nA Fresh Start\r\n\r\nThis is body text.',
+      );
+      await tester.pump();
+
+      final saveButtonFinder =
+          find.byKey(const ValueKey<String>('paste-text-save-button'));
+      expect(saveButtonFinder, findsOneWidget);
+      final saveButton = tester.widget<FilledButton>(saveButtonFinder);
+      expect(saveButton.onPressed, isNotNull);
+
+      await tester.ensureVisible(saveButtonFinder);
+      await tester.tap(saveButtonFinder);
+      for (int i = 0; i < 10; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 50)),
+        );
+        await tester.pump();
+      }
+      await tester.pumpAndSettle();
+
+      final books = await tester.runAsync(
+        () => DatabaseService.instance.getAllBooks(),
+      );
+      expect(books, isNotNull);
+      final savedBooks = books!;
+      expect(savedBooks, hasLength(1));
+      expect(savedBooks.single.title, 'A Fresh Start');
+      expect(savedBooks.single.author, 'Unknown Author');
+      expect(savedBooks.single.totalChapters, 1);
+
+      final chapters = await tester.runAsync(
+        () =>
+            DatabaseService.instance.getChaptersByBookId(savedBooks.single.id!),
+      );
+      expect(chapters, isNotNull);
+      final savedChapters = chapters!;
+      expect(savedChapters, hasLength(1));
+      expect(savedChapters.single.title, 'Chapter 1');
+      expect(
+          savedChapters.single.content, 'A Fresh Start\n\nThis is body text.');
     });
 
     testWidgets('images tab shows generated image empty state',
