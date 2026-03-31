@@ -293,7 +293,7 @@ For fastest value with minimal risk, ship after Task 6:
 
 ## Task status board
 
-- [ ] Task 1 - Shared streaming primitives and SSE parsing helper
+- [x] Task 1 - Shared streaming primitives and SSE parsing helper
 - [ ] Task 2 - OpenRouter streaming service API
 - [ ] Task 3 - Gemini streaming service API
 - [ ] Task 4 - Reader provider-agnostic streaming bridge
@@ -325,3 +325,27 @@ Follow-ups / risks:
 Next session start point:
 - ...
 ```
+
+### 2026-03-31 - Task 1 - Shared streaming primitives and SSE parser
+Status: completed
+
+What was done:
+- Added a shared AI text streaming event model with delta/done/error variants.
+- Implemented a reusable incremental SSE decoder that supports partial lines across chunks, blank-line event boundaries, comments, and `[DONE]` marker detection.
+- Added parser-focused unit tests covering split chunks, multiple events per chunk, comment handling, done markers, CRLF handling, and close behavior.
+
+Files changed:
+- `lib/models/ai_text_stream_event.dart`
+- `lib/services/sse_decoder.dart`
+- `test/services/sse_decoder_test.dart`
+- `streaming_plan.md`
+
+Tests run:
+- `flutter test test/services/sse_decoder_test.dart` - pass
+
+Follow-ups / risks:
+- Decoder emits only `data:` events; provider-specific payload decoding and error mapping still need to be implemented in service layers.
+- `close(emitIncompleteEvent: false)` drops trailing non-delimited events by default; callers must opt in if they need final partial flush behavior.
+
+Next session start point:
+- Start Task 2 by adding OpenRouter streaming API methods that use `SseDecoder` and map chunks to `AiTextStreamEvent`.
