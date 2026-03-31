@@ -97,11 +97,14 @@ class _ReaderScreenState extends State<ReaderScreen> {
 
   _ActiveAiRequest? _activeAiRequest;
   _ActiveAiConversationSheetState? _activeAiConversationSheet;
+  final ValueNotifier<_ActiveAiConversationSheetState?>
+      _activeAiConversationSheetListenable =
+      ValueNotifier<_ActiveAiConversationSheetState?>(null);
+  bool _isInitialAiConversationSheetVisible = false;
   Timer? _aiLoadingElapsedTimer;
   int _activeAiElapsedSeconds = 0;
 
   static const double _aiLoadingSheetReservedSpace = 116.0;
-  static const double _aiStreamingSheetReservedSpace = 332.0;
   static const double _readerHorizontalPadding = 20.0;
   static const double _readerTopPadding = 16.0;
   static const double _readerBottomPadding = 32.0;
@@ -138,6 +141,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
   void dispose() {
     _saveTimer?.cancel();
     _aiLoadingElapsedTimer?.cancel();
+    _activeAiConversationSheetListenable.dispose();
     // Persist final progress synchronously before disposing.
     _saveProgressNow();
     _scrollController.removeListener(_onScroll);
@@ -1590,7 +1594,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
     setState(() {
       _aiRequestToken += 1;
       _activeAiRequest = null;
-      _activeAiConversationSheet = null;
+      _setActiveAiConversationSheetState(null);
       _initialAiStreamPhase = _InitialAiStreamPhase.idle;
       _activeAiElapsedSeconds = 0;
     });
@@ -1928,6 +1932,133 @@ class _ReaderScreenState extends State<ReaderScreen> {
         ];
   }
 
+  void _setActiveAiConversationSheetState(
+    _ActiveAiConversationSheetState? value,
+  ) {
+    _activeAiConversationSheet = value;
+    _activeAiConversationSheetListenable.value = value;
+  }
+
+  void _showInitialAiConversationSheetIfNeeded({required int token}) {
+    if (!mounted || _isInitialAiConversationSheetVisible) return;
+
+    _isInitialAiConversationSheetVisible = true;
+    unawaited(
+      showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        showDragHandle: true,
+        builder: (sheetContext) {
+          return ValueListenableBuilder<_ActiveAiConversationSheetState?>(
+            valueListenable: _activeAiConversationSheetListenable,
+            builder: (context, sheetState, _) {
+              if (sheetState == null) {
+                return const SizedBox.shrink();
+              }
+
+              final settings = SettingsControllerScope.of(context);
+              return SafeArea(
+                child: Padding(
+                  padding: EdgeInsets.only(
+                    bottom: MediaQuery.viewInsetsOf(sheetContext).bottom,
+                  ),
+                  child: FractionallySizedBox(
+                    heightFactor: 0.82,
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                      child: KeyedSubtree(
+                        key:
+                            const ValueKey<String>('reader-ai-streaming-sheet'),
+                        child: _AiConversationSheet(
+                          title: sheetState.requestSpec.title,
+                          copiedMessage: sheetState.requestSpec.copiedMessage,
+                          emptyAssistantMessage:
+                              sheetState.requestSpec.emptyMessage,
+                          followUpHintText:
+                              sheetState.requestSpec.followUpHintText,
+                          resultTextStyle: buildReaderContentTextStyle(
+                            context: context,
+                            fontSize: settings.fontSize,
+                            fontFamily: settings.fontFamily,
+                          ),
+                          initialMessages: <_AiConversationMessage>[
+                            ...sheetState.initialMessages,
+                            _AiConversationMessage.assistant(
+                              sheetState.assistantText,
+                            ),
+                          ],
+                          isInitialAssistantStreaming:
+                              sheetState.isStreamingInitialAssistant,
+                          onClose: () => Navigator.of(sheetContext).pop(),
+                          onSendFollowUp: (messages) => _runBackgroundAiTask(
+                            task: () => _generateTextForMessages(
+                              selection: sheetState.requestSpec.modelSelection,
+                              messages: messages,
+                            ),
+                          ),
+                          onRegenerateWithFallback: sheetState
+                                  .isStreamingInitialAssistant
+                              ? null
+                              : () {
+                                  Navigator.of(sheetContext).pop();
+                                  unawaited(
+                                    Future<void>.microtask(
+                                      () => _regenerateAiRequestWithFallback(
+                                        sheetState.requestSpec,
+                                      ),
+                                    ),
+                                  );
+                                },
+                          switchFeatureLabel: _switchFeatureLabelForRequest(
+                            sheetState.requestSpec,
+                          ),
+                          onSwitchFeature:
+                              sheetState.isStreamingInitialAssistant
+                                  ? null
+                                  : () {
+                                      Navigator.of(sheetContext).pop();
+                                      unawaited(
+                                        Future<void>.microtask(
+                                          () => _switchTextFeature(
+                                            sheetState.requestSpec,
+                                          ),
+                                        ),
+                                      );
+                                    },
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            },
+          );
+        },
+      ).whenComplete(() {
+        if (!mounted) return;
+
+        _isInitialAiConversationSheetVisible = false;
+        final currentSheet = _activeAiConversationSheet;
+        if (currentSheet == null || currentSheet.token != token) {
+          return;
+        }
+
+        if (currentSheet.isStreamingInitialAssistant &&
+            _activeAiRequest?.token == token) {
+          _cancelActiveAiRequest();
+          return;
+        }
+
+        _dismissActiveAiConversationSheet();
+      }),
+    );
+  }
+
+  void _dismissPresentedInitialAiConversationSheet() {
+    if (!_isInitialAiConversationSheetVisible || !mounted) return;
+    Navigator.of(context).pop();
+  }
+
   void _updateInitialAiConversationSheet({
     required _ActiveAiRequest request,
     required String assistantText,
@@ -1943,15 +2074,16 @@ class _ReaderScreenState extends State<ReaderScreen> {
     if (currentSheet == null) {
       setState(() {
         _initialAiStreamPhase = _InitialAiStreamPhase.streaming;
-        _activeAiConversationSheet = _ActiveAiConversationSheetState(
+        _setActiveAiConversationSheetState(_ActiveAiConversationSheetState(
           token: request.token,
           requestSpec: request.requestSpec,
           initialMessages:
               _initialConversationMessagesForRequest(request.requestSpec),
           assistantText: assistantText,
           isStreamingInitialAssistant: true,
-        );
+        ));
       });
+      _showInitialAiConversationSheetIfNeeded(token: request.token);
       return;
     }
 
@@ -1961,10 +2093,10 @@ class _ReaderScreenState extends State<ReaderScreen> {
 
     setState(() {
       _initialAiStreamPhase = _InitialAiStreamPhase.streaming;
-      _activeAiConversationSheet = currentSheet.copyWith(
+      _setActiveAiConversationSheetState(currentSheet.copyWith(
         assistantText: assistantText,
         isStreamingInitialAssistant: true,
-      );
+      ));
     });
   }
 
@@ -2000,16 +2132,17 @@ class _ReaderScreenState extends State<ReaderScreen> {
       if (currentSheet != null && currentSheet.token == request.token) {
         setState(() {
           _initialAiStreamPhase = _InitialAiStreamPhase.complete;
-          _activeAiConversationSheet = currentSheet.copyWith(
+          _setActiveAiConversationSheetState(currentSheet.copyWith(
             assistantText: trimmedResult,
             isStreamingInitialAssistant: false,
-          );
+          ));
         });
       }
       return;
     }
 
     _clearActiveAiConversationSheet(token: request.token);
+    _dismissPresentedInitialAiConversationSheet();
     _setInitialAiStreamPhase(_InitialAiStreamPhase.failed);
 
     if (!mounted) return;
@@ -2054,7 +2187,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
     if (!mounted) return;
 
     setState(() {
-      _activeAiConversationSheet = null;
+      _setActiveAiConversationSheetState(null);
       if (_activeAiRequest == null) {
         _initialAiStreamPhase = _InitialAiStreamPhase.idle;
       }
@@ -2068,7 +2201,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
     }
 
     setState(() {
-      _activeAiConversationSheet = null;
+      _setActiveAiConversationSheetState(null);
     });
   }
 
@@ -2298,7 +2431,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
     if (!mounted) return;
     setState(() {
       _activeAiRequest = request;
-      _activeAiConversationSheet = null;
+      _setActiveAiConversationSheetState(null);
       _initialAiStreamPhase = _InitialAiStreamPhase.idle;
       _activeAiElapsedSeconds = 0;
     });
@@ -2910,10 +3043,6 @@ class _ReaderScreenState extends State<ReaderScreen> {
   }
 
   double get _activeAiBottomInset {
-    if (_activeAiConversationSheet != null) {
-      return _aiStreamingSheetReservedSpace;
-    }
-
     if (_activeAiRequest != null) {
       return _aiLoadingSheetReservedSpace;
     }
@@ -3010,56 +3139,6 @@ class _ReaderScreenState extends State<ReaderScreen> {
               loadingText: _activeAiRequest!.requestSpec.loadingText,
               elapsedSeconds: _activeAiElapsedSeconds,
               onCancel: _cancelActiveAiRequest,
-            ),
-          if (_activeAiConversationSheet != null)
-            _AiPinnedConversationSheet(
-              child: _AiConversationSheet(
-                title: _activeAiConversationSheet!.requestSpec.title,
-                copiedMessage:
-                    _activeAiConversationSheet!.requestSpec.copiedMessage,
-                emptyAssistantMessage:
-                    _activeAiConversationSheet!.requestSpec.emptyMessage,
-                followUpHintText:
-                    _activeAiConversationSheet!.requestSpec.followUpHintText,
-                resultTextStyle: buildReaderContentTextStyle(
-                  context: context,
-                  fontSize: settings.fontSize,
-                  fontFamily: settings.fontFamily,
-                ),
-                initialMessages: <_AiConversationMessage>[
-                  ..._activeAiConversationSheet!.initialMessages,
-                  _AiConversationMessage.assistant(
-                    _activeAiConversationSheet!.assistantText,
-                  ),
-                ],
-                isInitialAssistantStreaming:
-                    _activeAiConversationSheet!.isStreamingInitialAssistant,
-                onClose: _activeAiConversationSheet!.isStreamingInitialAssistant
-                    ? _cancelActiveAiRequest
-                    : _dismissActiveAiConversationSheet,
-                onSendFollowUp: (messages) => _runBackgroundAiTask(
-                  task: () => _generateTextForMessages(
-                    selection:
-                        _activeAiConversationSheet!.requestSpec.modelSelection,
-                    messages: messages,
-                  ),
-                ),
-                onRegenerateWithFallback:
-                    _activeAiConversationSheet!.isStreamingInitialAssistant
-                        ? null
-                        : () => _regenerateAiRequestWithFallback(
-                              _activeAiConversationSheet!.requestSpec,
-                            ),
-                switchFeatureLabel: _switchFeatureLabelForRequest(
-                  _activeAiConversationSheet!.requestSpec,
-                ),
-                onSwitchFeature:
-                    _activeAiConversationSheet!.isStreamingInitialAssistant
-                        ? null
-                        : () => _switchTextFeature(
-                              _activeAiConversationSheet!.requestSpec,
-                            ),
-              ),
             ),
           if (!_isNavbarVisible) _buildHiddenNavPill(),
         ],
@@ -4233,43 +4312,6 @@ class _AiConversationSheetState extends State<_AiConversationSheet> {
           ],
         ),
       ],
-    );
-  }
-}
-
-class _AiPinnedConversationSheet extends StatelessWidget {
-  static const ValueKey<String> containerKey =
-      ValueKey<String>('reader-ai-streaming-sheet');
-
-  final Widget child;
-
-  const _AiPinnedConversationSheet({required this.child});
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return SafeArea(
-      child: Align(
-        alignment: Alignment.bottomCenter,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
-          child: Material(
-            key: containerKey,
-            elevation: 6,
-            color: theme.colorScheme.surface,
-            shadowColor: Colors.black.withOpacity(0.12),
-            borderRadius: BorderRadius.circular(18),
-            child: SizedBox(
-              height: 320,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-                child: child,
-              ),
-            ),
-          ),
-        ),
-      ),
     );
   }
 }
