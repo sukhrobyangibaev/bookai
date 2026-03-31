@@ -296,7 +296,7 @@ For fastest value with minimal risk, ship after Task 6:
 - [x] Task 1 - Shared streaming primitives and SSE parsing helper
 - [x] Task 2 - OpenRouter streaming service API
 - [x] Task 3 - Gemini streaming service API
-- [ ] Task 4 - Reader provider-agnostic streaming bridge
+- [x] Task 4 - Reader provider-agnostic streaming bridge
 - [ ] Task 5 - Initial response UX: thinking indicator -> streaming bottom sheet
 - [ ] Task 6 - Conversation sheet streaming state (initial assistant message)
 - [ ] Task 7 - Follow-up streaming in bottom sheet (phase 2)
@@ -395,3 +395,26 @@ Follow-ups / risks:
 
 Next session start point:
 - Start Task 4 by adding a reader-level provider-agnostic streaming bridge that selects OpenRouter vs Gemini stream methods.
+
+### 2026-03-31 - Task 4 - Reader provider-agnostic streaming bridge
+Status: completed
+
+What was done:
+- Added reader-level provider-agnostic streaming helpers in `ReaderScreen` for both prompt-based and message-based text flows.
+- Switched reader text generation paths to aggregate provider stream events (`delta`/`done`/`error`) into final text while preserving existing request/model/key validation behavior.
+- Added stream-aware reader tests by extending fake AI services with streaming overrides and asserting that initial and follow-up flows route through stream methods.
+
+Files changed:
+- `lib/screens/reader_screen.dart`
+- `test/screens/reader_screen_test.dart`
+- `streaming_plan.md`
+
+Tests run:
+- `flutter test test/screens/reader_screen_test.dart` - pass
+
+Follow-ups / risks:
+- Reader now consumes stream APIs but still waits for fully aggregated text before opening/rendering result UI; first-chunk UX transition remains for Task 5.
+- Fake reader test services currently adapt stream methods by wrapping existing non-stream handlers; dedicated chunk-by-chunk UI streaming behavior still needs explicit coverage in later tasks.
+
+Next session start point:
+- Start Task 5 by wiring initial request UX to first-chunk stream events (keep loading indicator until first chunk, then open and append in sheet live).

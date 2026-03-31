@@ -9,6 +9,7 @@ import '../models/ai_feature.dart';
 import '../models/ai_model_info.dart';
 import '../models/ai_model_selection.dart';
 import '../models/ai_provider.dart';
+import '../models/ai_text_stream_event.dart';
 import '../models/book.dart';
 import '../models/chapter.dart';
 import '../models/generated_image.dart';
@@ -1335,7 +1336,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
     }
   }
 
-  Future<String> _generateTextForSelection({
+  Stream<AiTextStreamEvent> _streamTextForSelection({
     required AiModelSelection selection,
     required String prompt,
   }) {
@@ -1349,13 +1350,13 @@ class _ReaderScreenState extends State<ReaderScreen> {
     final apiKey = settings.apiKeyForProvider(provider);
     switch (provider) {
       case AiProvider.openRouter:
-        return _openRouter.generateText(
+        return _openRouter.streamText(
           apiKey: apiKey,
           modelId: modelId,
           prompt: prompt,
         );
       case AiProvider.gemini:
-        return _gemini.generateText(
+        return _gemini.streamText(
           apiKey: apiKey,
           modelId: modelId,
           prompt: prompt,
@@ -1363,7 +1364,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
     }
   }
 
-  Future<String> _generateTextForMessages({
+  Stream<AiTextStreamEvent> _streamTextForMessages({
     required AiModelSelection selection,
     required List<AiChatMessage> messages,
   }) {
@@ -1377,16 +1378,106 @@ class _ReaderScreenState extends State<ReaderScreen> {
     final apiKey = settings.apiKeyForProvider(provider);
     switch (provider) {
       case AiProvider.openRouter:
-        return _openRouter.generateTextMessages(
+        return _openRouter.streamTextMessages(
           apiKey: apiKey,
           modelId: modelId,
           messages: messages,
         );
       case AiProvider.gemini:
-        return _gemini.generateTextMessages(
+        return _gemini.streamTextMessages(
           apiKey: apiKey,
           modelId: modelId,
           messages: messages,
+        );
+    }
+  }
+
+  Future<String> _generateTextForSelection({
+    required AiModelSelection selection,
+    required String prompt,
+  }) {
+    final provider = selection.provider;
+    final modelId = selection.normalizedModelId;
+    if (provider == null || modelId.isEmpty) {
+      throw const OpenRouterException('Model is not configured.');
+    }
+
+    return _collectTextStream(
+      provider: provider,
+      stream: _streamTextForSelection(
+        selection: selection,
+        prompt: prompt,
+      ),
+    );
+  }
+
+  Future<String> _generateTextForMessages({
+    required AiModelSelection selection,
+    required List<AiChatMessage> messages,
+  }) {
+    final provider = selection.provider;
+    final modelId = selection.normalizedModelId;
+    if (provider == null || modelId.isEmpty) {
+      throw const OpenRouterException('Model is not configured.');
+    }
+
+    return _collectTextStream(
+      provider: provider,
+      stream: _streamTextForMessages(
+        selection: selection,
+        messages: messages,
+      ),
+    );
+  }
+
+  Future<String> _collectTextStream({
+    required AiProvider provider,
+    required Stream<AiTextStreamEvent> stream,
+  }) async {
+    final buffer = StringBuffer();
+
+    await for (final event in stream) {
+      if (event.isDelta) {
+        final deltaText = event.deltaText;
+        if (deltaText != null && deltaText.isNotEmpty) {
+          buffer.write(deltaText);
+        }
+        continue;
+      }
+
+      if (event.isError) {
+        throw _streamErrorException(
+          provider: provider,
+          event: event,
+        );
+      }
+
+      if (event.isDone) {
+        break;
+      }
+    }
+
+    return buffer.toString();
+  }
+
+  Exception _streamErrorException({
+    required AiProvider provider,
+    required AiTextStreamEvent event,
+  }) {
+    final message = (event.errorMessage ?? '').trim();
+    final normalizedMessage =
+        message.isEmpty ? 'Text stream failed before completing.' : message;
+
+    switch (provider) {
+      case AiProvider.openRouter:
+        return OpenRouterException(
+          normalizedMessage,
+          cause: event.errorCause,
+        );
+      case AiProvider.gemini:
+        return GeminiException(
+          normalizedMessage,
+          cause: event.errorCause,
         );
     }
   }

@@ -9,6 +9,7 @@ import 'package:bookai/models/ai_feature.dart';
 import 'package:bookai/models/ai_model_info.dart';
 import 'package:bookai/models/ai_model_selection.dart';
 import 'package:bookai/models/ai_provider.dart';
+import 'package:bookai/models/ai_text_stream_event.dart';
 import 'package:bookai/models/chapter.dart';
 import 'package:bookai/models/openrouter_model.dart';
 import 'package:bookai/models/reader_settings.dart';
@@ -74,6 +75,7 @@ void main() {
       expect(find.text('Elapsed: 0s'), findsOneWidget);
       expect(find.byType(CircularProgressIndicator), findsNothing);
       expect(openRouter.generateTextCallCount, 1);
+      expect(openRouter.streamTextCallCount, 1);
       expect(find.byTooltip('Show Navigation Bar'), findsOneWidget);
 
       await tester.pump(const Duration(seconds: 1));
@@ -849,6 +851,7 @@ void main() {
 
       expect(openRouter.generateTextCallCount, 1);
       expect(openRouter.generateTextMessagesCallCount, 1);
+      expect(openRouter.streamTextMessagesCallCount, 1);
       expect(find.text('Explain it more simply.'), findsOneWidget);
       expect(find.text('It means the plan feels unclear.'), findsOneWidget);
     });
@@ -2105,6 +2108,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(gemini.generateTextCallCount, 1);
+      expect(gemini.streamTextCallCount, 1);
       expect(openRouter.generateTextCallCount, 0);
       expect(gemini.generateTextCalls.single.apiKey, 'gem-key');
       expect(gemini.generateTextCalls.single.modelId, 'gemini-2.5-flash');
@@ -2690,8 +2694,12 @@ class _FakeOpenRouterService extends OpenRouterService {
   final _GenerateImageHandler generateImageHandler;
   int generateTextCallCount = 0;
   final List<_GenerateTextCall> generateTextCalls = [];
+  int streamTextCallCount = 0;
+  final List<_GenerateTextCall> streamTextCalls = [];
   int generateTextMessagesCallCount = 0;
   final List<_GenerateTextMessagesCall> generateTextMessagesCalls = [];
+  int streamTextMessagesCallCount = 0;
+  final List<_GenerateTextMessagesCall> streamTextMessagesCalls = [];
   int generateImageCallCount = 0;
   final List<_GenerateImageCall> generateImageCalls = [];
   String? lastPrompt;
@@ -2771,6 +2779,43 @@ class _FakeOpenRouterService extends OpenRouterService {
   }
 
   @override
+  Stream<AiTextStreamEvent> streamText({
+    required String apiKey,
+    required String modelId,
+    required String prompt,
+    double? temperature,
+  }) async* {
+    streamTextCallCount += 1;
+    streamTextCalls.add(
+      _GenerateTextCall(
+        apiKey: apiKey,
+        modelId: modelId,
+        prompt: prompt,
+      ),
+    );
+
+    try {
+      final response = await generateText(
+        apiKey: apiKey,
+        modelId: modelId,
+        prompt: prompt,
+        temperature: temperature,
+      );
+      if (response.isNotEmpty) {
+        yield AiTextStreamEvent.delta(response);
+      }
+      yield const AiTextStreamEvent.done();
+    } catch (error) {
+      if (error is OpenRouterException) {
+        yield AiTextStreamEvent.error(error.message, cause: error.cause);
+        return;
+      }
+
+      yield AiTextStreamEvent.error(error.toString(), cause: error);
+    }
+  }
+
+  @override
   Future<String> generateTextMessages({
     required String apiKey,
     required String modelId,
@@ -2792,6 +2837,45 @@ class _FakeOpenRouterService extends OpenRouterService {
       messages: messages,
       temperature: temperature,
     );
+  }
+
+  @override
+  Stream<AiTextStreamEvent> streamTextMessages({
+    required String apiKey,
+    required String modelId,
+    required List<AiChatMessage> messages,
+    double? temperature,
+    String requestKind = AiRequestLogKinds.chatGeneration,
+  }) async* {
+    streamTextMessagesCallCount += 1;
+    streamTextMessagesCalls.add(
+      _GenerateTextMessagesCall(
+        apiKey: apiKey,
+        modelId: modelId,
+        messages: List<AiChatMessage>.from(messages),
+      ),
+    );
+
+    try {
+      final response = await generateTextMessages(
+        apiKey: apiKey,
+        modelId: modelId,
+        messages: messages,
+        temperature: temperature,
+        requestKind: requestKind,
+      );
+      if (response.isNotEmpty) {
+        yield AiTextStreamEvent.delta(response);
+      }
+      yield const AiTextStreamEvent.done();
+    } catch (error) {
+      if (error is OpenRouterException) {
+        yield AiTextStreamEvent.error(error.message, cause: error.cause);
+        return;
+      }
+
+      yield AiTextStreamEvent.error(error.toString(), cause: error);
+    }
   }
 
   @override
@@ -2877,8 +2961,12 @@ class _FakeGeminiService extends GeminiService {
   final _GeminiGenerateImageHandler generateImageHandler;
   int generateTextCallCount = 0;
   final List<_GenerateTextCall> generateTextCalls = [];
+  int streamTextCallCount = 0;
+  final List<_GenerateTextCall> streamTextCalls = [];
   int generateTextMessagesCallCount = 0;
   final List<_GenerateTextMessagesCall> generateTextMessagesCalls = [];
+  int streamTextMessagesCallCount = 0;
+  final List<_GenerateTextMessagesCall> streamTextMessagesCalls = [];
   int generateImageCallCount = 0;
   final List<_GeminiGenerateImageCall> generateImageCalls = [];
 
@@ -2957,6 +3045,43 @@ class _FakeGeminiService extends GeminiService {
   }
 
   @override
+  Stream<AiTextStreamEvent> streamText({
+    required String apiKey,
+    required String modelId,
+    required String prompt,
+    double? temperature,
+  }) async* {
+    streamTextCallCount += 1;
+    streamTextCalls.add(
+      _GenerateTextCall(
+        apiKey: apiKey,
+        modelId: modelId,
+        prompt: prompt,
+      ),
+    );
+
+    try {
+      final response = await generateText(
+        apiKey: apiKey,
+        modelId: modelId,
+        prompt: prompt,
+        temperature: temperature,
+      );
+      if (response.isNotEmpty) {
+        yield AiTextStreamEvent.delta(response);
+      }
+      yield const AiTextStreamEvent.done();
+    } catch (error) {
+      if (error is GeminiException) {
+        yield AiTextStreamEvent.error(error.message, cause: error.cause);
+        return;
+      }
+
+      yield AiTextStreamEvent.error(error.toString(), cause: error);
+    }
+  }
+
+  @override
   Future<String> generateTextMessages({
     required String apiKey,
     required String modelId,
@@ -2978,6 +3103,45 @@ class _FakeGeminiService extends GeminiService {
       messages: messages,
       temperature: temperature,
     );
+  }
+
+  @override
+  Stream<AiTextStreamEvent> streamTextMessages({
+    required String apiKey,
+    required String modelId,
+    required List<AiChatMessage> messages,
+    double? temperature,
+    String requestKind = AiRequestLogKinds.chatGeneration,
+  }) async* {
+    streamTextMessagesCallCount += 1;
+    streamTextMessagesCalls.add(
+      _GenerateTextMessagesCall(
+        apiKey: apiKey,
+        modelId: modelId,
+        messages: List<AiChatMessage>.from(messages),
+      ),
+    );
+
+    try {
+      final response = await generateTextMessages(
+        apiKey: apiKey,
+        modelId: modelId,
+        messages: messages,
+        temperature: temperature,
+        requestKind: requestKind,
+      );
+      if (response.isNotEmpty) {
+        yield AiTextStreamEvent.delta(response);
+      }
+      yield const AiTextStreamEvent.done();
+    } catch (error) {
+      if (error is GeminiException) {
+        yield AiTextStreamEvent.error(error.message, cause: error.cause);
+        return;
+      }
+
+      yield AiTextStreamEvent.error(error.toString(), cause: error);
+    }
   }
 
   @override
