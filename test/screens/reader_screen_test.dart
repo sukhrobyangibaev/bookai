@@ -92,7 +92,7 @@ void main() {
     });
 
     testWidgets(
-        'switches from loading indicator to streaming sheet on first chunk',
+        'switches from loading indicator into one live assistant bubble',
         (tester) async {
       final firstChunkGate = Completer<void>();
       final secondChunkGate = Completer<void>();
@@ -149,19 +149,51 @@ void main() {
         findsOneWidget,
       );
       expect(find.text('Definition: vague'), findsOneWidget);
-      expect(find.text('Send'), findsNothing);
+      expect(find.text('Streaming...'), findsOneWidget);
+      expect(find.byTooltip('Cancel AI Request'), findsOneWidget);
+
+      final streamingSendButton = tester.widget<FilledButton>(
+        find.widgetWithText(FilledButton, 'Send'),
+      );
+      expect(streamingSendButton.onPressed, isNull);
+
+      final streamingCopyButton = tester.widget<IconButton>(
+        find.widgetWithIcon(IconButton, Icons.copy_outlined),
+      );
+      expect(streamingCopyButton.onPressed, isNull);
+
+      final streamingComposer =
+          tester.widget<TextField>(find.byType(TextField));
+      expect(streamingComposer.enabled, isFalse);
 
       secondChunkGate.complete();
       await tester.pump();
 
       expect(find.text('Definition: vague\nTranslation: ne'), findsOneWidget);
+      expect(find.text('Definition: vague'), findsNothing);
 
       doneGate.complete();
       await tester.pump();
-      await tester.pump(const Duration(milliseconds: 200));
+      await tester.pumpAndSettle();
 
+      expect(
+        find.byKey(const ValueKey<String>('reader-ai-streaming-sheet')),
+        findsOneWidget,
+      );
       expect(find.text('Define & Translate'), findsOneWidget);
       expect(find.text('Definition: vague\nTranslation: ne'), findsOneWidget);
+      expect(find.text('Streaming...'), findsNothing);
+      expect(find.byTooltip('Cancel AI Request'), findsNothing);
+      expect(find.byTooltip('Close'), findsOneWidget);
+
+      final completedRegenerateButton = tester.widget<IconButton>(
+        find.widgetWithIcon(IconButton, Icons.refresh),
+      );
+      expect(completedRegenerateButton.onPressed, isNotNull);
+
+      final completedComposer =
+          tester.widget<TextField>(find.byType(TextField));
+      expect(completedComposer.enabled, isTrue);
     });
 
     testWidgets(
@@ -257,7 +289,8 @@ void main() {
       expect(find.text('Definition: late\nTranslation: ignored'), findsNothing);
     });
 
-    testWidgets('opens the full result sheet automatically when AI completes',
+    testWidgets(
+        'keeps the same pinned conversation sheet open when AI completes',
         (tester) async {
       final completer = Completer<String>();
       final openRouter = _FakeOpenRouterService(
@@ -285,16 +318,30 @@ void main() {
         find.byKey(const ValueKey<String>('reader-ai-loading-sheet')),
         findsNothing,
       );
+      expect(
+        find.byKey(const ValueKey<String>('reader-ai-streaming-sheet')),
+        findsOneWidget,
+      );
       expect(find.text('Define & Translate'), findsOneWidget);
       expect(find.text('Definition: vague\nTranslation: neyasny'), findsOne);
       expect(find.byTooltip('Copy'), findsOneWidget);
       expect(find.byTooltip('Regenerate with Fallback'), findsOneWidget);
+      expect(find.byTooltip('Close'), findsOneWidget);
+      expect(find.byTooltip('Cancel AI Request'), findsNothing);
       expect(find.byTooltip('Summary'), findsNothing);
       expect(find.byTooltip('Simplify Text'), findsNothing);
       expect(find.text('Copy'), findsNothing);
       expect(find.text('Regenerate with Fallback'), findsNothing);
       expect(find.text('Close'), findsNothing);
-      expect(find.byType(ModalBarrier), findsWidgets);
+      final copyButton = tester.widget<IconButton>(
+        find.widgetWithIcon(IconButton, Icons.copy_outlined),
+      );
+      expect(copyButton.onPressed, isNotNull);
+
+      final regenerateButton = tester.widget<IconButton>(
+        find.widgetWithIcon(IconButton, Icons.refresh),
+      );
+      expect(regenerateButton.onPressed, isNotNull);
     });
 
     testWidgets('AI result sheet text is justified like the main reader',

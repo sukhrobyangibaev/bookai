@@ -96,7 +96,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
   _InitialAiStreamPhase _initialAiStreamPhase = _InitialAiStreamPhase.idle;
 
   _ActiveAiRequest? _activeAiRequest;
-  _ActiveAiStreamPreview? _activeAiStreamPreview;
+  _ActiveAiConversationSheetState? _activeAiConversationSheet;
   Timer? _aiLoadingElapsedTimer;
   int _activeAiElapsedSeconds = 0;
 
@@ -1590,7 +1590,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
     setState(() {
       _aiRequestToken += 1;
       _activeAiRequest = null;
-      _activeAiStreamPreview = null;
+      _activeAiConversationSheet = null;
       _initialAiStreamPhase = _InitialAiStreamPhase.idle;
       _activeAiElapsedSeconds = 0;
     });
@@ -1890,7 +1890,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
           }
 
           responseBuffer.write(deltaText);
-          _updateInitialAiStreamPreview(
+          _updateInitialAiConversationSheet(
             request: request,
             assistantText: responseBuffer.toString(),
           );
@@ -1919,7 +1919,16 @@ class _ReaderScreenState extends State<ReaderScreen> {
     );
   }
 
-  void _updateInitialAiStreamPreview({
+  List<_AiConversationMessage> _initialConversationMessagesForRequest(
+    _AiRequestSpec requestSpec,
+  ) {
+    return requestSpec.initialConversationMessages ??
+        <_AiConversationMessage>[
+          _AiConversationMessage.hiddenUser(requestSpec.prompt),
+        ];
+  }
+
+  void _updateInitialAiConversationSheet({
     required _ActiveAiRequest request,
     required String assistantText,
   }) {
@@ -1930,26 +1939,31 @@ class _ReaderScreenState extends State<ReaderScreen> {
     _aiLoadingElapsedTimer?.cancel();
     _aiLoadingElapsedTimer = null;
 
-    final currentPreview = _activeAiStreamPreview;
-    if (currentPreview == null) {
+    final currentSheet = _activeAiConversationSheet;
+    if (currentSheet == null) {
       setState(() {
         _initialAiStreamPhase = _InitialAiStreamPhase.streaming;
-        _activeAiStreamPreview = _ActiveAiStreamPreview(
+        _activeAiConversationSheet = _ActiveAiConversationSheetState(
           token: request.token,
-          title: request.requestSpec.title,
+          requestSpec: request.requestSpec,
+          initialMessages:
+              _initialConversationMessagesForRequest(request.requestSpec),
           assistantText: assistantText,
+          isStreamingInitialAssistant: true,
         );
       });
       return;
     }
 
-    if (currentPreview.token != request.token) {
+    if (currentSheet.token != request.token) {
       return;
     }
 
     setState(() {
-      _activeAiStreamPreview = currentPreview.copyWith(
+      _initialAiStreamPhase = _InitialAiStreamPhase.streaming;
+      _activeAiConversationSheet = currentSheet.copyWith(
         assistantText: assistantText,
+        isStreamingInitialAssistant: true,
       );
     });
   }
@@ -1964,12 +1978,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
     }
 
     _clearActiveAiRequest(token: request.token);
-    _clearActiveAiStreamPreview(token: request.token);
-    _setInitialAiStreamPhase(
-      error == null
-          ? _InitialAiStreamPhase.complete
-          : _InitialAiStreamPhase.failed,
-    );
+    final trimmedResult = result.trim();
 
     if (error == null) {
       final onSuccess = request.requestSpec.onSuccess;
@@ -1986,6 +1995,23 @@ class _ReaderScreenState extends State<ReaderScreen> {
       }
     }
 
+    if (error == null && trimmedResult.isNotEmpty) {
+      final currentSheet = _activeAiConversationSheet;
+      if (currentSheet != null && currentSheet.token == request.token) {
+        setState(() {
+          _initialAiStreamPhase = _InitialAiStreamPhase.complete;
+          _activeAiConversationSheet = currentSheet.copyWith(
+            assistantText: trimmedResult,
+            isStreamingInitialAssistant: false,
+          );
+        });
+      }
+      return;
+    }
+
+    _clearActiveAiConversationSheet(token: request.token);
+    _setInitialAiStreamPhase(_InitialAiStreamPhase.failed);
+
     if (!mounted) return;
 
     final action = await _showAiCompletedResultSheet(
@@ -1998,7 +2024,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
       initialConversationMessages:
           request.requestSpec.initialConversationMessages,
       switchFeatureLabel: _switchFeatureLabelForRequest(request.requestSpec),
-      result: result,
+      result: trimmedResult,
       error: error,
     );
     if (!mounted) return;
@@ -2024,14 +2050,25 @@ class _ReaderScreenState extends State<ReaderScreen> {
     });
   }
 
-  void _clearActiveAiStreamPreview({required int token}) {
-    final preview = _activeAiStreamPreview;
-    if (preview == null || preview.token != token || !mounted) {
+  void _dismissActiveAiConversationSheet() {
+    if (!mounted) return;
+
+    setState(() {
+      _activeAiConversationSheet = null;
+      if (_activeAiRequest == null) {
+        _initialAiStreamPhase = _InitialAiStreamPhase.idle;
+      }
+    });
+  }
+
+  void _clearActiveAiConversationSheet({required int token}) {
+    final sheet = _activeAiConversationSheet;
+    if (sheet == null || sheet.token != token || !mounted) {
       return;
     }
 
     setState(() {
-      _activeAiStreamPreview = null;
+      _activeAiConversationSheet = null;
     });
   }
 
@@ -2261,7 +2298,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
     if (!mounted) return;
     setState(() {
       _activeAiRequest = request;
-      _activeAiStreamPreview = null;
+      _activeAiConversationSheet = null;
       _initialAiStreamPhase = _InitialAiStreamPhase.idle;
       _activeAiElapsedSeconds = 0;
     });
@@ -2873,8 +2910,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
   }
 
   double get _activeAiBottomInset {
-    if (_initialAiStreamPhase == _InitialAiStreamPhase.streaming &&
-        _activeAiStreamPreview != null) {
+    if (_activeAiConversationSheet != null) {
       return _aiStreamingSheetReservedSpace;
     }
 
@@ -2975,16 +3011,54 @@ class _ReaderScreenState extends State<ReaderScreen> {
               elapsedSeconds: _activeAiElapsedSeconds,
               onCancel: _cancelActiveAiRequest,
             ),
-          if (_initialAiStreamPhase == _InitialAiStreamPhase.streaming &&
-              _activeAiStreamPreview != null)
-            _AiStreamingPreviewSheet(
-              title: _activeAiStreamPreview!.title,
-              assistantText: _activeAiStreamPreview!.assistantText,
-              onCancel: _cancelActiveAiRequest,
-              resultTextStyle: buildReaderContentTextStyle(
-                context: context,
-                fontSize: settings.fontSize,
-                fontFamily: settings.fontFamily,
+          if (_activeAiConversationSheet != null)
+            _AiPinnedConversationSheet(
+              child: _AiConversationSheet(
+                title: _activeAiConversationSheet!.requestSpec.title,
+                copiedMessage:
+                    _activeAiConversationSheet!.requestSpec.copiedMessage,
+                emptyAssistantMessage:
+                    _activeAiConversationSheet!.requestSpec.emptyMessage,
+                followUpHintText:
+                    _activeAiConversationSheet!.requestSpec.followUpHintText,
+                resultTextStyle: buildReaderContentTextStyle(
+                  context: context,
+                  fontSize: settings.fontSize,
+                  fontFamily: settings.fontFamily,
+                ),
+                initialMessages: <_AiConversationMessage>[
+                  ..._activeAiConversationSheet!.initialMessages,
+                  _AiConversationMessage.assistant(
+                    _activeAiConversationSheet!.assistantText,
+                  ),
+                ],
+                isInitialAssistantStreaming:
+                    _activeAiConversationSheet!.isStreamingInitialAssistant,
+                onClose: _activeAiConversationSheet!.isStreamingInitialAssistant
+                    ? _cancelActiveAiRequest
+                    : _dismissActiveAiConversationSheet,
+                onSendFollowUp: (messages) => _runBackgroundAiTask(
+                  task: () => _generateTextForMessages(
+                    selection:
+                        _activeAiConversationSheet!.requestSpec.modelSelection,
+                    messages: messages,
+                  ),
+                ),
+                onRegenerateWithFallback:
+                    _activeAiConversationSheet!.isStreamingInitialAssistant
+                        ? null
+                        : () => _regenerateAiRequestWithFallback(
+                              _activeAiConversationSheet!.requestSpec,
+                            ),
+                switchFeatureLabel: _switchFeatureLabelForRequest(
+                  _activeAiConversationSheet!.requestSpec,
+                ),
+                onSwitchFeature:
+                    _activeAiConversationSheet!.isStreamingInitialAssistant
+                        ? null
+                        : () => _switchTextFeature(
+                              _activeAiConversationSheet!.requestSpec,
+                            ),
               ),
             ),
           if (!_isNavbarVisible) _buildHiddenNavPill(),
@@ -3656,25 +3730,34 @@ class _ActiveAiRequest {
   });
 }
 
-class _ActiveAiStreamPreview {
+class _ActiveAiConversationSheetState {
   final int token;
-  final String title;
+  final _AiRequestSpec requestSpec;
+  final List<_AiConversationMessage> initialMessages;
   final String assistantText;
+  final bool isStreamingInitialAssistant;
 
-  const _ActiveAiStreamPreview({
+  const _ActiveAiConversationSheetState({
     required this.token,
-    required this.title,
+    required this.requestSpec,
+    required this.initialMessages,
     required this.assistantText,
+    required this.isStreamingInitialAssistant,
   });
 
-  _ActiveAiStreamPreview copyWith({
-    String? title,
+  _ActiveAiConversationSheetState copyWith({
+    _AiRequestSpec? requestSpec,
+    List<_AiConversationMessage>? initialMessages,
     String? assistantText,
+    bool? isStreamingInitialAssistant,
   }) {
-    return _ActiveAiStreamPreview(
+    return _ActiveAiConversationSheetState(
       token: token,
-      title: title ?? this.title,
+      requestSpec: requestSpec ?? this.requestSpec,
+      initialMessages: initialMessages ?? this.initialMessages,
       assistantText: assistantText ?? this.assistantText,
+      isStreamingInitialAssistant:
+          isStreamingInitialAssistant ?? this.isStreamingInitialAssistant,
     );
   }
 }
@@ -3852,6 +3935,8 @@ class _AiConversationSheet extends StatefulWidget {
   final TextStyle resultTextStyle;
   final List<_AiConversationMessage> initialMessages;
   final Future<String> Function(List<AiChatMessage> messages) onSendFollowUp;
+  final bool isInitialAssistantStreaming;
+  final VoidCallback? onClose;
   final VoidCallback? onRegenerateWithFallback;
   final String? switchFeatureLabel;
   final VoidCallback? onSwitchFeature;
@@ -3866,6 +3951,8 @@ class _AiConversationSheet extends StatefulWidget {
     required this.resultTextStyle,
     required this.initialMessages,
     required this.onSendFollowUp,
+    this.isInitialAssistantStreaming = false,
+    this.onClose,
     this.onRegenerateWithFallback,
     this.switchFeatureLabel,
     this.onSwitchFeature,
@@ -3880,7 +3967,8 @@ class _AiConversationSheet extends StatefulWidget {
 class _AiConversationSheetState extends State<_AiConversationSheet> {
   late final TextEditingController _controller;
   late final ScrollController _scrollController;
-  late final List<_AiConversationMessage> _messages;
+  final List<_AiConversationMessage> _followUpMessages =
+      <_AiConversationMessage>[];
 
   bool _isSending = false;
   String? _errorText;
@@ -3890,8 +3978,27 @@ class _AiConversationSheetState extends State<_AiConversationSheet> {
     super.initState();
     _controller = TextEditingController()..addListener(_handleComposerChanged);
     _scrollController = ScrollController();
-    _messages = List<_AiConversationMessage>.from(widget.initialMessages);
     WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+  }
+
+  @override
+  void didUpdateWidget(covariant _AiConversationSheet oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    final initialMessagesChanged =
+        oldWidget.initialMessages.length != widget.initialMessages.length ||
+            _AiConversationMessage.latestAssistantText(
+                  oldWidget.initialMessages,
+                ) !=
+                _AiConversationMessage.latestAssistantText(
+                  widget.initialMessages,
+                );
+
+    if (initialMessagesChanged ||
+        oldWidget.isInitialAssistantStreaming !=
+            widget.isInitialAssistantStreaming) {
+      _scheduleScrollToBottom();
+    }
   }
 
   @override
@@ -3903,13 +4010,23 @@ class _AiConversationSheetState extends State<_AiConversationSheet> {
     super.dispose();
   }
 
-  List<_AiConversationMessage> get _visibleMessages =>
-      _messages.where((message) => message.isVisible).toList(growable: false);
+  List<_AiConversationMessage> get _conversationMessages =>
+      <_AiConversationMessage>[
+        ...widget.initialMessages,
+        ..._followUpMessages,
+      ];
+
+  List<_AiConversationMessage> get _visibleMessages => _conversationMessages
+      .where((message) => message.isVisible)
+      .toList(growable: false);
 
   String get _latestAssistantText =>
-      _AiConversationMessage.latestAssistantText(_messages);
+      _AiConversationMessage.latestAssistantText(_conversationMessages);
 
-  bool get _canSend => !_isSending && _controller.text.trim().isNotEmpty;
+  bool get _canSend =>
+      !_isSending &&
+      !widget.isInitialAssistantStreaming &&
+      _controller.text.trim().isNotEmpty;
 
   void _handleComposerChanged() {
     if (!mounted) return;
@@ -3946,10 +4063,12 @@ class _AiConversationSheetState extends State<_AiConversationSheet> {
 
   Future<void> _sendFollowUp() async {
     final question = _controller.text.trim();
-    if (question.isEmpty || _isSending) return;
+    if (question.isEmpty || _isSending || widget.isInitialAssistantStreaming) {
+      return;
+    }
 
     setState(() {
-      _messages.add(_AiConversationMessage.user(question));
+      _followUpMessages.add(_AiConversationMessage.user(question));
       _controller.clear();
       _errorText = null;
       _isSending = true;
@@ -3958,7 +4077,7 @@ class _AiConversationSheetState extends State<_AiConversationSheet> {
 
     try {
       final response = await widget.onSendFollowUp(
-        _AiConversationMessage.apiMessages(_messages),
+        _AiConversationMessage.apiMessages(_conversationMessages),
       );
       final trimmedResponse = response.trim();
       if (!mounted) return;
@@ -3969,7 +4088,8 @@ class _AiConversationSheetState extends State<_AiConversationSheet> {
       }
 
       setState(() {
-        _messages.add(_AiConversationMessage.assistant(trimmedResponse));
+        _followUpMessages
+            .add(_AiConversationMessage.assistant(trimmedResponse));
       });
       _scheduleScrollToBottom();
     } catch (error) {
@@ -3986,6 +4106,9 @@ class _AiConversationSheetState extends State<_AiConversationSheet> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final latestAssistantText = _latestAssistantText;
+    final actionsDisabled = _isSending || widget.isInitialAssistantStreaming;
+    final closeTooltip =
+        widget.isInitialAssistantStreaming ? 'Cancel AI Request' : 'Close';
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -3999,31 +4122,46 @@ class _AiConversationSheetState extends State<_AiConversationSheet> {
               ),
             ),
             IconButton(
-              onPressed:
-                  latestAssistantText.isEmpty ? null : _copyLatestAssistant,
+              onPressed: actionsDisabled || latestAssistantText.isEmpty
+                  ? null
+                  : _copyLatestAssistant,
               tooltip: 'Copy',
               icon: const Icon(Icons.copy_outlined),
             ),
             if (widget.onRegenerateWithFallback != null)
               IconButton(
-                onPressed: _isSending ? null : widget.onRegenerateWithFallback,
+                onPressed:
+                    actionsDisabled ? null : widget.onRegenerateWithFallback,
                 tooltip: 'Regenerate with Fallback',
                 icon: const Icon(Icons.refresh),
               ),
             if (widget.onSwitchFeature != null &&
                 widget.switchFeatureLabel != null)
               IconButton(
-                onPressed: _isSending ? null : widget.onSwitchFeature,
+                onPressed: actionsDisabled ? null : widget.onSwitchFeature,
                 tooltip: widget.switchFeatureLabel,
                 icon: const Icon(Icons.swap_horiz),
               ),
             IconButton(
-              onPressed: _isSending ? null : () => Navigator.of(context).pop(),
-              tooltip: 'Close',
+              onPressed: _isSending
+                  ? null
+                  : (widget.onClose ?? () => Navigator.of(context).pop()),
+              tooltip: closeTooltip,
               icon: const Icon(Icons.close),
             ),
           ],
         ),
+        if (widget.isInitialAssistantStreaming) ...[
+          const SizedBox(height: 4),
+          Text(
+            'Streaming...',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 8),
+          const LinearProgressIndicator(minHeight: 3),
+        ],
         const SizedBox(height: 8),
         Expanded(
           child: MobileScrollbar(
@@ -4057,7 +4195,7 @@ class _AiConversationSheetState extends State<_AiConversationSheet> {
           Align(
             alignment: Alignment.centerRight,
             child: FilledButton(
-              onPressed: _isSending || latestAssistantText.isEmpty
+              onPressed: actionsDisabled || latestAssistantText.isEmpty
                   ? null
                   : () => widget.onPrimaryAction!(latestAssistantText),
               child: Text(widget.primaryActionLabel!),
@@ -4073,7 +4211,7 @@ class _AiConversationSheetState extends State<_AiConversationSheet> {
                 controller: _controller,
                 minLines: 1,
                 maxLines: 4,
-                enabled: !_isSending,
+                enabled: !_isSending && !widget.isInitialAssistantStreaming,
                 textInputAction: TextInputAction.newline,
                 decoration: InputDecoration(
                   border: const OutlineInputBorder(),
@@ -4095,6 +4233,43 @@ class _AiConversationSheetState extends State<_AiConversationSheet> {
           ],
         ),
       ],
+    );
+  }
+}
+
+class _AiPinnedConversationSheet extends StatelessWidget {
+  static const ValueKey<String> containerKey =
+      ValueKey<String>('reader-ai-streaming-sheet');
+
+  final Widget child;
+
+  const _AiPinnedConversationSheet({required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return SafeArea(
+      child: Align(
+        alignment: Alignment.bottomCenter,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+          child: Material(
+            key: containerKey,
+            elevation: 6,
+            color: theme.colorScheme.surface,
+            shadowColor: Colors.black.withOpacity(0.12),
+            borderRadius: BorderRadius.circular(18),
+            child: SizedBox(
+              height: 320,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+                child: child,
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -4236,98 +4411,6 @@ class _AiLoadingSheet extends StatelessWidget {
                     ),
                   ),
                 ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _AiStreamingPreviewSheet extends StatelessWidget {
-  static const ValueKey<String> containerKey =
-      ValueKey<String>('reader-ai-streaming-sheet');
-  static const ValueKey<String> assistantTextKey =
-      ValueKey<String>('reader-ai-streaming-assistant-text');
-
-  final String title;
-  final String assistantText;
-  final VoidCallback onCancel;
-  final TextStyle resultTextStyle;
-
-  const _AiStreamingPreviewSheet({
-    required this.title,
-    required this.assistantText,
-    required this.onCancel,
-    required this.resultTextStyle,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return SafeArea(
-      child: Align(
-        alignment: Alignment.bottomCenter,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
-          child: Material(
-            key: containerKey,
-            elevation: 6,
-            color: theme.colorScheme.surface,
-            shadowColor: Colors.black.withOpacity(0.12),
-            borderRadius: BorderRadius.circular(18),
-            child: SizedBox(
-              height: 320,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: theme.textTheme.titleSmall,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          'Streaming...',
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: theme.colorScheme.onSurfaceVariant,
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                        IconButton(
-                          onPressed: onCancel,
-                          tooltip: 'Cancel AI Request',
-                          visualDensity: VisualDensity.compact,
-                          icon: const Icon(Icons.close),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    const LinearProgressIndicator(minHeight: 3),
-                    const SizedBox(height: 12),
-                    Expanded(
-                      child: MobileScrollbar(
-                        child: SingleChildScrollView(
-                          child: SelectableText(
-                            assistantText,
-                            key: assistantTextKey,
-                            textAlign: TextAlign.justify,
-                            style: resultTextStyle,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
               ),
             ),
           ),

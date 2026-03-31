@@ -298,7 +298,7 @@ For fastest value with minimal risk, ship after Task 6:
 - [x] Task 3 - Gemini streaming service API
 - [x] Task 4 - Reader provider-agnostic streaming bridge
 - [x] Task 5 - Initial response UX: thinking indicator -> streaming bottom sheet
-- [ ] Task 6 - Conversation sheet streaming state (initial assistant message)
+- [x] Task 6 - Conversation sheet streaming state (initial assistant message)
 - [ ] Task 7 - Follow-up streaming in bottom sheet (phase 2)
 - [ ] Task 8 - Regression pass, tests, and rollout safety
 
@@ -443,3 +443,28 @@ Follow-ups / risks:
 
 Next session start point:
 - Start Task 6 by making `_AiConversationSheet` render the initial assistant response as one in-progress bubble that grows during streaming and keep actions disabled until the initial stream completes.
+
+### 2026-03-31 - Task 6 - Initial conversation sheet streaming state
+Status: completed
+
+What was done:
+- Replaced the temporary read-only streaming preview with the real `_AiConversationSheet` for the initial response path.
+- Made `_AiConversationSheet` accept parent-driven initial message updates so the first assistant response grows inside a single bubble while streaming.
+- Disabled copy/regenerate/switch/send/composer interactions until the initial stream completes, while keeping the close button as a cancel action during streaming.
+- Kept the same pinned sheet open after completion instead of closing it and reopening a separate modal, so the final assistant bubble matches the streamed text exactly.
+- Updated reader widget tests to cover the locked streaming state and the unlocked completed state for the same sheet.
+
+Files changed:
+- `lib/screens/reader_screen.dart`
+- `test/screens/reader_screen_test.dart`
+- `streaming_plan.md`
+
+Tests run:
+- `flutter test test/screens/reader_screen_test.dart` - pass
+
+Follow-ups / risks:
+- Follow-up messages inside `_AiConversationSheet` still resolve as full responses; live follow-up streaming remains Task 7.
+- Mid-stream failures after at least one chunk still fall back to the existing error-sheet path instead of preserving partial text inline.
+
+Next session start point:
+- Start Task 7 by changing `_AiConversationSheet.onSendFollowUp` from a complete-response future into a streaming callback and append follow-up assistant chunks in place.
