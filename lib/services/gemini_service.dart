@@ -7,7 +7,9 @@ import 'package:http/http.dart' as http;
 import '../models/ai_model_info.dart';
 import '../models/ai_chat_message.dart';
 import '../models/ai_provider.dart';
+import '../models/ai_text_stream_event.dart';
 import 'ai_request_log_service.dart';
+import 'sse_decoder.dart';
 
 class GeminiException implements Exception {
   final String message;
@@ -227,6 +229,70 @@ class GeminiService {
     return text;
   }
 
+  Stream<AiTextStreamEvent> streamText({
+    required String apiKey,
+    required String modelId,
+    required String prompt,
+    double? temperature,
+  }) {
+    return streamTextMessages(
+      apiKey: apiKey,
+      modelId: modelId,
+      messages: <AiChatMessage>[AiChatMessage.user(prompt)],
+      temperature: temperature,
+      requestKind: AiRequestLogKinds.textGeneration,
+    );
+  }
+
+  Stream<AiTextStreamEvent> streamTextMessages({
+    required String apiKey,
+    required String modelId,
+    required List<AiChatMessage> messages,
+    double? temperature,
+    String requestKind = AiRequestLogKinds.chatGeneration,
+  }) async* {
+    final response = await _generateContentStream(
+      apiKey: apiKey,
+      modelId: modelId,
+      messages: messages,
+      temperature: temperature,
+      action: 'streaming text',
+      requestKind: requestKind,
+      thinkingConfig: _thinkingConfigForTextModel(modelId),
+      safetySettings: _safetySettingsForTextModel(modelId),
+    );
+
+    final sseDecoder = SseDecoder();
+
+    await for (final chunk in response.stream.timeout(_requestTimeout)) {
+      for (final sseEvent in sseDecoder.addChunk(chunk)) {
+        final streamEvent = _mapStreamEvent(sseEvent);
+        if (streamEvent == null) {
+          continue;
+        }
+
+        yield streamEvent;
+        if (streamEvent.isDone || streamEvent.isError) {
+          return;
+        }
+      }
+    }
+
+    for (final sseEvent in sseDecoder.close(emitIncompleteEvent: true)) {
+      final streamEvent = _mapStreamEvent(sseEvent);
+      if (streamEvent == null) {
+        continue;
+      }
+
+      yield streamEvent;
+      if (streamEvent.isDone || streamEvent.isError) {
+        return;
+      }
+    }
+
+    yield const AiTextStreamEvent.done();
+  }
+
   Future<GeminiImageGenerationResult> generateImage({
     required String apiKey,
     required String modelId,
@@ -294,41 +360,15 @@ class GeminiService {
       throw const GeminiException('Gemini model id is required.');
     }
 
-    final payload = <String, dynamic>{
-      'contents': _normalizeMessages(
-        prompt: prompt,
-        messages: messages,
-      )
-          .map(
-            (message) => <String, dynamic>{
-              'role': message.role == AiChatMessageRole.user ? 'user' : 'model',
-              'parts': <Map<String, String>>[
-                {'text': message.normalizedContent},
-              ],
-            },
-          )
-          .toList(growable: false),
-    };
-
-    final generationConfig = <String, dynamic>{};
-    if (responseModalities != null && responseModalities.isNotEmpty) {
-      generationConfig['responseModalities'] = responseModalities;
-    }
-    if (temperature != null) {
-      generationConfig['temperature'] = temperature;
-    }
-    if (thinkingConfig != null && thinkingConfig.isNotEmpty) {
-      generationConfig['thinkingConfig'] = thinkingConfig;
-    }
-    if (imageConfig != null && imageConfig.isNotEmpty) {
-      generationConfig['imageConfig'] = imageConfig;
-    }
-    if (generationConfig.isNotEmpty) {
-      payload['generationConfig'] = generationConfig;
-    }
-    if (safetySettings != null && safetySettings.isNotEmpty) {
-      payload['safetySettings'] = safetySettings;
-    }
+    final payload = _buildGenerateContentPayload(
+      prompt: prompt,
+      messages: messages,
+      responseModalities: responseModalities,
+      temperature: temperature,
+      thinkingConfig: thinkingConfig,
+      imageConfig: imageConfig,
+      safetySettings: safetySettings,
+    );
 
     final requestUri = _contentUri(modelId: normalizedModelId);
     final requestHeaders = _buildHeaders(
@@ -366,6 +406,117 @@ class GeminiService {
     }
 
     return _decodePayload(response.body);
+  }
+
+  Future<http.StreamedResponse> _generateContentStream({
+    required String apiKey,
+    required String modelId,
+    required String action,
+    required String requestKind,
+    String? prompt,
+    List<AiChatMessage>? messages,
+    List<String>? responseModalities,
+    double? temperature,
+    Map<String, dynamic>? thinkingConfig,
+    Map<String, dynamic>? imageConfig,
+    List<Map<String, String>>? safetySettings,
+    Duration? requestTimeout,
+    int? maxAttempts,
+  }) async {
+    final normalizedApiKey = apiKey.trim();
+    final normalizedModelId = modelId.trim();
+
+    if (normalizedApiKey.isEmpty) {
+      throw const GeminiException('Gemini API key is required.');
+    }
+    if (normalizedModelId.isEmpty) {
+      throw const GeminiException('Gemini model id is required.');
+    }
+
+    final payload = _buildGenerateContentPayload(
+      prompt: prompt,
+      messages: messages,
+      responseModalities: responseModalities,
+      temperature: temperature,
+      thinkingConfig: thinkingConfig,
+      imageConfig: imageConfig,
+      safetySettings: safetySettings,
+    );
+
+    final requestUri = _streamContentUri(modelId: normalizedModelId);
+    final requestHeaders = _buildHeaders(
+      apiKey: normalizedApiKey,
+      includeJsonContentType: true,
+      acceptSse: true,
+    );
+    final requestBody = jsonEncode(payload);
+
+    return _sendStreamRequest(
+      action: action,
+      provider: 'gemini',
+      requestKind: requestKind,
+      method: 'POST',
+      uri: requestUri,
+      modelId: normalizedModelId,
+      requestHeaders: requestHeaders,
+      requestBody: requestBody,
+      requestTimeout: requestTimeout,
+      maxAttempts: maxAttempts,
+      send: () {
+        final request = http.Request('POST', requestUri)
+          ..headers.addAll(requestHeaders)
+          ..body = requestBody;
+        return _client.send(request);
+      },
+    );
+  }
+
+  Map<String, dynamic> _buildGenerateContentPayload({
+    String? prompt,
+    List<AiChatMessage>? messages,
+    List<String>? responseModalities,
+    double? temperature,
+    Map<String, dynamic>? thinkingConfig,
+    Map<String, dynamic>? imageConfig,
+    List<Map<String, String>>? safetySettings,
+  }) {
+    final payload = <String, dynamic>{
+      'contents': _normalizeMessages(
+        prompt: prompt,
+        messages: messages,
+      )
+          .map(
+            (message) => <String, dynamic>{
+              'role': message.role == AiChatMessageRole.user ? 'user' : 'model',
+              'parts': <Map<String, String>>[
+                {'text': message.normalizedContent},
+              ],
+            },
+          )
+          .toList(growable: false),
+    };
+
+    final generationConfig = <String, dynamic>{};
+    if (responseModalities != null && responseModalities.isNotEmpty) {
+      generationConfig['responseModalities'] = responseModalities;
+    }
+    if (temperature != null) {
+      generationConfig['temperature'] = temperature;
+    }
+    if (thinkingConfig != null && thinkingConfig.isNotEmpty) {
+      generationConfig['thinkingConfig'] = thinkingConfig;
+    }
+    if (imageConfig != null && imageConfig.isNotEmpty) {
+      generationConfig['imageConfig'] = imageConfig;
+    }
+    if (generationConfig.isNotEmpty) {
+      payload['generationConfig'] = generationConfig;
+    }
+    if (safetySettings != null && safetySettings.isNotEmpty) {
+      payload['safetySettings'] = safetySettings;
+    }
+
+    return payload;
   }
 
   List<AiChatMessage> _normalizeMessages({
@@ -503,10 +654,172 @@ class GeminiService {
     );
   }
 
+  Uri _streamContentUri({required String modelId}) {
+    return Uri.parse(
+      'https://generativelanguage.googleapis.com/v1beta/models/$modelId:streamGenerateContent',
+    ).replace(queryParameters: const <String, String>{'alt': 'sse'});
+  }
+
   Uri _predictUri({required String modelId}) {
     return Uri.parse(
       'https://generativelanguage.googleapis.com/v1beta/models/$modelId:predict',
     );
+  }
+
+  Future<http.StreamedResponse> _sendStreamRequest({
+    required String action,
+    required String provider,
+    required String requestKind,
+    required String method,
+    required Uri uri,
+    String? modelId,
+    required Map<String, String> requestHeaders,
+    String? requestBody,
+    Duration? requestTimeout,
+    int? maxAttempts,
+    required Future<http.StreamedResponse> Function() send,
+  }) async {
+    final effectiveTimeout = requestTimeout ?? _requestTimeout;
+    final effectiveMaxAttempts = math.max(1, maxAttempts ?? _maxAttempts);
+
+    for (var attempt = 1; attempt <= effectiveMaxAttempts; attempt++) {
+      final requestStartedAt = _clock();
+      try {
+        final response = await send().timeout(effectiveTimeout);
+
+        if (_isRetriableStatusCode(response.statusCode) &&
+            attempt < effectiveMaxAttempts) {
+          final responseBody = await response.stream.bytesToString();
+          unawaited(
+            _aiRequestLogService.logExchange(
+              provider: provider,
+              requestKind: requestKind,
+              attempt: attempt,
+              method: method,
+              uri: uri,
+              modelId: modelId,
+              requestHeaders: requestHeaders,
+              requestBody: requestBody,
+              response: http.Response(
+                responseBody,
+                response.statusCode,
+                headers: response.headers,
+                request: response.request,
+              ),
+              duration: _clock().difference(requestStartedAt),
+            ),
+          );
+          await _sleepBeforeRetry(
+            attempt: attempt,
+            requestTimeout: effectiveTimeout,
+          );
+          continue;
+        }
+
+        if (response.statusCode < 200 || response.statusCode >= 300) {
+          final responseBody = await response.stream.bytesToString();
+          unawaited(
+            _aiRequestLogService.logExchange(
+              provider: provider,
+              requestKind: requestKind,
+              attempt: attempt,
+              method: method,
+              uri: uri,
+              modelId: modelId,
+              requestHeaders: requestHeaders,
+              requestBody: requestBody,
+              response: http.Response(
+                responseBody,
+                response.statusCode,
+                headers: response.headers,
+                request: response.request,
+              ),
+              duration: _clock().difference(requestStartedAt),
+            ),
+          );
+          throw GeminiException(
+            _buildStatusErrorMessage(
+              statusCode: response.statusCode,
+              action: action,
+              responseBody: responseBody,
+            ),
+          );
+        }
+
+        unawaited(
+          _aiRequestLogService.logExchange(
+            provider: provider,
+            requestKind: requestKind,
+            attempt: attempt,
+            method: method,
+            uri: uri,
+            modelId: modelId,
+            requestHeaders: requestHeaders,
+            requestBody: requestBody,
+            response: http.Response(
+              '',
+              response.statusCode,
+              headers: response.headers,
+              request: response.request,
+            ),
+            duration: _clock().difference(requestStartedAt),
+          ),
+        );
+
+        return response;
+      } on TimeoutException catch (error) {
+        unawaited(
+          _aiRequestLogService.logExchange(
+            provider: provider,
+            requestKind: requestKind,
+            attempt: attempt,
+            method: method,
+            uri: uri,
+            modelId: modelId,
+            requestHeaders: requestHeaders,
+            requestBody: requestBody,
+            response: null,
+            error: error,
+            duration: _clock().difference(requestStartedAt),
+          ),
+        );
+        if (attempt < effectiveMaxAttempts) {
+          await _sleepBeforeRetry(
+            attempt: attempt,
+            requestTimeout: effectiveTimeout,
+          );
+          continue;
+        }
+        throw GeminiException(
+          'Gemini timed out while $action. Please try again.',
+          cause: error,
+        );
+      } on GeminiException {
+        rethrow;
+      } catch (error) {
+        unawaited(
+          _aiRequestLogService.logExchange(
+            provider: provider,
+            requestKind: requestKind,
+            attempt: attempt,
+            method: method,
+            uri: uri,
+            modelId: modelId,
+            requestHeaders: requestHeaders,
+            requestBody: requestBody,
+            response: null,
+            error: error,
+            duration: _clock().difference(requestStartedAt),
+          ),
+        );
+        throw GeminiException(
+          'Failed to connect to Gemini.',
+          cause: error,
+        );
+      }
+    }
+
+    throw GeminiException('Gemini timed out while $action. Please try again.');
   }
 
   Future<http.Response> _sendRequest({
@@ -679,6 +992,78 @@ class GeminiService {
     return null;
   }
 
+  AiTextStreamEvent? _mapStreamEvent(SseDataEvent sseEvent) {
+    if (sseEvent.isDone) {
+      return const AiTextStreamEvent.done();
+    }
+
+    final trimmedData = sseEvent.data.trim();
+    if (trimmedData.isEmpty) {
+      return null;
+    }
+
+    final payload = _decodePayload(trimmedData);
+    final errorMessage = _extractStreamErrorMessage(payload);
+    if (errorMessage.isNotEmpty) {
+      return AiTextStreamEvent.error(errorMessage, cause: payload);
+    }
+
+    final deltaText = _extractStreamDeltaText(payload);
+    if (deltaText.isNotEmpty) {
+      return AiTextStreamEvent.delta(deltaText);
+    }
+
+    return null;
+  }
+
+  String _extractStreamErrorMessage(Map<String, dynamic> payload) {
+    final rawError = payload['error'];
+    if (rawError is String) {
+      final message = rawError.trim();
+      if (message.isNotEmpty) {
+        return _truncateErrorDetail(message);
+      }
+    }
+
+    if (rawError is Map) {
+      final errorMap = Map<String, dynamic>.from(rawError);
+      final candidates = <String>[
+        _extractString(errorMap['message']),
+        _extractString(errorMap['detail']),
+        _extractString(errorMap['status']),
+        _extractString(errorMap['code']),
+      ];
+      for (final candidate in candidates) {
+        if (candidate.isNotEmpty) {
+          return _truncateErrorDetail(candidate);
+        }
+      }
+    }
+
+    final fallback = _extractString(payload['message']);
+    if (fallback.isNotEmpty) {
+      return _truncateErrorDetail(fallback);
+    }
+
+    return '';
+  }
+
+  String _extractStreamDeltaText(Map<String, dynamic> payload) {
+    final parts = _extractCandidateParts(payload);
+    if (parts.isEmpty) {
+      return '';
+    }
+
+    final buffer = StringBuffer();
+    for (final part in parts) {
+      final text = part['text'];
+      if (text is String && text.isNotEmpty) {
+        buffer.write(text);
+      }
+    }
+    return buffer.toString();
+  }
+
   Map<String, dynamic> _decodePayload(String body) {
     final dynamic decoded;
     try {
@@ -840,9 +1225,10 @@ class GeminiService {
   Map<String, String> _buildHeaders({
     required String apiKey,
     bool includeJsonContentType = false,
+    bool acceptSse = false,
   }) {
     final headers = <String, String>{
-      'Accept': 'application/json',
+      'Accept': acceptSse ? 'text/event-stream' : 'application/json',
       'x-goog-api-key': apiKey,
     };
 

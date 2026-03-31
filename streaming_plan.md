@@ -295,7 +295,7 @@ For fastest value with minimal risk, ship after Task 6:
 
 - [x] Task 1 - Shared streaming primitives and SSE parsing helper
 - [x] Task 2 - OpenRouter streaming service API
-- [ ] Task 3 - Gemini streaming service API
+- [x] Task 3 - Gemini streaming service API
 - [ ] Task 4 - Reader provider-agnostic streaming bridge
 - [ ] Task 5 - Initial response UX: thinking indicator -> streaming bottom sheet
 - [ ] Task 6 - Conversation sheet streaming state (initial assistant message)
@@ -372,3 +372,26 @@ Follow-ups / risks:
 
 Next session start point:
 - Start Task 3 by adding Gemini streaming methods and SSE mapping with the same `AiTextStreamEvent` contract.
+
+### 2026-03-31 - Task 3 - Gemini streaming service API
+Status: completed
+
+What was done:
+- Added Gemini streaming APIs via `streamText(...)` and `streamTextMessages(...)` while keeping existing non-stream `generateText*` and image flows unchanged.
+- Implemented Gemini SSE request mode using `:streamGenerateContent?alt=sse` with `Accept: text/event-stream`, and reused generation payload parity (temperature/thinkingConfig/safetySettings) with the non-stream path.
+- Added SSE payload mapping for chunked `GenerateContentResponse` data to `AiTextStreamEvent` deltas, `[DONE]` completion, and mid-stream error events; empty/no-text chunks are ignored safely.
+
+Files changed:
+- `lib/services/gemini_service.dart`
+- `test/services/gemini_service_test.dart`
+- `streaming_plan.md`
+
+Tests run:
+- `flutter test test/services/gemini_service_test.dart` - pass
+
+Follow-ups / risks:
+- Stream method emits `AiTextStreamEvent.error(...)` for mid-stream Gemini error payloads and ends the stream; reader-side UX handling for these events is covered by later tasks.
+- Gemini stream endpoint retries only on request-level transient failures/status codes before streaming starts; in-stream semantic errors are surfaced as stream error events by design.
+
+Next session start point:
+- Start Task 4 by adding a reader-level provider-agnostic streaming bridge that selects OpenRouter vs Gemini stream methods.

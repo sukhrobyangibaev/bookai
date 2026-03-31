@@ -194,6 +194,168 @@ void main() {
       expect(text, 'They meet again during a storm.');
     });
 
+    test('streamTextMessages emits ordered deltas and done', () async {
+      final client = MockClient.streaming((request, bodyStream) async {
+        expect(
+          request.url.path,
+          '/v1beta/models/gemini-3-flash-preview:streamGenerateContent',
+        );
+        expect(request.url.queryParameters['alt'], 'sse');
+        expect(request.method, 'POST');
+        expect(request.headers['x-goog-api-key'], 'test-key');
+        expect(request.headers['content-type'], 'application/json');
+        expect(request.headers['accept'], 'text/event-stream');
+
+        final requestBody = await bodyStream.bytesToString();
+        final body = jsonDecode(requestBody) as Map<String, dynamic>;
+        final contents = body['contents'] as List<dynamic>;
+        expect(contents, hasLength(2));
+        expect(contents[0], {
+          'role': 'user',
+          'parts': [
+            {'text': 'Summarize this scene.'},
+          ],
+        });
+        expect(contents[1], {
+          'role': 'model',
+          'parts': [
+            {'text': 'It is a stormy reunion.'},
+          ],
+        });
+
+        final generationConfig =
+            body['generationConfig'] as Map<String, dynamic>;
+        expect(generationConfig['temperature'], 0.2);
+        expect(
+          generationConfig['thinkingConfig'],
+          {'thinkingLevel': 'minimal'},
+        );
+        expect(body['safetySettings'], relaxedSafetySettings);
+
+        final chunks = <List<int>>[
+          utf8.encode(
+            'data: {"candidates":[{"content":{"parts":[{"text":"They "}]}}]}\n',
+          ),
+          utf8.encode('\n'),
+          utf8.encode(
+            'data: {"candidates":[{"content":{"parts":[{"text":"meet again."}]}}]}\n\ndata: [DONE]\n\n',
+          ),
+        ];
+
+        return http.StreamedResponse(
+          Stream<List<int>>.fromIterable(chunks),
+          200,
+          headers: <String, String>{
+            'content-type': 'text/event-stream',
+          },
+          request: request,
+        );
+      });
+
+      final service = GeminiService(client: client);
+      final events = await service.streamTextMessages(
+        apiKey: 'test-key',
+        modelId: 'gemini-3-flash-preview',
+        temperature: 0.2,
+        messages: const <AiChatMessage>[
+          AiChatMessage.user('Summarize this scene.'),
+          AiChatMessage.assistant('It is a stormy reunion.'),
+        ],
+      ).toList();
+
+      expect(events, hasLength(3));
+      expect(events[0].isDelta, isTrue);
+      expect(events[0].deltaText, 'They ');
+      expect(events[1].isDelta, isTrue);
+      expect(events[1].deltaText, 'meet again.');
+      expect(events[2].isDone, isTrue);
+    });
+
+    test('streamText ignores empty and no-text chunks', () async {
+      final client = MockClient.streaming((request, bodyStream) async {
+        final requestBody = await bodyStream.bytesToString();
+        final body = jsonDecode(requestBody) as Map<String, dynamic>;
+        final contents = body['contents'] as List<dynamic>;
+        expect(contents.single['role'], 'user');
+        expect(contents.single['parts'], [
+          {'text': 'Say hi'},
+        ]);
+
+        final chunks = <List<int>>[
+          utf8.encode(
+            'data: {"candidates":[{"content":{"parts":[{}]}}]}\n\n',
+          ),
+          utf8.encode(
+            'data: {"candidates":[{"content":{"parts":[{"inlineData":{"mimeType":"image/png","data":"abc"}}]}}]}\n\n',
+          ),
+          utf8.encode(
+            'data: {"candidates":[{"content":{"parts":[{"text":"Hello"}]}}]}\n\n',
+          ),
+          utf8.encode('data: [DONE]\n\n'),
+        ];
+        return http.StreamedResponse(
+          Stream<List<int>>.fromIterable(chunks),
+          200,
+          headers: <String, String>{
+            'content-type': 'text/event-stream',
+          },
+          request: request,
+        );
+      });
+
+      final service = GeminiService(client: client);
+      final events = await service
+          .streamText(
+            apiKey: 'test-key',
+            modelId: 'gemini-2.5-flash',
+            prompt: 'Say hi',
+          )
+          .toList();
+
+      expect(events, hasLength(2));
+      expect(events[0].isDelta, isTrue);
+      expect(events[0].deltaText, 'Hello');
+      expect(events[1].isDone, isTrue);
+    });
+
+    test('streamText emits error event on mid-stream error payload', () async {
+      final client = MockClient.streaming((request, bodyStream) async {
+        await bodyStream.drain<void>();
+        final chunks = <List<int>>[
+          utf8.encode(
+            'data: {"candidates":[{"content":{"parts":[{"text":"Hi"}]}}]}\n\n',
+          ),
+          utf8.encode(
+            'data: {"error":{"message":"Model overloaded"}}\n\n',
+          ),
+          utf8.encode('data: [DONE]\n\n'),
+        ];
+        return http.StreamedResponse(
+          Stream<List<int>>.fromIterable(chunks),
+          200,
+          headers: <String, String>{
+            'content-type': 'text/event-stream',
+          },
+          request: request,
+        );
+      });
+
+      final service = GeminiService(client: client);
+      final events = await service
+          .streamText(
+            apiKey: 'test-key',
+            modelId: 'gemini-2.5-flash',
+            prompt: 'Say hi',
+          )
+          .toList();
+
+      expect(events, hasLength(2));
+      expect(events[0].isDelta, isTrue);
+      expect(events[0].deltaText, 'Hi');
+      expect(events[1].isError, isTrue);
+      expect(events[1].errorMessage, contains('Model overloaded'));
+    });
+
     test('generateText sends Gemini 3 Flash Preview defaults', () async {
       final client = MockClient((request) async {
         final body = jsonDecode(request.body) as Map<String, dynamic>;
