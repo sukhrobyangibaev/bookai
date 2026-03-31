@@ -93,12 +93,15 @@ class _ReaderScreenState extends State<ReaderScreen> {
   /// Monotonic token used to ignore stale AI completions.
   int _aiRequestToken = 0;
   bool _hasBackgroundAiRequest = false;
+  _InitialAiStreamPhase _initialAiStreamPhase = _InitialAiStreamPhase.idle;
 
   _ActiveAiRequest? _activeAiRequest;
+  _ActiveAiStreamPreview? _activeAiStreamPreview;
   Timer? _aiLoadingElapsedTimer;
   int _activeAiElapsedSeconds = 0;
 
   static const double _aiLoadingSheetReservedSpace = 116.0;
+  static const double _aiStreamingSheetReservedSpace = 332.0;
   static const double _readerHorizontalPadding = 20.0;
   static const double _readerTopPadding = 16.0;
   static const double _readerBottomPadding = 32.0;
@@ -1587,6 +1590,8 @@ class _ReaderScreenState extends State<ReaderScreen> {
     setState(() {
       _aiRequestToken += 1;
       _activeAiRequest = null;
+      _activeAiStreamPreview = null;
+      _initialAiStreamPhase = _InitialAiStreamPhase.idle;
       _activeAiElapsedSeconds = 0;
     });
 
@@ -1842,28 +1847,192 @@ class _ReaderScreenState extends State<ReaderScreen> {
   Future<void> _startAiFeatureRequest(_AiRequestSpec requestSpec) async {
     if (!_canStartAiRequest()) return;
 
-    final generationFuture = _generateTextForSelection(
-      selection: requestSpec.modelSelection,
-      prompt: requestSpec.prompt,
-    );
-    final onSuccess = requestSpec.onSuccess;
-    if (onSuccess != null) {
-      unawaited(
-        () async {
-          try {
-            await generationFuture;
-            await onSuccess();
-          } catch (_) {
-            // Ignore generation and follow-up errors in background persistence.
-          }
-        }(),
-      );
-    }
-
-    await _startAiResultFlow(
-      generationFuture: generationFuture,
+    final request = _ActiveAiRequest(
+      token: ++_aiRequestToken,
+      generationFuture: Future<String>.value(''),
       requestSpec: requestSpec,
     );
+
+    if (!mounted) return;
+    _setActiveAiRequest(request);
+    _setInitialAiStreamPhase(_InitialAiStreamPhase.waitingForFirstChunk);
+    unawaited(_runInitialAiFeatureStream(request));
+  }
+
+  Future<void> _runInitialAiFeatureStream(_ActiveAiRequest request) async {
+    final requestSpec = request.requestSpec;
+    final provider = requestSpec.modelSelection.provider;
+    if (provider == null) {
+      await _finishInitialAiFeatureStream(
+        request: request,
+        result: '',
+        error: const OpenRouterException('Model is not configured.'),
+      );
+      return;
+    }
+
+    final responseBuffer = StringBuffer();
+    Object? error;
+
+    try {
+      await for (final event in _streamTextForSelection(
+        selection: requestSpec.modelSelection,
+        prompt: requestSpec.prompt,
+      )) {
+        if (!mounted || _activeAiRequest?.token != request.token) {
+          return;
+        }
+
+        if (event.isDelta) {
+          final deltaText = event.deltaText;
+          if (deltaText == null || deltaText.isEmpty) {
+            continue;
+          }
+
+          responseBuffer.write(deltaText);
+          _updateInitialAiStreamPreview(
+            request: request,
+            assistantText: responseBuffer.toString(),
+          );
+          continue;
+        }
+
+        if (event.isError) {
+          throw _streamErrorException(
+            provider: provider,
+            event: event,
+          );
+        }
+
+        if (event.isDone) {
+          break;
+        }
+      }
+    } catch (caughtError) {
+      error = caughtError;
+    }
+
+    await _finishInitialAiFeatureStream(
+      request: request,
+      result: responseBuffer.toString(),
+      error: error,
+    );
+  }
+
+  void _updateInitialAiStreamPreview({
+    required _ActiveAiRequest request,
+    required String assistantText,
+  }) {
+    if (!mounted || _activeAiRequest?.token != request.token) {
+      return;
+    }
+
+    _aiLoadingElapsedTimer?.cancel();
+    _aiLoadingElapsedTimer = null;
+
+    final currentPreview = _activeAiStreamPreview;
+    if (currentPreview == null) {
+      setState(() {
+        _initialAiStreamPhase = _InitialAiStreamPhase.streaming;
+        _activeAiStreamPreview = _ActiveAiStreamPreview(
+          token: request.token,
+          title: request.requestSpec.title,
+          assistantText: assistantText,
+        );
+      });
+      return;
+    }
+
+    if (currentPreview.token != request.token) {
+      return;
+    }
+
+    setState(() {
+      _activeAiStreamPreview = currentPreview.copyWith(
+        assistantText: assistantText,
+      );
+    });
+  }
+
+  Future<void> _finishInitialAiFeatureStream({
+    required _ActiveAiRequest request,
+    required String result,
+    Object? error,
+  }) async {
+    if (!mounted || _activeAiRequest?.token != request.token) {
+      return;
+    }
+
+    _clearActiveAiRequest(token: request.token);
+    _clearActiveAiStreamPreview(token: request.token);
+    _setInitialAiStreamPhase(
+      error == null
+          ? _InitialAiStreamPhase.complete
+          : _InitialAiStreamPhase.failed,
+    );
+
+    if (error == null) {
+      final onSuccess = request.requestSpec.onSuccess;
+      if (onSuccess != null) {
+        unawaited(
+          () async {
+            try {
+              await onSuccess();
+            } catch (_) {
+              // Ignore follow-up persistence errors after generation.
+            }
+          }(),
+        );
+      }
+    }
+
+    if (!mounted) return;
+
+    final action = await _showAiCompletedResultSheet(
+      title: request.requestSpec.title,
+      emptyMessage: request.requestSpec.emptyMessage,
+      copiedMessage: request.requestSpec.copiedMessage,
+      followUpHintText: request.requestSpec.followUpHintText,
+      modelSelection: request.requestSpec.modelSelection,
+      prompt: request.requestSpec.prompt,
+      initialConversationMessages:
+          request.requestSpec.initialConversationMessages,
+      switchFeatureLabel: _switchFeatureLabelForRequest(request.requestSpec),
+      result: result,
+      error: error,
+    );
+    if (!mounted) return;
+
+    if (action?.type == _AiResultSheetActionType.regenerateWithFallback) {
+      await _regenerateAiRequestWithFallback(request.requestSpec);
+    } else if (action?.type == _AiResultSheetActionType.switchFeature) {
+      await _switchTextFeature(request.requestSpec);
+    }
+
+    if (!mounted || _activeAiRequest != null) {
+      return;
+    }
+
+    _setInitialAiStreamPhase(_InitialAiStreamPhase.idle);
+  }
+
+  void _setInitialAiStreamPhase(_InitialAiStreamPhase phase) {
+    if (!mounted || _initialAiStreamPhase == phase) return;
+
+    setState(() {
+      _initialAiStreamPhase = phase;
+    });
+  }
+
+  void _clearActiveAiStreamPreview({required int token}) {
+    final preview = _activeAiStreamPreview;
+    if (preview == null || preview.token != token || !mounted) {
+      return;
+    }
+
+    setState(() {
+      _activeAiStreamPreview = null;
+    });
   }
 
   Future<void> _regenerateAiRequestWithFallback(
@@ -2064,23 +2233,6 @@ class _ReaderScreenState extends State<ReaderScreen> {
     );
   }
 
-  Future<void> _startAiResultFlow({
-    required Future<String> generationFuture,
-    required _AiRequestSpec requestSpec,
-  }) async {
-    if (!_canStartAiRequest()) return;
-
-    final request = _ActiveAiRequest(
-      token: ++_aiRequestToken,
-      generationFuture: generationFuture,
-      requestSpec: requestSpec,
-    );
-
-    if (!mounted) return;
-    _setActiveAiRequest(request);
-    unawaited(_completeAiResultFlow(request));
-  }
-
   bool _canStartAiRequest() {
     if (_activeAiRequest == null && !_hasBackgroundAiRequest) return true;
 
@@ -2091,45 +2243,6 @@ class _ReaderScreenState extends State<ReaderScreen> {
       ),
     );
     return false;
-  }
-
-  Future<void> _completeAiResultFlow(_ActiveAiRequest request) async {
-    Object? error;
-    String? result;
-
-    try {
-      result = await request.generationFuture;
-    } catch (caughtError) {
-      error = caughtError;
-    }
-
-    if (!mounted || _activeAiRequest?.token != request.token) {
-      return;
-    }
-
-    _clearActiveAiRequest(token: request.token);
-
-    if (!mounted) return;
-
-    final action = await _showAiCompletedResultSheet(
-      title: request.requestSpec.title,
-      emptyMessage: request.requestSpec.emptyMessage,
-      copiedMessage: request.requestSpec.copiedMessage,
-      followUpHintText: request.requestSpec.followUpHintText,
-      modelSelection: request.requestSpec.modelSelection,
-      prompt: request.requestSpec.prompt,
-      initialConversationMessages:
-          request.requestSpec.initialConversationMessages,
-      switchFeatureLabel: _switchFeatureLabelForRequest(request.requestSpec),
-      result: result,
-      error: error,
-    );
-    if (!mounted) return;
-    if (action?.type == _AiResultSheetActionType.regenerateWithFallback) {
-      await _regenerateAiRequestWithFallback(request.requestSpec);
-    } else if (action?.type == _AiResultSheetActionType.switchFeature) {
-      await _switchTextFeature(request.requestSpec);
-    }
   }
 
   String? _switchFeatureLabelForRequest(_AiRequestSpec requestSpec) {
@@ -2148,6 +2261,8 @@ class _ReaderScreenState extends State<ReaderScreen> {
     if (!mounted) return;
     setState(() {
       _activeAiRequest = request;
+      _activeAiStreamPreview = null;
+      _initialAiStreamPhase = _InitialAiStreamPhase.idle;
       _activeAiElapsedSeconds = 0;
     });
 
@@ -2757,6 +2872,19 @@ class _ReaderScreenState extends State<ReaderScreen> {
     }
   }
 
+  double get _activeAiBottomInset {
+    if (_initialAiStreamPhase == _InitialAiStreamPhase.streaming &&
+        _activeAiStreamPreview != null) {
+      return _aiStreamingSheetReservedSpace;
+    }
+
+    if (_activeAiRequest != null) {
+      return _aiLoadingSheetReservedSpace;
+    }
+
+    return 0;
+  }
+
   @override
   Widget build(BuildContext context) {
     final settings = SettingsControllerScope.of(context);
@@ -2840,11 +2968,24 @@ class _ReaderScreenState extends State<ReaderScreen> {
               child: _buildBody(),
             ),
           ),
-          if (_activeAiRequest != null)
+          if (_activeAiRequest != null &&
+              _initialAiStreamPhase != _InitialAiStreamPhase.streaming)
             _AiLoadingSheet(
               loadingText: _activeAiRequest!.requestSpec.loadingText,
               elapsedSeconds: _activeAiElapsedSeconds,
               onCancel: _cancelActiveAiRequest,
+            ),
+          if (_initialAiStreamPhase == _InitialAiStreamPhase.streaming &&
+              _activeAiStreamPreview != null)
+            _AiStreamingPreviewSheet(
+              title: _activeAiStreamPreview!.title,
+              assistantText: _activeAiStreamPreview!.assistantText,
+              onCancel: _cancelActiveAiRequest,
+              resultTextStyle: buildReaderContentTextStyle(
+                context: context,
+                fontSize: settings.fontSize,
+                fontFamily: settings.fontFamily,
+              ),
             ),
           if (!_isNavbarVisible) _buildHiddenNavPill(),
         ],
@@ -3007,8 +3148,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
           _readerHorizontalPadding,
           topPadding,
           _readerHorizontalPadding,
-          _readerBottomPadding +
-              (_activeAiRequest == null ? 0 : _aiLoadingSheetReservedSpace),
+          _readerBottomPadding + _activeAiBottomInset,
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -3288,6 +3428,14 @@ enum _AiSourceMode {
   wholeChapter,
 }
 
+enum _InitialAiStreamPhase {
+  idle,
+  waitingForFirstChunk,
+  streaming,
+  complete,
+  failed,
+}
+
 class _GenerateImageFeatureModes {
   static const selectedText = 'selected_text';
   static const resumeRange = 'resume_range';
@@ -3506,6 +3654,29 @@ class _ActiveAiRequest {
     required this.generationFuture,
     required this.requestSpec,
   });
+}
+
+class _ActiveAiStreamPreview {
+  final int token;
+  final String title;
+  final String assistantText;
+
+  const _ActiveAiStreamPreview({
+    required this.token,
+    required this.title,
+    required this.assistantText,
+  });
+
+  _ActiveAiStreamPreview copyWith({
+    String? title,
+    String? assistantText,
+  }) {
+    return _ActiveAiStreamPreview(
+      token: token,
+      title: title ?? this.title,
+      assistantText: assistantText ?? this.assistantText,
+    );
+  }
 }
 
 class _AiRequestSpec {
@@ -4065,6 +4236,98 @@ class _AiLoadingSheet extends StatelessWidget {
                     ),
                   ),
                 ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _AiStreamingPreviewSheet extends StatelessWidget {
+  static const ValueKey<String> containerKey =
+      ValueKey<String>('reader-ai-streaming-sheet');
+  static const ValueKey<String> assistantTextKey =
+      ValueKey<String>('reader-ai-streaming-assistant-text');
+
+  final String title;
+  final String assistantText;
+  final VoidCallback onCancel;
+  final TextStyle resultTextStyle;
+
+  const _AiStreamingPreviewSheet({
+    required this.title,
+    required this.assistantText,
+    required this.onCancel,
+    required this.resultTextStyle,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return SafeArea(
+      child: Align(
+        alignment: Alignment.bottomCenter,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+          child: Material(
+            key: containerKey,
+            elevation: 6,
+            color: theme.colorScheme.surface,
+            shadowColor: Colors.black.withOpacity(0.12),
+            borderRadius: BorderRadius.circular(18),
+            child: SizedBox(
+              height: 320,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.titleSmall,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Streaming...',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        IconButton(
+                          onPressed: onCancel,
+                          tooltip: 'Cancel AI Request',
+                          visualDensity: VisualDensity.compact,
+                          icon: const Icon(Icons.close),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    const LinearProgressIndicator(minHeight: 3),
+                    const SizedBox(height: 12),
+                    Expanded(
+                      child: MobileScrollbar(
+                        child: SingleChildScrollView(
+                          child: SelectableText(
+                            assistantText,
+                            key: assistantTextKey,
+                            textAlign: TextAlign.justify,
+                            style: resultTextStyle,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),

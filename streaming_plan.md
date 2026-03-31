@@ -297,7 +297,7 @@ For fastest value with minimal risk, ship after Task 6:
 - [x] Task 2 - OpenRouter streaming service API
 - [x] Task 3 - Gemini streaming service API
 - [x] Task 4 - Reader provider-agnostic streaming bridge
-- [ ] Task 5 - Initial response UX: thinking indicator -> streaming bottom sheet
+- [x] Task 5 - Initial response UX: thinking indicator -> streaming bottom sheet
 - [ ] Task 6 - Conversation sheet streaming state (initial assistant message)
 - [ ] Task 7 - Follow-up streaming in bottom sheet (phase 2)
 - [ ] Task 8 - Regression pass, tests, and rollout safety
@@ -418,3 +418,28 @@ Follow-ups / risks:
 
 Next session start point:
 - Start Task 5 by wiring initial request UX to first-chunk stream events (keep loading indicator until first chunk, then open and append in sheet live).
+
+### 2026-03-31 - Task 5 - Initial response UX streaming transition
+Status: completed
+
+What was done:
+- Replaced initial text feature request flow in `ReaderScreen` to consume provider stream events directly instead of waiting for a fully aggregated response.
+- Added initial request phase handling (`idle`, `waitingForFirstChunk`, `streaming`, `complete`, `failed`) so the existing loading indicator remains visible until the first delta arrives.
+- Added a streaming preview bottom sheet that appears on first chunk and appends assistant text live while the stream is active, then transitions to the existing conversation/error result sheets after completion/failure.
+- Preserved existing pre-first-chunk failure behavior by routing stream-start failures to the existing error sheet UX.
+- Extended reader widget tests to cover the first-chunk transition and pre-first-chunk error case, and extended fake services with stream handler overrides for deterministic chunk-by-chunk tests.
+
+Files changed:
+- `lib/screens/reader_screen.dart`
+- `test/screens/reader_screen_test.dart`
+- `streaming_plan.md`
+
+Tests run:
+- `flutter test test/screens/reader_screen_test.dart` - pass
+
+Follow-ups / risks:
+- The streaming preview sheet is intentionally read-only for the initial response path; full in-sheet conversation streaming state (single growing assistant bubble and disabled send/actions while initial stream is unfinished) is still Task 6 scope.
+- Follow-up message path still uses complete-response behavior in `_AiConversationSheet` and should be upgraded separately in Task 7.
+
+Next session start point:
+- Start Task 6 by making `_AiConversationSheet` render the initial assistant response as one in-progress bubble that grows during streaming and keep actions disabled until the initial stream completes.

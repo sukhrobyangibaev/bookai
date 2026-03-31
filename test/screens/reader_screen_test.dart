@@ -91,6 +91,121 @@ void main() {
       await tester.pumpAndSettle();
     });
 
+    testWidgets(
+        'switches from loading indicator to streaming sheet on first chunk',
+        (tester) async {
+      final firstChunkGate = Completer<void>();
+      final secondChunkGate = Completer<void>();
+      final doneGate = Completer<void>();
+
+      final openRouter = _FakeOpenRouterService(
+        generateTextHandler: ({
+          required apiKey,
+          required modelId,
+          required prompt,
+          temperature,
+        }) async =>
+            'unused',
+        streamTextHandler: ({
+          required apiKey,
+          required modelId,
+          required prompt,
+          temperature,
+        }) async* {
+          await firstChunkGate.future;
+          yield const AiTextStreamEvent.delta('Definition: vague');
+          await secondChunkGate.future;
+          yield const AiTextStreamEvent.delta('\nTranslation: ne');
+          await doneGate.future;
+          yield const AiTextStreamEvent.done();
+        },
+      );
+
+      await _pumpReaderScreen(
+        tester,
+        openRouterService: openRouter,
+      );
+
+      await _startDefineAndTranslate(tester);
+
+      expect(
+        find.byKey(const ValueKey<String>('reader-ai-loading-sheet')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey<String>('reader-ai-streaming-sheet')),
+        findsNothing,
+      );
+
+      firstChunkGate.complete();
+      await tester.pump();
+
+      expect(
+        find.byKey(const ValueKey<String>('reader-ai-loading-sheet')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const ValueKey<String>('reader-ai-streaming-sheet')),
+        findsOneWidget,
+      );
+      expect(find.text('Definition: vague'), findsOneWidget);
+      expect(find.text('Send'), findsNothing);
+
+      secondChunkGate.complete();
+      await tester.pump();
+
+      expect(find.text('Definition: vague\nTranslation: ne'), findsOneWidget);
+
+      doneGate.complete();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
+
+      expect(find.text('Define & Translate'), findsOneWidget);
+      expect(find.text('Definition: vague\nTranslation: ne'), findsOneWidget);
+    });
+
+    testWidgets(
+        'uses existing error sheet when stream fails before first chunk',
+        (tester) async {
+      final openRouter = _FakeOpenRouterService(
+        generateTextHandler: ({
+          required apiKey,
+          required modelId,
+          required prompt,
+          temperature,
+        }) async =>
+            'unused',
+        streamTextHandler: ({
+          required apiKey,
+          required modelId,
+          required prompt,
+          temperature,
+        }) async* {
+          throw const OpenRouterException('Network failed.');
+        },
+      );
+
+      await _pumpReaderScreen(
+        tester,
+        openRouterService: openRouter,
+      );
+
+      await _startDefineAndTranslate(tester);
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const ValueKey<String>('reader-ai-loading-sheet')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const ValueKey<String>('reader-ai-streaming-sheet')),
+        findsNothing,
+      );
+      expect(find.text('Define & Translate'), findsOneWidget);
+      expect(find.text('Network failed.'), findsOneWidget);
+      expect(find.text('Regenerate with Fallback'), findsOneWidget);
+    });
+
     testWidgets('canceling the loading sheet hides it and ignores late results',
         (tester) async {
       final completer = Completer<String>();
@@ -2660,6 +2775,21 @@ typedef _GenerateImageHandler = Future<OpenRouterImageGenerationResult>
   double? temperature,
 });
 
+typedef _StreamTextHandler = Stream<AiTextStreamEvent> Function({
+  required String apiKey,
+  required String modelId,
+  required String prompt,
+  double? temperature,
+});
+
+typedef _StreamTextMessagesHandler = Stream<AiTextStreamEvent> Function({
+  required String apiKey,
+  required String modelId,
+  required List<AiChatMessage> messages,
+  double? temperature,
+  required String requestKind,
+});
+
 typedef _GeminiGenerateTextHandler = Future<String> Function({
   required String apiKey,
   required String modelId,
@@ -2692,6 +2822,8 @@ class _FakeOpenRouterService extends OpenRouterService {
   final _GenerateTextMessagesHandler generateTextMessagesHandler;
   final _FetchModelsHandler fetchModelsHandler;
   final _GenerateImageHandler generateImageHandler;
+  final _StreamTextHandler? streamTextHandler;
+  final _StreamTextMessagesHandler? streamTextMessagesHandler;
   int generateTextCallCount = 0;
   final List<_GenerateTextCall> generateTextCalls = [];
   int streamTextCallCount = 0;
@@ -2709,6 +2841,8 @@ class _FakeOpenRouterService extends OpenRouterService {
     _GenerateTextMessagesHandler? generateTextMessagesHandler,
     _FetchModelsHandler? fetchModelsHandler,
     _GenerateImageHandler? generateImageHandler,
+    this.streamTextHandler,
+    this.streamTextMessagesHandler,
   })  : generateTextMessagesHandler =
             generateTextMessagesHandler ?? _defaultGenerateTextMessages,
         fetchModelsHandler = fetchModelsHandler ?? _defaultFetchModels,
@@ -2794,6 +2928,16 @@ class _FakeOpenRouterService extends OpenRouterService {
       ),
     );
 
+    if (streamTextHandler != null) {
+      yield* streamTextHandler!(
+        apiKey: apiKey,
+        modelId: modelId,
+        prompt: prompt,
+        temperature: temperature,
+      );
+      return;
+    }
+
     try {
       final response = await generateText(
         apiKey: apiKey,
@@ -2855,6 +2999,17 @@ class _FakeOpenRouterService extends OpenRouterService {
         messages: List<AiChatMessage>.from(messages),
       ),
     );
+
+    if (streamTextMessagesHandler != null) {
+      yield* streamTextMessagesHandler!(
+        apiKey: apiKey,
+        modelId: modelId,
+        messages: messages,
+        temperature: temperature,
+        requestKind: requestKind,
+      );
+      return;
+    }
 
     try {
       final response = await generateTextMessages(
