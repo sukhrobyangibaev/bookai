@@ -294,7 +294,7 @@ For fastest value with minimal risk, ship after Task 6:
 ## Task status board
 
 - [x] Task 1 - Shared streaming primitives and SSE parsing helper
-- [ ] Task 2 - OpenRouter streaming service API
+- [x] Task 2 - OpenRouter streaming service API
 - [ ] Task 3 - Gemini streaming service API
 - [ ] Task 4 - Reader provider-agnostic streaming bridge
 - [ ] Task 5 - Initial response UX: thinking indicator -> streaming bottom sheet
@@ -349,3 +349,26 @@ Follow-ups / risks:
 
 Next session start point:
 - Start Task 2 by adding OpenRouter streaming API methods that use `SseDecoder` and map chunks to `AiTextStreamEvent`.
+
+### 2026-03-31 - Task 2 - OpenRouter streaming service API
+Status: completed
+
+What was done:
+- Added OpenRouter streaming APIs via `streamText(...)` and `streamTextMessages(...)` while keeping existing non-stream `generateText*` and image flows unchanged.
+- Implemented SSE streaming request mode (`stream: true`, `Accept: text/event-stream`) and mapped incoming SSE `data:` payloads to `AiTextStreamEvent` deltas, done markers (`[DONE]`), and error events.
+- Added stream payload parsing for `choices[0].delta.content` (string and list parts), provider error extraction for mid-stream error payloads, and retained existing request logging/error messaging patterns.
+
+Files changed:
+- `lib/services/openrouter_service.dart`
+- `test/services/openrouter_service_test.dart`
+- `streaming_plan.md`
+
+Tests run:
+- `flutter test test/services/openrouter_service_test.dart` - pass
+
+Follow-ups / risks:
+- Stream method currently emits `AiTextStreamEvent.error(...)` on mid-stream error payloads and ends stream; consumer-side UI handling for error-event rendering/fallback is part of later reader tasks.
+- Streaming completion currently treats `[DONE]` as canonical done signal and emits a final `done` when the stream closes without it; this is intentional for resilience but should be validated end-to-end in reader integration.
+
+Next session start point:
+- Start Task 3 by adding Gemini streaming methods and SSE mapping with the same `AiTextStreamEvent` contract.
