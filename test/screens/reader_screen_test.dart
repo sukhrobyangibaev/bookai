@@ -9,6 +9,7 @@ import 'package:bookai/models/ai_feature.dart';
 import 'package:bookai/models/ai_model_info.dart';
 import 'package:bookai/models/ai_model_selection.dart';
 import 'package:bookai/models/ai_provider.dart';
+import 'package:bookai/models/ai_text_stream_event.dart';
 import 'package:bookai/models/chapter.dart';
 import 'package:bookai/models/openrouter_model.dart';
 import 'package:bookai/models/reader_settings.dart';
@@ -74,6 +75,7 @@ void main() {
       expect(find.text('Elapsed: 0s'), findsOneWidget);
       expect(find.byType(CircularProgressIndicator), findsNothing);
       expect(openRouter.generateTextCallCount, 1);
+      expect(openRouter.streamTextCallCount, 1);
       expect(find.byTooltip('Show Navigation Bar'), findsOneWidget);
 
       await tester.pump(const Duration(seconds: 1));
@@ -87,6 +89,281 @@ void main() {
 
       completer.complete('Definition: vague\nTranslation: smutny');
       await tester.pumpAndSettle();
+    });
+
+    testWidgets(
+        'switches from loading indicator into one live assistant bubble',
+        (tester) async {
+      final firstChunkGate = Completer<void>();
+      final secondChunkGate = Completer<void>();
+      final doneGate = Completer<void>();
+
+      final openRouter = _FakeOpenRouterService(
+        generateTextHandler: ({
+          required apiKey,
+          required modelId,
+          required prompt,
+          temperature,
+        }) async =>
+            'unused',
+        streamTextHandler: ({
+          required apiKey,
+          required modelId,
+          required prompt,
+          temperature,
+        }) async* {
+          await firstChunkGate.future;
+          yield const AiTextStreamEvent.delta('Definition: vague');
+          await secondChunkGate.future;
+          yield const AiTextStreamEvent.delta('\nTranslation: ne');
+          await doneGate.future;
+          yield const AiTextStreamEvent.done();
+        },
+      );
+
+      await _pumpReaderScreen(
+        tester,
+        openRouterService: openRouter,
+      );
+
+      await _startDefineAndTranslate(tester);
+
+      expect(
+        find.byKey(const ValueKey<String>('reader-ai-loading-sheet')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey<String>('reader-ai-streaming-sheet')),
+        findsNothing,
+      );
+
+      firstChunkGate.complete();
+      await tester.pump();
+
+      expect(
+        find.byKey(const ValueKey<String>('reader-ai-loading-sheet')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const ValueKey<String>('reader-ai-streaming-sheet')),
+        findsOneWidget,
+      );
+      expect(find.text('Definition: vague'), findsOneWidget);
+      expect(find.text('Streaming...'), findsOneWidget);
+      expect(find.byTooltip('Cancel AI Request'), findsOneWidget);
+
+      final streamingSendButton = tester.widget<FilledButton>(
+        find.widgetWithText(FilledButton, 'Send'),
+      );
+      expect(streamingSendButton.onPressed, isNull);
+
+      final streamingCopyButton = tester.widget<IconButton>(
+        find.widgetWithIcon(IconButton, Icons.copy_outlined),
+      );
+      expect(streamingCopyButton.onPressed, isNull);
+
+      final streamingComposer =
+          tester.widget<TextField>(find.byType(TextField));
+      expect(streamingComposer.enabled, isFalse);
+
+      secondChunkGate.complete();
+      await tester.pump();
+
+      expect(find.text('Definition: vague\nTranslation: ne'), findsOneWidget);
+      expect(find.text('Definition: vague'), findsNothing);
+
+      doneGate.complete();
+      await tester.pump();
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const ValueKey<String>('reader-ai-streaming-sheet')),
+        findsOneWidget,
+      );
+      expect(find.text('Define & Translate'), findsOneWidget);
+      expect(find.text('Definition: vague\nTranslation: ne'), findsOneWidget);
+      expect(find.text('Streaming...'), findsNothing);
+      expect(find.byTooltip('Cancel AI Request'), findsNothing);
+      expect(find.byTooltip('Close'), findsOneWidget);
+
+      final completedRegenerateButton = tester.widget<IconButton>(
+        find.widgetWithIcon(IconButton, Icons.refresh),
+      );
+      expect(completedRegenerateButton.onPressed, isNotNull);
+
+      final completedComposer =
+          tester.widget<TextField>(find.byType(TextField));
+      expect(completedComposer.enabled, isTrue);
+    });
+
+    testWidgets(
+        'uses existing error sheet when stream fails before first chunk',
+        (tester) async {
+      final openRouter = _FakeOpenRouterService(
+        generateTextHandler: ({
+          required apiKey,
+          required modelId,
+          required prompt,
+          temperature,
+        }) async =>
+            'unused',
+        streamTextHandler: ({
+          required apiKey,
+          required modelId,
+          required prompt,
+          temperature,
+        }) async* {
+          throw const OpenRouterException('Network failed.');
+        },
+      );
+
+      await _pumpReaderScreen(
+        tester,
+        openRouterService: openRouter,
+      );
+
+      await _startDefineAndTranslate(tester);
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const ValueKey<String>('reader-ai-loading-sheet')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const ValueKey<String>('reader-ai-streaming-sheet')),
+        findsNothing,
+      );
+      expect(find.text('Define & Translate'), findsOneWidget);
+      expect(find.text('Network failed.'), findsOneWidget);
+      expect(find.text('Regenerate with Fallback'), findsOneWidget);
+    });
+
+    testWidgets(
+        'canceling initial streaming sheet ignores late chunks and completion',
+        (tester) async {
+      final firstChunkGate = Completer<void>();
+      final secondChunkGate = Completer<void>();
+      final doneGate = Completer<void>();
+
+      final openRouter = _FakeOpenRouterService(
+        generateTextHandler: ({
+          required apiKey,
+          required modelId,
+          required prompt,
+          temperature,
+        }) async =>
+            'unused',
+        streamTextHandler: ({
+          required apiKey,
+          required modelId,
+          required prompt,
+          temperature,
+        }) async* {
+          await firstChunkGate.future;
+          yield const AiTextStreamEvent.delta('Definition: vague');
+          await secondChunkGate.future;
+          yield const AiTextStreamEvent.delta('\nTranslation: ignored');
+          await doneGate.future;
+          yield const AiTextStreamEvent.done();
+        },
+      );
+
+      await _pumpReaderScreen(
+        tester,
+        openRouterService: openRouter,
+      );
+
+      await _startDefineAndTranslate(tester);
+
+      firstChunkGate.complete();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+
+      expect(
+        find.byKey(const ValueKey<String>('reader-ai-streaming-sheet')),
+        findsOneWidget,
+      );
+      expect(find.text('Definition: vague'), findsOneWidget);
+
+      final cancelButtonInStreamingSheet = find.descendant(
+        of: find.byKey(const ValueKey<String>('reader-ai-streaming-sheet')),
+        matching: find.byTooltip('Cancel AI Request'),
+      );
+      await tester.tap(cancelButtonInStreamingSheet);
+      await tester.pump();
+
+      expect(
+        find.byKey(const ValueKey<String>('reader-ai-streaming-sheet')),
+        findsNothing,
+      );
+      expect(find.text('AI request canceled.'), findsOneWidget);
+      await tester.pump(const Duration(seconds: 2));
+
+      secondChunkGate.complete();
+      doneGate.complete();
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const ValueKey<String>('reader-ai-streaming-sheet')),
+        findsNothing,
+      );
+      expect(
+          find.text('Definition: vague\nTranslation: ignored'), findsNothing);
+    });
+
+    testWidgets('uses error sheet when stream fails after first chunk',
+        (tester) async {
+      final firstChunkGate = Completer<void>();
+      final throwGate = Completer<void>();
+
+      final openRouter = _FakeOpenRouterService(
+        generateTextHandler: ({
+          required apiKey,
+          required modelId,
+          required prompt,
+          temperature,
+        }) async =>
+            'unused',
+        streamTextHandler: ({
+          required apiKey,
+          required modelId,
+          required prompt,
+          temperature,
+        }) async* {
+          await firstChunkGate.future;
+          yield const AiTextStreamEvent.delta('Definition: vague');
+          await throwGate.future;
+          throw const OpenRouterException('Stream interrupted.');
+        },
+      );
+
+      await _pumpReaderScreen(
+        tester,
+        openRouterService: openRouter,
+      );
+
+      await _startDefineAndTranslate(tester);
+
+      firstChunkGate.complete();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+
+      expect(
+        find.byKey(const ValueKey<String>('reader-ai-streaming-sheet')),
+        findsOneWidget,
+      );
+      expect(find.text('Definition: vague'), findsOneWidget);
+
+      throwGate.complete();
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const ValueKey<String>('reader-ai-streaming-sheet')),
+        findsNothing,
+      );
+      expect(find.text('Define & Translate'), findsOneWidget);
+      expect(find.text('Stream interrupted.'), findsOneWidget);
+      expect(find.text('Regenerate with Fallback'), findsOneWidget);
     });
 
     testWidgets('canceling the loading sheet hides it and ignores late results',
@@ -140,7 +417,8 @@ void main() {
       expect(find.text('Definition: late\nTranslation: ignored'), findsNothing);
     });
 
-    testWidgets('opens the full result sheet automatically when AI completes',
+    testWidgets(
+        'keeps the same pinned conversation sheet open when AI completes',
         (tester) async {
       final completer = Completer<String>();
       final openRouter = _FakeOpenRouterService(
@@ -168,16 +446,30 @@ void main() {
         find.byKey(const ValueKey<String>('reader-ai-loading-sheet')),
         findsNothing,
       );
+      expect(
+        find.byKey(const ValueKey<String>('reader-ai-streaming-sheet')),
+        findsOneWidget,
+      );
       expect(find.text('Define & Translate'), findsOneWidget);
       expect(find.text('Definition: vague\nTranslation: neyasny'), findsOne);
       expect(find.byTooltip('Copy'), findsOneWidget);
       expect(find.byTooltip('Regenerate with Fallback'), findsOneWidget);
+      expect(find.byTooltip('Close'), findsOneWidget);
+      expect(find.byTooltip('Cancel AI Request'), findsNothing);
       expect(find.byTooltip('Summary'), findsNothing);
       expect(find.byTooltip('Simplify Text'), findsNothing);
       expect(find.text('Copy'), findsNothing);
       expect(find.text('Regenerate with Fallback'), findsNothing);
       expect(find.text('Close'), findsNothing);
-      expect(find.byType(ModalBarrier), findsWidgets);
+      final copyButton = tester.widget<IconButton>(
+        find.widgetWithIcon(IconButton, Icons.copy_outlined),
+      );
+      expect(copyButton.onPressed, isNotNull);
+
+      final regenerateButton = tester.widget<IconButton>(
+        find.widgetWithIcon(IconButton, Icons.refresh),
+      );
+      expect(regenerateButton.onPressed, isNotNull);
     });
 
     testWidgets('AI result sheet text is justified like the main reader',
@@ -807,8 +1099,11 @@ void main() {
       );
     });
 
-    testWidgets('supports follow-up questions inside the result sheet',
+    testWidgets('streams follow-up questions inside the result sheet live',
         (tester) async {
+      final firstChunkGate = Completer<void>();
+      final doneGate = Completer<void>();
+
       final openRouter = _FakeOpenRouterService(
         generateTextHandler: ({
           required apiKey,
@@ -817,18 +1112,23 @@ void main() {
           temperature,
         }) async =>
             'Definition: vague\nTranslation: neyasny',
-        generateTextMessagesHandler: ({
+        streamTextMessagesHandler: ({
           required apiKey,
           required modelId,
           required messages,
           temperature,
-        }) async {
+          required requestKind,
+        }) async* {
           expect(messages, hasLength(3));
           expect(messages[0].role, AiChatMessageRole.user);
           expect(messages[1].role, AiChatMessageRole.assistant);
           expect(messages[2].role, AiChatMessageRole.user);
           expect(messages[2].content, 'Explain it more simply.');
-          return 'It means the plan feels unclear.';
+          await firstChunkGate.future;
+          yield const AiTextStreamEvent.delta('It means ');
+          await doneGate.future;
+          yield const AiTextStreamEvent.delta('the plan feels unclear.');
+          yield const AiTextStreamEvent.done();
         },
       );
 
@@ -845,10 +1145,29 @@ void main() {
       await tester.pump();
       await tester.tap(find.text('Send'));
       await tester.pump();
+
+      expect(openRouter.streamTextMessagesCallCount, 1);
+      expect(
+        find.byKey(const ValueKey<String>('reader-ai-streaming-sheet')),
+        findsOneWidget,
+      );
+      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+
+      final composerWhileSending =
+          tester.widget<TextField>(find.byType(TextField).last);
+      expect(composerWhileSending.enabled, isFalse);
+
+      firstChunkGate.complete();
+      await tester.pump();
+
+      expect(find.textContaining('It means'), findsOneWidget);
+      expect(find.text('It means the plan feels unclear.'), findsNothing);
+
+      doneGate.complete();
+      await tester.pump();
       await tester.pumpAndSettle();
 
       expect(openRouter.generateTextCallCount, 1);
-      expect(openRouter.generateTextMessagesCallCount, 1);
       expect(find.text('Explain it more simply.'), findsOneWidget);
       expect(find.text('It means the plan feels unclear.'), findsOneWidget);
     });
@@ -863,13 +1182,15 @@ void main() {
           temperature,
         }) async =>
             'Definition: vague\nTranslation: neyasny',
-        generateTextMessagesHandler: ({
+        streamTextMessagesHandler: ({
           required apiKey,
           required modelId,
           required messages,
           temperature,
-        }) async {
-          throw const OpenRouterException('Follow-up failed.');
+          required requestKind,
+        }) async* {
+          yield const AiTextStreamEvent.delta('It means the plan is unclear.');
+          yield const AiTextStreamEvent.error('Follow-up failed.');
         },
       );
 
@@ -891,7 +1212,12 @@ void main() {
       expect(
           find.text('Definition: vague\nTranslation: neyasny'), findsOneWidget);
       expect(find.text('Explain it more simply.'), findsOneWidget);
+      expect(find.text('It means the plan is unclear.'), findsOneWidget);
       expect(find.text('Follow-up failed.'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey<String>('reader-ai-streaming-sheet')),
+        findsOneWidget,
+      );
     });
 
     testWidgets('ask ai shows the first user question and supports follow-ups',
@@ -2105,6 +2431,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(gemini.generateTextCallCount, 1);
+      expect(gemini.streamTextCallCount, 1);
       expect(openRouter.generateTextCallCount, 0);
       expect(gemini.generateTextCalls.single.apiKey, 'gem-key');
       expect(gemini.generateTextCalls.single.modelId, 'gemini-2.5-flash');
@@ -2656,6 +2983,21 @@ typedef _GenerateImageHandler = Future<OpenRouterImageGenerationResult>
   double? temperature,
 });
 
+typedef _StreamTextHandler = Stream<AiTextStreamEvent> Function({
+  required String apiKey,
+  required String modelId,
+  required String prompt,
+  double? temperature,
+});
+
+typedef _StreamTextMessagesHandler = Stream<AiTextStreamEvent> Function({
+  required String apiKey,
+  required String modelId,
+  required List<AiChatMessage> messages,
+  double? temperature,
+  required String requestKind,
+});
+
 typedef _GeminiGenerateTextHandler = Future<String> Function({
   required String apiKey,
   required String modelId,
@@ -2688,10 +3030,16 @@ class _FakeOpenRouterService extends OpenRouterService {
   final _GenerateTextMessagesHandler generateTextMessagesHandler;
   final _FetchModelsHandler fetchModelsHandler;
   final _GenerateImageHandler generateImageHandler;
+  final _StreamTextHandler? streamTextHandler;
+  final _StreamTextMessagesHandler? streamTextMessagesHandler;
   int generateTextCallCount = 0;
   final List<_GenerateTextCall> generateTextCalls = [];
+  int streamTextCallCount = 0;
+  final List<_GenerateTextCall> streamTextCalls = [];
   int generateTextMessagesCallCount = 0;
   final List<_GenerateTextMessagesCall> generateTextMessagesCalls = [];
+  int streamTextMessagesCallCount = 0;
+  final List<_GenerateTextMessagesCall> streamTextMessagesCalls = [];
   int generateImageCallCount = 0;
   final List<_GenerateImageCall> generateImageCalls = [];
   String? lastPrompt;
@@ -2701,6 +3049,8 @@ class _FakeOpenRouterService extends OpenRouterService {
     _GenerateTextMessagesHandler? generateTextMessagesHandler,
     _FetchModelsHandler? fetchModelsHandler,
     _GenerateImageHandler? generateImageHandler,
+    this.streamTextHandler,
+    this.streamTextMessagesHandler,
   })  : generateTextMessagesHandler =
             generateTextMessagesHandler ?? _defaultGenerateTextMessages,
         fetchModelsHandler = fetchModelsHandler ?? _defaultFetchModels,
@@ -2771,6 +3121,53 @@ class _FakeOpenRouterService extends OpenRouterService {
   }
 
   @override
+  Stream<AiTextStreamEvent> streamText({
+    required String apiKey,
+    required String modelId,
+    required String prompt,
+    double? temperature,
+  }) async* {
+    streamTextCallCount += 1;
+    streamTextCalls.add(
+      _GenerateTextCall(
+        apiKey: apiKey,
+        modelId: modelId,
+        prompt: prompt,
+      ),
+    );
+
+    if (streamTextHandler != null) {
+      yield* streamTextHandler!(
+        apiKey: apiKey,
+        modelId: modelId,
+        prompt: prompt,
+        temperature: temperature,
+      );
+      return;
+    }
+
+    try {
+      final response = await generateText(
+        apiKey: apiKey,
+        modelId: modelId,
+        prompt: prompt,
+        temperature: temperature,
+      );
+      if (response.isNotEmpty) {
+        yield AiTextStreamEvent.delta(response);
+      }
+      yield const AiTextStreamEvent.done();
+    } catch (error) {
+      if (error is OpenRouterException) {
+        yield AiTextStreamEvent.error(error.message, cause: error.cause);
+        return;
+      }
+
+      yield AiTextStreamEvent.error(error.toString(), cause: error);
+    }
+  }
+
+  @override
   Future<String> generateTextMessages({
     required String apiKey,
     required String modelId,
@@ -2792,6 +3189,56 @@ class _FakeOpenRouterService extends OpenRouterService {
       messages: messages,
       temperature: temperature,
     );
+  }
+
+  @override
+  Stream<AiTextStreamEvent> streamTextMessages({
+    required String apiKey,
+    required String modelId,
+    required List<AiChatMessage> messages,
+    double? temperature,
+    String requestKind = AiRequestLogKinds.chatGeneration,
+  }) async* {
+    streamTextMessagesCallCount += 1;
+    streamTextMessagesCalls.add(
+      _GenerateTextMessagesCall(
+        apiKey: apiKey,
+        modelId: modelId,
+        messages: List<AiChatMessage>.from(messages),
+      ),
+    );
+
+    if (streamTextMessagesHandler != null) {
+      yield* streamTextMessagesHandler!(
+        apiKey: apiKey,
+        modelId: modelId,
+        messages: messages,
+        temperature: temperature,
+        requestKind: requestKind,
+      );
+      return;
+    }
+
+    try {
+      final response = await generateTextMessages(
+        apiKey: apiKey,
+        modelId: modelId,
+        messages: messages,
+        temperature: temperature,
+        requestKind: requestKind,
+      );
+      if (response.isNotEmpty) {
+        yield AiTextStreamEvent.delta(response);
+      }
+      yield const AiTextStreamEvent.done();
+    } catch (error) {
+      if (error is OpenRouterException) {
+        yield AiTextStreamEvent.error(error.message, cause: error.cause);
+        return;
+      }
+
+      yield AiTextStreamEvent.error(error.toString(), cause: error);
+    }
   }
 
   @override
@@ -2877,8 +3324,12 @@ class _FakeGeminiService extends GeminiService {
   final _GeminiGenerateImageHandler generateImageHandler;
   int generateTextCallCount = 0;
   final List<_GenerateTextCall> generateTextCalls = [];
+  int streamTextCallCount = 0;
+  final List<_GenerateTextCall> streamTextCalls = [];
   int generateTextMessagesCallCount = 0;
   final List<_GenerateTextMessagesCall> generateTextMessagesCalls = [];
+  int streamTextMessagesCallCount = 0;
+  final List<_GenerateTextMessagesCall> streamTextMessagesCalls = [];
   int generateImageCallCount = 0;
   final List<_GeminiGenerateImageCall> generateImageCalls = [];
 
@@ -2957,6 +3408,43 @@ class _FakeGeminiService extends GeminiService {
   }
 
   @override
+  Stream<AiTextStreamEvent> streamText({
+    required String apiKey,
+    required String modelId,
+    required String prompt,
+    double? temperature,
+  }) async* {
+    streamTextCallCount += 1;
+    streamTextCalls.add(
+      _GenerateTextCall(
+        apiKey: apiKey,
+        modelId: modelId,
+        prompt: prompt,
+      ),
+    );
+
+    try {
+      final response = await generateText(
+        apiKey: apiKey,
+        modelId: modelId,
+        prompt: prompt,
+        temperature: temperature,
+      );
+      if (response.isNotEmpty) {
+        yield AiTextStreamEvent.delta(response);
+      }
+      yield const AiTextStreamEvent.done();
+    } catch (error) {
+      if (error is GeminiException) {
+        yield AiTextStreamEvent.error(error.message, cause: error.cause);
+        return;
+      }
+
+      yield AiTextStreamEvent.error(error.toString(), cause: error);
+    }
+  }
+
+  @override
   Future<String> generateTextMessages({
     required String apiKey,
     required String modelId,
@@ -2978,6 +3466,45 @@ class _FakeGeminiService extends GeminiService {
       messages: messages,
       temperature: temperature,
     );
+  }
+
+  @override
+  Stream<AiTextStreamEvent> streamTextMessages({
+    required String apiKey,
+    required String modelId,
+    required List<AiChatMessage> messages,
+    double? temperature,
+    String requestKind = AiRequestLogKinds.chatGeneration,
+  }) async* {
+    streamTextMessagesCallCount += 1;
+    streamTextMessagesCalls.add(
+      _GenerateTextMessagesCall(
+        apiKey: apiKey,
+        modelId: modelId,
+        messages: List<AiChatMessage>.from(messages),
+      ),
+    );
+
+    try {
+      final response = await generateTextMessages(
+        apiKey: apiKey,
+        modelId: modelId,
+        messages: messages,
+        temperature: temperature,
+        requestKind: requestKind,
+      );
+      if (response.isNotEmpty) {
+        yield AiTextStreamEvent.delta(response);
+      }
+      yield const AiTextStreamEvent.done();
+    } catch (error) {
+      if (error is GeminiException) {
+        yield AiTextStreamEvent.error(error.message, cause: error.cause);
+        return;
+      }
+
+      yield AiTextStreamEvent.error(error.toString(), cause: error);
+    }
   }
 
   @override

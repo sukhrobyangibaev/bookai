@@ -9,6 +9,7 @@ import '../models/ai_feature.dart';
 import '../models/ai_model_info.dart';
 import '../models/ai_model_selection.dart';
 import '../models/ai_provider.dart';
+import '../models/ai_text_stream_event.dart';
 import '../models/book.dart';
 import '../models/chapter.dart';
 import '../models/generated_image.dart';
@@ -92,8 +93,14 @@ class _ReaderScreenState extends State<ReaderScreen> {
   /// Monotonic token used to ignore stale AI completions.
   int _aiRequestToken = 0;
   bool _hasBackgroundAiRequest = false;
+  _InitialAiStreamPhase _initialAiStreamPhase = _InitialAiStreamPhase.idle;
 
   _ActiveAiRequest? _activeAiRequest;
+  _ActiveAiConversationSheetState? _activeAiConversationSheet;
+  final ValueNotifier<_ActiveAiConversationSheetState?>
+      _activeAiConversationSheetListenable =
+      ValueNotifier<_ActiveAiConversationSheetState?>(null);
+  bool _isInitialAiConversationSheetVisible = false;
   Timer? _aiLoadingElapsedTimer;
   int _activeAiElapsedSeconds = 0;
 
@@ -134,6 +141,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
   void dispose() {
     _saveTimer?.cancel();
     _aiLoadingElapsedTimer?.cancel();
+    _activeAiConversationSheetListenable.dispose();
     // Persist final progress synchronously before disposing.
     _saveProgressNow();
     _scrollController.removeListener(_onScroll);
@@ -1335,7 +1343,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
     }
   }
 
-  Future<String> _generateTextForSelection({
+  Stream<AiTextStreamEvent> _streamTextForSelection({
     required AiModelSelection selection,
     required String prompt,
   }) {
@@ -1349,13 +1357,13 @@ class _ReaderScreenState extends State<ReaderScreen> {
     final apiKey = settings.apiKeyForProvider(provider);
     switch (provider) {
       case AiProvider.openRouter:
-        return _openRouter.generateText(
+        return _openRouter.streamText(
           apiKey: apiKey,
           modelId: modelId,
           prompt: prompt,
         );
       case AiProvider.gemini:
-        return _gemini.generateText(
+        return _gemini.streamText(
           apiKey: apiKey,
           modelId: modelId,
           prompt: prompt,
@@ -1363,7 +1371,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
     }
   }
 
-  Future<String> _generateTextForMessages({
+  Stream<AiTextStreamEvent> _streamTextForMessages({
     required AiModelSelection selection,
     required List<AiChatMessage> messages,
   }) {
@@ -1377,13 +1385,13 @@ class _ReaderScreenState extends State<ReaderScreen> {
     final apiKey = settings.apiKeyForProvider(provider);
     switch (provider) {
       case AiProvider.openRouter:
-        return _openRouter.generateTextMessages(
+        return _openRouter.streamTextMessages(
           apiKey: apiKey,
           modelId: modelId,
           messages: messages,
         );
       case AiProvider.gemini:
-        return _gemini.generateTextMessages(
+        return _gemini.streamTextMessages(
           apiKey: apiKey,
           modelId: modelId,
           messages: messages,
@@ -1391,12 +1399,102 @@ class _ReaderScreenState extends State<ReaderScreen> {
     }
   }
 
-  Future<T> _runBackgroundAiTask<T>({
-    required Future<T> Function() task,
+  Future<String> _generateTextForSelection({
+    required AiModelSelection selection,
+    required String prompt,
+  }) {
+    final provider = selection.provider;
+    final modelId = selection.normalizedModelId;
+    if (provider == null || modelId.isEmpty) {
+      throw const OpenRouterException('Model is not configured.');
+    }
+
+    return _collectTextStream(
+      provider: provider,
+      stream: _streamTextForSelection(
+        selection: selection,
+        prompt: prompt,
+      ),
+    );
+  }
+
+  Future<String> _generateTextForMessages({
+    required AiModelSelection selection,
+    required List<AiChatMessage> messages,
+  }) {
+    final provider = selection.provider;
+    final modelId = selection.normalizedModelId;
+    if (provider == null || modelId.isEmpty) {
+      throw const OpenRouterException('Model is not configured.');
+    }
+
+    return _collectTextStream(
+      provider: provider,
+      stream: _streamTextForMessages(
+        selection: selection,
+        messages: messages,
+      ),
+    );
+  }
+
+  Future<String> _collectTextStream({
+    required AiProvider provider,
+    required Stream<AiTextStreamEvent> stream,
   }) async {
+    final buffer = StringBuffer();
+
+    await for (final event in stream) {
+      if (event.isDelta) {
+        final deltaText = event.deltaText;
+        if (deltaText != null && deltaText.isNotEmpty) {
+          buffer.write(deltaText);
+        }
+        continue;
+      }
+
+      if (event.isError) {
+        throw _streamErrorException(
+          provider: provider,
+          event: event,
+        );
+      }
+
+      if (event.isDone) {
+        break;
+      }
+    }
+
+    return buffer.toString();
+  }
+
+  Exception _streamErrorException({
+    required AiProvider provider,
+    required AiTextStreamEvent event,
+  }) {
+    final message = (event.errorMessage ?? '').trim();
+    final normalizedMessage =
+        message.isEmpty ? 'Text stream failed before completing.' : message;
+
+    switch (provider) {
+      case AiProvider.openRouter:
+        return OpenRouterException(
+          normalizedMessage,
+          cause: event.errorCause,
+        );
+      case AiProvider.gemini:
+        return GeminiException(
+          normalizedMessage,
+          cause: event.errorCause,
+        );
+    }
+  }
+
+  Stream<T> _runBackgroundAiStreamTask<T>({
+    required Stream<T> Function() task,
+  }) async* {
     _hasBackgroundAiRequest = true;
     try {
-      return await task();
+      yield* task();
     } finally {
       _hasBackgroundAiRequest = false;
     }
@@ -1496,6 +1594,8 @@ class _ReaderScreenState extends State<ReaderScreen> {
     setState(() {
       _aiRequestToken += 1;
       _activeAiRequest = null;
+      _setActiveAiConversationSheetState(null);
+      _initialAiStreamPhase = _InitialAiStreamPhase.idle;
       _activeAiElapsedSeconds = 0;
     });
 
@@ -1751,28 +1851,359 @@ class _ReaderScreenState extends State<ReaderScreen> {
   Future<void> _startAiFeatureRequest(_AiRequestSpec requestSpec) async {
     if (!_canStartAiRequest()) return;
 
-    final generationFuture = _generateTextForSelection(
-      selection: requestSpec.modelSelection,
-      prompt: requestSpec.prompt,
-    );
-    final onSuccess = requestSpec.onSuccess;
-    if (onSuccess != null) {
-      unawaited(
-        () async {
-          try {
-            await generationFuture;
-            await onSuccess();
-          } catch (_) {
-            // Ignore generation and follow-up errors in background persistence.
-          }
-        }(),
-      );
-    }
-
-    await _startAiResultFlow(
-      generationFuture: generationFuture,
+    final request = _ActiveAiRequest(
+      token: ++_aiRequestToken,
+      generationFuture: Future<String>.value(''),
       requestSpec: requestSpec,
     );
+
+    if (!mounted) return;
+    _setActiveAiRequest(request);
+    _setInitialAiStreamPhase(_InitialAiStreamPhase.waitingForFirstChunk);
+    unawaited(_runInitialAiFeatureStream(request));
+  }
+
+  Future<void> _runInitialAiFeatureStream(_ActiveAiRequest request) async {
+    final requestSpec = request.requestSpec;
+    final provider = requestSpec.modelSelection.provider;
+    if (provider == null) {
+      await _finishInitialAiFeatureStream(
+        request: request,
+        result: '',
+        error: const OpenRouterException('Model is not configured.'),
+      );
+      return;
+    }
+
+    final responseBuffer = StringBuffer();
+    Object? error;
+
+    try {
+      await for (final event in _streamTextForSelection(
+        selection: requestSpec.modelSelection,
+        prompt: requestSpec.prompt,
+      )) {
+        if (!mounted || _activeAiRequest?.token != request.token) {
+          return;
+        }
+
+        if (event.isDelta) {
+          final deltaText = event.deltaText;
+          if (deltaText == null || deltaText.isEmpty) {
+            continue;
+          }
+
+          responseBuffer.write(deltaText);
+          _updateInitialAiConversationSheet(
+            request: request,
+            assistantText: responseBuffer.toString(),
+          );
+          continue;
+        }
+
+        if (event.isError) {
+          throw _streamErrorException(
+            provider: provider,
+            event: event,
+          );
+        }
+
+        if (event.isDone) {
+          break;
+        }
+      }
+    } catch (caughtError) {
+      error = caughtError;
+    }
+
+    await _finishInitialAiFeatureStream(
+      request: request,
+      result: responseBuffer.toString(),
+      error: error,
+    );
+  }
+
+  List<_AiConversationMessage> _initialConversationMessagesForRequest(
+    _AiRequestSpec requestSpec,
+  ) {
+    return requestSpec.initialConversationMessages ??
+        <_AiConversationMessage>[
+          _AiConversationMessage.hiddenUser(requestSpec.prompt),
+        ];
+  }
+
+  void _setActiveAiConversationSheetState(
+    _ActiveAiConversationSheetState? value,
+  ) {
+    _activeAiConversationSheet = value;
+    _activeAiConversationSheetListenable.value = value;
+  }
+
+  void _showInitialAiConversationSheetIfNeeded({required int token}) {
+    if (!mounted || _isInitialAiConversationSheetVisible) return;
+
+    _isInitialAiConversationSheetVisible = true;
+    unawaited(
+      showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        showDragHandle: true,
+        builder: (sheetContext) {
+          return ValueListenableBuilder<_ActiveAiConversationSheetState?>(
+            valueListenable: _activeAiConversationSheetListenable,
+            builder: (context, sheetState, _) {
+              if (sheetState == null) {
+                return const SizedBox.shrink();
+              }
+
+              final settings = SettingsControllerScope.of(context);
+              return SafeArea(
+                child: Padding(
+                  padding: EdgeInsets.only(
+                    bottom: MediaQuery.viewInsetsOf(sheetContext).bottom,
+                  ),
+                  child: FractionallySizedBox(
+                    heightFactor: 0.82,
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                      child: KeyedSubtree(
+                        key:
+                            const ValueKey<String>('reader-ai-streaming-sheet'),
+                        child: _AiConversationSheet(
+                          title: sheetState.requestSpec.title,
+                          copiedMessage: sheetState.requestSpec.copiedMessage,
+                          emptyAssistantMessage:
+                              sheetState.requestSpec.emptyMessage,
+                          followUpHintText:
+                              sheetState.requestSpec.followUpHintText,
+                          resultTextStyle: buildReaderContentTextStyle(
+                            context: context,
+                            fontSize: settings.fontSize,
+                            fontFamily: settings.fontFamily,
+                          ),
+                          initialMessages: <_AiConversationMessage>[
+                            ...sheetState.initialMessages,
+                            _AiConversationMessage.assistant(
+                              sheetState.assistantText,
+                            ),
+                          ],
+                          isInitialAssistantStreaming:
+                              sheetState.isStreamingInitialAssistant,
+                          onClose: () => Navigator.of(sheetContext).pop(),
+                          onSendFollowUp: (messages) =>
+                              _runBackgroundAiStreamTask(
+                            task: () => _streamTextForMessages(
+                              selection: sheetState.requestSpec.modelSelection,
+                              messages: messages,
+                            ),
+                          ),
+                          onRegenerateWithFallback: sheetState
+                                  .isStreamingInitialAssistant
+                              ? null
+                              : () {
+                                  Navigator.of(sheetContext).pop();
+                                  unawaited(
+                                    Future<void>.microtask(
+                                      () => _regenerateAiRequestWithFallback(
+                                        sheetState.requestSpec,
+                                      ),
+                                    ),
+                                  );
+                                },
+                          switchFeatureLabel: _switchFeatureLabelForRequest(
+                            sheetState.requestSpec,
+                          ),
+                          onSwitchFeature:
+                              sheetState.isStreamingInitialAssistant
+                                  ? null
+                                  : () {
+                                      Navigator.of(sheetContext).pop();
+                                      unawaited(
+                                        Future<void>.microtask(
+                                          () => _switchTextFeature(
+                                            sheetState.requestSpec,
+                                          ),
+                                        ),
+                                      );
+                                    },
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            },
+          );
+        },
+      ).whenComplete(() {
+        if (!mounted) return;
+
+        _isInitialAiConversationSheetVisible = false;
+        final currentSheet = _activeAiConversationSheet;
+        if (currentSheet == null || currentSheet.token != token) {
+          return;
+        }
+
+        if (currentSheet.isStreamingInitialAssistant &&
+            _activeAiRequest?.token == token) {
+          _cancelActiveAiRequest();
+          return;
+        }
+
+        _dismissActiveAiConversationSheet();
+      }),
+    );
+  }
+
+  void _dismissPresentedInitialAiConversationSheet() {
+    if (!_isInitialAiConversationSheetVisible || !mounted) return;
+    Navigator.of(context).pop();
+  }
+
+  void _updateInitialAiConversationSheet({
+    required _ActiveAiRequest request,
+    required String assistantText,
+  }) {
+    if (!mounted || _activeAiRequest?.token != request.token) {
+      return;
+    }
+
+    _aiLoadingElapsedTimer?.cancel();
+    _aiLoadingElapsedTimer = null;
+
+    final currentSheet = _activeAiConversationSheet;
+    if (currentSheet == null) {
+      setState(() {
+        _initialAiStreamPhase = _InitialAiStreamPhase.streaming;
+        _setActiveAiConversationSheetState(_ActiveAiConversationSheetState(
+          token: request.token,
+          requestSpec: request.requestSpec,
+          initialMessages:
+              _initialConversationMessagesForRequest(request.requestSpec),
+          assistantText: assistantText,
+          isStreamingInitialAssistant: true,
+        ));
+      });
+      _showInitialAiConversationSheetIfNeeded(token: request.token);
+      return;
+    }
+
+    if (currentSheet.token != request.token) {
+      return;
+    }
+
+    setState(() {
+      _initialAiStreamPhase = _InitialAiStreamPhase.streaming;
+      _setActiveAiConversationSheetState(currentSheet.copyWith(
+        assistantText: assistantText,
+        isStreamingInitialAssistant: true,
+      ));
+    });
+  }
+
+  Future<void> _finishInitialAiFeatureStream({
+    required _ActiveAiRequest request,
+    required String result,
+    Object? error,
+  }) async {
+    if (!mounted || _activeAiRequest?.token != request.token) {
+      return;
+    }
+
+    _clearActiveAiRequest(token: request.token);
+    final trimmedResult = result.trim();
+
+    if (error == null) {
+      final onSuccess = request.requestSpec.onSuccess;
+      if (onSuccess != null) {
+        unawaited(
+          () async {
+            try {
+              await onSuccess();
+            } catch (_) {
+              // Ignore follow-up persistence errors after generation.
+            }
+          }(),
+        );
+      }
+    }
+
+    if (error == null && trimmedResult.isNotEmpty) {
+      final currentSheet = _activeAiConversationSheet;
+      if (currentSheet != null && currentSheet.token == request.token) {
+        setState(() {
+          _initialAiStreamPhase = _InitialAiStreamPhase.complete;
+          _setActiveAiConversationSheetState(currentSheet.copyWith(
+            assistantText: trimmedResult,
+            isStreamingInitialAssistant: false,
+          ));
+        });
+      }
+      return;
+    }
+
+    _clearActiveAiConversationSheet(token: request.token);
+    _dismissPresentedInitialAiConversationSheet();
+    _setInitialAiStreamPhase(_InitialAiStreamPhase.failed);
+
+    if (!mounted) return;
+
+    final action = await _showAiCompletedResultSheet(
+      title: request.requestSpec.title,
+      emptyMessage: request.requestSpec.emptyMessage,
+      copiedMessage: request.requestSpec.copiedMessage,
+      followUpHintText: request.requestSpec.followUpHintText,
+      modelSelection: request.requestSpec.modelSelection,
+      prompt: request.requestSpec.prompt,
+      initialConversationMessages:
+          request.requestSpec.initialConversationMessages,
+      switchFeatureLabel: _switchFeatureLabelForRequest(request.requestSpec),
+      result: trimmedResult,
+      error: error,
+    );
+    if (!mounted) return;
+
+    if (action?.type == _AiResultSheetActionType.regenerateWithFallback) {
+      await _regenerateAiRequestWithFallback(request.requestSpec);
+    } else if (action?.type == _AiResultSheetActionType.switchFeature) {
+      await _switchTextFeature(request.requestSpec);
+    }
+
+    if (!mounted || _activeAiRequest != null) {
+      return;
+    }
+
+    _setInitialAiStreamPhase(_InitialAiStreamPhase.idle);
+  }
+
+  void _setInitialAiStreamPhase(_InitialAiStreamPhase phase) {
+    if (!mounted || _initialAiStreamPhase == phase) return;
+
+    setState(() {
+      _initialAiStreamPhase = phase;
+    });
+  }
+
+  void _dismissActiveAiConversationSheet() {
+    if (!mounted) return;
+
+    setState(() {
+      _setActiveAiConversationSheetState(null);
+      if (_activeAiRequest == null) {
+        _initialAiStreamPhase = _InitialAiStreamPhase.idle;
+      }
+    });
+  }
+
+  void _clearActiveAiConversationSheet({required int token}) {
+    final sheet = _activeAiConversationSheet;
+    if (sheet == null || sheet.token != token || !mounted) {
+      return;
+    }
+
+    setState(() {
+      _setActiveAiConversationSheetState(null);
+    });
   }
 
   Future<void> _regenerateAiRequestWithFallback(
@@ -1973,23 +2404,6 @@ class _ReaderScreenState extends State<ReaderScreen> {
     );
   }
 
-  Future<void> _startAiResultFlow({
-    required Future<String> generationFuture,
-    required _AiRequestSpec requestSpec,
-  }) async {
-    if (!_canStartAiRequest()) return;
-
-    final request = _ActiveAiRequest(
-      token: ++_aiRequestToken,
-      generationFuture: generationFuture,
-      requestSpec: requestSpec,
-    );
-
-    if (!mounted) return;
-    _setActiveAiRequest(request);
-    unawaited(_completeAiResultFlow(request));
-  }
-
   bool _canStartAiRequest() {
     if (_activeAiRequest == null && !_hasBackgroundAiRequest) return true;
 
@@ -2000,45 +2414,6 @@ class _ReaderScreenState extends State<ReaderScreen> {
       ),
     );
     return false;
-  }
-
-  Future<void> _completeAiResultFlow(_ActiveAiRequest request) async {
-    Object? error;
-    String? result;
-
-    try {
-      result = await request.generationFuture;
-    } catch (caughtError) {
-      error = caughtError;
-    }
-
-    if (!mounted || _activeAiRequest?.token != request.token) {
-      return;
-    }
-
-    _clearActiveAiRequest(token: request.token);
-
-    if (!mounted) return;
-
-    final action = await _showAiCompletedResultSheet(
-      title: request.requestSpec.title,
-      emptyMessage: request.requestSpec.emptyMessage,
-      copiedMessage: request.requestSpec.copiedMessage,
-      followUpHintText: request.requestSpec.followUpHintText,
-      modelSelection: request.requestSpec.modelSelection,
-      prompt: request.requestSpec.prompt,
-      initialConversationMessages:
-          request.requestSpec.initialConversationMessages,
-      switchFeatureLabel: _switchFeatureLabelForRequest(request.requestSpec),
-      result: result,
-      error: error,
-    );
-    if (!mounted) return;
-    if (action?.type == _AiResultSheetActionType.regenerateWithFallback) {
-      await _regenerateAiRequestWithFallback(request.requestSpec);
-    } else if (action?.type == _AiResultSheetActionType.switchFeature) {
-      await _switchTextFeature(request.requestSpec);
-    }
   }
 
   String? _switchFeatureLabelForRequest(_AiRequestSpec requestSpec) {
@@ -2057,6 +2432,8 @@ class _ReaderScreenState extends State<ReaderScreen> {
     if (!mounted) return;
     setState(() {
       _activeAiRequest = request;
+      _setActiveAiConversationSheetState(null);
+      _initialAiStreamPhase = _InitialAiStreamPhase.idle;
       _activeAiElapsedSeconds = 0;
     });
 
@@ -2178,8 +2555,8 @@ class _ReaderScreenState extends State<ReaderScreen> {
                   followUpHintText: followUpHintText,
                   resultTextStyle: resultTextStyle,
                   initialMessages: initialMessages,
-                  onSendFollowUp: (messages) => _runBackgroundAiTask(
-                    task: () => _generateTextForMessages(
+                  onSendFollowUp: (messages) => _runBackgroundAiStreamTask(
+                    task: () => _streamTextForMessages(
                       selection: modelSelection,
                       messages: messages,
                     ),
@@ -2261,8 +2638,8 @@ class _ReaderScreenState extends State<ReaderScreen> {
                     _AiConversationMessage.hiddenUser(request.prompt),
                     _AiConversationMessage.assistant(generatedPrompt),
                   ],
-                  onSendFollowUp: (messages) => _runBackgroundAiTask(
-                    task: () => _generateTextForMessages(
+                  onSendFollowUp: (messages) => _runBackgroundAiStreamTask(
+                    task: () => _streamTextForMessages(
                       selection: request.promptModelSelection,
                       messages: messages,
                     ),
@@ -2666,6 +3043,14 @@ class _ReaderScreenState extends State<ReaderScreen> {
     }
   }
 
+  double get _activeAiBottomInset {
+    if (_activeAiRequest != null) {
+      return _aiLoadingSheetReservedSpace;
+    }
+
+    return 0;
+  }
+
   @override
   Widget build(BuildContext context) {
     final settings = SettingsControllerScope.of(context);
@@ -2749,7 +3134,8 @@ class _ReaderScreenState extends State<ReaderScreen> {
               child: _buildBody(),
             ),
           ),
-          if (_activeAiRequest != null)
+          if (_activeAiRequest != null &&
+              _initialAiStreamPhase != _InitialAiStreamPhase.streaming)
             _AiLoadingSheet(
               loadingText: _activeAiRequest!.requestSpec.loadingText,
               elapsedSeconds: _activeAiElapsedSeconds,
@@ -2916,8 +3302,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
           _readerHorizontalPadding,
           topPadding,
           _readerHorizontalPadding,
-          _readerBottomPadding +
-              (_activeAiRequest == null ? 0 : _aiLoadingSheetReservedSpace),
+          _readerBottomPadding + _activeAiBottomInset,
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -3197,6 +3582,14 @@ enum _AiSourceMode {
   wholeChapter,
 }
 
+enum _InitialAiStreamPhase {
+  idle,
+  waitingForFirstChunk,
+  streaming,
+  complete,
+  failed,
+}
+
 class _GenerateImageFeatureModes {
   static const selectedText = 'selected_text';
   static const resumeRange = 'resume_range';
@@ -3417,6 +3810,38 @@ class _ActiveAiRequest {
   });
 }
 
+class _ActiveAiConversationSheetState {
+  final int token;
+  final _AiRequestSpec requestSpec;
+  final List<_AiConversationMessage> initialMessages;
+  final String assistantText;
+  final bool isStreamingInitialAssistant;
+
+  const _ActiveAiConversationSheetState({
+    required this.token,
+    required this.requestSpec,
+    required this.initialMessages,
+    required this.assistantText,
+    required this.isStreamingInitialAssistant,
+  });
+
+  _ActiveAiConversationSheetState copyWith({
+    _AiRequestSpec? requestSpec,
+    List<_AiConversationMessage>? initialMessages,
+    String? assistantText,
+    bool? isStreamingInitialAssistant,
+  }) {
+    return _ActiveAiConversationSheetState(
+      token: token,
+      requestSpec: requestSpec ?? this.requestSpec,
+      initialMessages: initialMessages ?? this.initialMessages,
+      assistantText: assistantText ?? this.assistantText,
+      isStreamingInitialAssistant:
+          isStreamingInitialAssistant ?? this.isStreamingInitialAssistant,
+    );
+  }
+}
+
 class _AiRequestSpec {
   final AiModelSelection modelSelection;
   final String prompt;
@@ -3512,6 +3937,15 @@ class _AiResultSheetAction {
         );
 }
 
+class _AiFollowUpException implements Exception {
+  final String message;
+
+  const _AiFollowUpException(this.message);
+
+  @override
+  String toString() => message;
+}
+
 class _AiConversationMessage {
   final AiChatMessageRole role;
   final String text;
@@ -3557,6 +3991,14 @@ class _AiConversationMessage {
           includeInApi: true,
         );
 
+  const _AiConversationMessage.assistantDraft(String value)
+      : this._(
+          role: AiChatMessageRole.assistant,
+          text: value,
+          isVisible: true,
+          includeInApi: false,
+        );
+
   AiChatMessage toApiMessage() => AiChatMessage(
         role: role,
         content: text,
@@ -3589,7 +4031,10 @@ class _AiConversationSheet extends StatefulWidget {
   final String followUpHintText;
   final TextStyle resultTextStyle;
   final List<_AiConversationMessage> initialMessages;
-  final Future<String> Function(List<AiChatMessage> messages) onSendFollowUp;
+  final Stream<AiTextStreamEvent> Function(List<AiChatMessage> messages)
+      onSendFollowUp;
+  final bool isInitialAssistantStreaming;
+  final VoidCallback? onClose;
   final VoidCallback? onRegenerateWithFallback;
   final String? switchFeatureLabel;
   final VoidCallback? onSwitchFeature;
@@ -3604,6 +4049,8 @@ class _AiConversationSheet extends StatefulWidget {
     required this.resultTextStyle,
     required this.initialMessages,
     required this.onSendFollowUp,
+    this.isInitialAssistantStreaming = false,
+    this.onClose,
     this.onRegenerateWithFallback,
     this.switchFeatureLabel,
     this.onSwitchFeature,
@@ -3618,7 +4065,8 @@ class _AiConversationSheet extends StatefulWidget {
 class _AiConversationSheetState extends State<_AiConversationSheet> {
   late final TextEditingController _controller;
   late final ScrollController _scrollController;
-  late final List<_AiConversationMessage> _messages;
+  final List<_AiConversationMessage> _followUpMessages =
+      <_AiConversationMessage>[];
 
   bool _isSending = false;
   String? _errorText;
@@ -3628,8 +4076,27 @@ class _AiConversationSheetState extends State<_AiConversationSheet> {
     super.initState();
     _controller = TextEditingController()..addListener(_handleComposerChanged);
     _scrollController = ScrollController();
-    _messages = List<_AiConversationMessage>.from(widget.initialMessages);
     WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+  }
+
+  @override
+  void didUpdateWidget(covariant _AiConversationSheet oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    final initialMessagesChanged =
+        oldWidget.initialMessages.length != widget.initialMessages.length ||
+            _AiConversationMessage.latestAssistantText(
+                  oldWidget.initialMessages,
+                ) !=
+                _AiConversationMessage.latestAssistantText(
+                  widget.initialMessages,
+                );
+
+    if (initialMessagesChanged ||
+        oldWidget.isInitialAssistantStreaming !=
+            widget.isInitialAssistantStreaming) {
+      _scheduleScrollToBottom();
+    }
   }
 
   @override
@@ -3641,13 +4108,23 @@ class _AiConversationSheetState extends State<_AiConversationSheet> {
     super.dispose();
   }
 
-  List<_AiConversationMessage> get _visibleMessages =>
-      _messages.where((message) => message.isVisible).toList(growable: false);
+  List<_AiConversationMessage> get _conversationMessages =>
+      <_AiConversationMessage>[
+        ...widget.initialMessages,
+        ..._followUpMessages,
+      ];
+
+  List<_AiConversationMessage> get _visibleMessages => _conversationMessages
+      .where((message) => message.isVisible)
+      .toList(growable: false);
 
   String get _latestAssistantText =>
-      _AiConversationMessage.latestAssistantText(_messages);
+      _AiConversationMessage.latestAssistantText(_conversationMessages);
 
-  bool get _canSend => !_isSending && _controller.text.trim().isNotEmpty;
+  bool get _canSend =>
+      !_isSending &&
+      !widget.isInitialAssistantStreaming &&
+      _controller.text.trim().isNotEmpty;
 
   void _handleComposerChanged() {
     if (!mounted) return;
@@ -3684,35 +4161,87 @@ class _AiConversationSheetState extends State<_AiConversationSheet> {
 
   Future<void> _sendFollowUp() async {
     final question = _controller.text.trim();
-    if (question.isEmpty || _isSending) return;
+    if (question.isEmpty || _isSending || widget.isInitialAssistantStreaming) {
+      return;
+    }
+
+    final placeholderMessage = _AiConversationMessage.assistantDraft('');
 
     setState(() {
-      _messages.add(_AiConversationMessage.user(question));
+      _followUpMessages.add(_AiConversationMessage.user(question));
+      _followUpMessages.add(placeholderMessage);
       _controller.clear();
       _errorText = null;
       _isSending = true;
     });
     _scheduleScrollToBottom();
 
+    final assistantMessageIndex = _followUpMessages.length - 1;
+    final responseBuffer = StringBuffer();
+
     try {
-      final response = await widget.onSendFollowUp(
-        _AiConversationMessage.apiMessages(_messages),
-      );
-      final trimmedResponse = response.trim();
+      await for (final event in widget.onSendFollowUp(
+        _AiConversationMessage.apiMessages(_conversationMessages),
+      )) {
+        if (!mounted) return;
+
+        if (event.isDelta) {
+          final deltaText = event.deltaText;
+          if (deltaText == null || deltaText.isEmpty) {
+            continue;
+          }
+
+          responseBuffer.write(deltaText);
+          setState(() {
+            _followUpMessages[assistantMessageIndex] =
+                _AiConversationMessage.assistantDraft(
+              responseBuffer.toString(),
+            );
+          });
+          _scheduleScrollToBottom();
+          continue;
+        }
+
+        if (event.isError) {
+          final message = (event.errorMessage ?? '').trim();
+          throw _AiFollowUpException(
+            message.isEmpty ? 'Text stream failed before completing.' : message,
+          );
+        }
+
+        if (event.isDone) {
+          break;
+        }
+      }
+
+      final trimmedResponse = responseBuffer.toString().trim();
       if (!mounted) return;
 
       if (trimmedResponse.isEmpty) {
-        setState(() => _errorText = widget.emptyAssistantMessage);
+        setState(() {
+          _followUpMessages.removeAt(assistantMessageIndex);
+          _errorText = widget.emptyAssistantMessage;
+        });
         return;
       }
 
       setState(() {
-        _messages.add(_AiConversationMessage.assistant(trimmedResponse));
+        _followUpMessages[assistantMessageIndex] =
+            _AiConversationMessage.assistant(trimmedResponse);
       });
       _scheduleScrollToBottom();
     } catch (error) {
       if (!mounted) return;
-      setState(() => _errorText = error.toString());
+      setState(() {
+        final assistantMessage = _followUpMessages[assistantMessageIndex];
+        if (assistantMessage.text.trim().isEmpty) {
+          _followUpMessages.removeAt(assistantMessageIndex);
+        } else {
+          _followUpMessages[assistantMessageIndex] =
+              _AiConversationMessage.assistant(assistantMessage.text.trim());
+        }
+        _errorText = error.toString();
+      });
     } finally {
       if (mounted) {
         setState(() => _isSending = false);
@@ -3724,6 +4253,9 @@ class _AiConversationSheetState extends State<_AiConversationSheet> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final latestAssistantText = _latestAssistantText;
+    final actionsDisabled = _isSending || widget.isInitialAssistantStreaming;
+    final closeTooltip =
+        widget.isInitialAssistantStreaming ? 'Cancel AI Request' : 'Close';
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -3737,31 +4269,46 @@ class _AiConversationSheetState extends State<_AiConversationSheet> {
               ),
             ),
             IconButton(
-              onPressed:
-                  latestAssistantText.isEmpty ? null : _copyLatestAssistant,
+              onPressed: actionsDisabled || latestAssistantText.isEmpty
+                  ? null
+                  : _copyLatestAssistant,
               tooltip: 'Copy',
               icon: const Icon(Icons.copy_outlined),
             ),
             if (widget.onRegenerateWithFallback != null)
               IconButton(
-                onPressed: _isSending ? null : widget.onRegenerateWithFallback,
+                onPressed:
+                    actionsDisabled ? null : widget.onRegenerateWithFallback,
                 tooltip: 'Regenerate with Fallback',
                 icon: const Icon(Icons.refresh),
               ),
             if (widget.onSwitchFeature != null &&
                 widget.switchFeatureLabel != null)
               IconButton(
-                onPressed: _isSending ? null : widget.onSwitchFeature,
+                onPressed: actionsDisabled ? null : widget.onSwitchFeature,
                 tooltip: widget.switchFeatureLabel,
                 icon: const Icon(Icons.swap_horiz),
               ),
             IconButton(
-              onPressed: _isSending ? null : () => Navigator.of(context).pop(),
-              tooltip: 'Close',
+              onPressed: _isSending
+                  ? null
+                  : (widget.onClose ?? () => Navigator.of(context).pop()),
+              tooltip: closeTooltip,
               icon: const Icon(Icons.close),
             ),
           ],
         ),
+        if (widget.isInitialAssistantStreaming) ...[
+          const SizedBox(height: 4),
+          Text(
+            'Streaming...',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 8),
+          const LinearProgressIndicator(minHeight: 3),
+        ],
         const SizedBox(height: 8),
         Expanded(
           child: MobileScrollbar(
@@ -3795,7 +4342,7 @@ class _AiConversationSheetState extends State<_AiConversationSheet> {
           Align(
             alignment: Alignment.centerRight,
             child: FilledButton(
-              onPressed: _isSending || latestAssistantText.isEmpty
+              onPressed: actionsDisabled || latestAssistantText.isEmpty
                   ? null
                   : () => widget.onPrimaryAction!(latestAssistantText),
               child: Text(widget.primaryActionLabel!),
@@ -3811,7 +4358,7 @@ class _AiConversationSheetState extends State<_AiConversationSheet> {
                 controller: _controller,
                 minLines: 1,
                 maxLines: 4,
-                enabled: !_isSending,
+                enabled: !_isSending && !widget.isInitialAssistantStreaming,
                 textInputAction: TextInputAction.newline,
                 decoration: InputDecoration(
                   border: const OutlineInputBorder(),

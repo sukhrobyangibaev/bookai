@@ -27,6 +27,20 @@ Advanced configuration is built in:
 - Choose a separate image model
 - Override the prompt template and text model for each AI feature
 
+## Streaming Rollout Notes
+
+- Text features now use incremental streaming for both the initial answer and follow-up messages in the AI conversation sheet.
+- Reader UX keeps the compact "thinking" loading state until the first chunk arrives, then switches to the live conversation sheet.
+- Cancel semantics are preserved: canceling an active request dismisses the current AI UI state and ignores late chunks.
+- Error semantics are preserved: errors before first chunk use the existing error sheet, while follow-up stream errors remain inline with partial assistant text.
+
+Recommended release smoke checklist:
+
+- Trigger **Define & Translate** and confirm loading indicator appears first, then the response streams live in one assistant bubble.
+- Send at least one follow-up and confirm response streams in-place without closing/reopening the sheet.
+- Cancel one request from loading state and one from streaming state; confirm no late text appears after cancel.
+- Run one **Generate Image** request to verify non-stream image flow remains unchanged.
+
 ## OpenRouter and Gemini Keys
 
 BookAI does not ship with shared API keys, and it does not ask users to set environment variables. End users add keys directly inside the app:

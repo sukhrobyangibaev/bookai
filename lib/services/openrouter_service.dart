@@ -6,8 +6,10 @@ import 'package:http/http.dart' as http;
 
 import '../models/ai_model_info.dart';
 import '../models/ai_chat_message.dart';
+import '../models/ai_text_stream_event.dart';
 import '../models/openrouter_model.dart';
 import 'ai_request_log_service.dart';
+import 'sse_decoder.dart';
 
 class OpenRouterException implements Exception {
   final String message;
@@ -228,6 +230,84 @@ class OpenRouterService {
     return _extractGeneratedText(decoded);
   }
 
+  Stream<AiTextStreamEvent> streamText({
+    required String apiKey,
+    required String modelId,
+    required String prompt,
+    double? temperature,
+  }) {
+    return streamTextMessages(
+      apiKey: apiKey,
+      modelId: modelId,
+      messages: <AiChatMessage>[AiChatMessage.user(prompt)],
+      temperature: temperature,
+      requestKind: AiRequestLogKinds.textGeneration,
+    );
+  }
+
+  Stream<AiTextStreamEvent> streamTextMessages({
+    required String apiKey,
+    required String modelId,
+    required List<AiChatMessage> messages,
+    double? temperature,
+    String requestKind = AiRequestLogKinds.chatGeneration,
+  }) async* {
+    final response = await _sendChatCompletionStream(
+      apiKey: apiKey,
+      modelId: modelId,
+      messages: messages,
+      temperature: temperature,
+      action: 'streaming text',
+      requestKind: requestKind,
+    );
+
+    final sseDecoder = SseDecoder();
+
+    try {
+      await for (final chunk in response.stream.timeout(_requestTimeout)) {
+        for (final sseEvent in sseDecoder.addChunk(chunk)) {
+          final streamEvent = _mapStreamEvent(sseEvent);
+          if (streamEvent == null) {
+            continue;
+          }
+
+          yield streamEvent;
+          if (streamEvent.isDone || streamEvent.isError) {
+            return;
+          }
+        }
+      }
+    } on TimeoutException catch (error) {
+      yield AiTextStreamEvent.error(
+        'OpenRouter timed out while streaming text. Please try again.',
+        cause: error,
+      );
+      return;
+    } on OpenRouterException {
+      rethrow;
+    } catch (error) {
+      yield AiTextStreamEvent.error(
+        'Failed to connect to OpenRouter.',
+        cause: error,
+      );
+      return;
+    }
+
+    for (final sseEvent in sseDecoder.close(emitIncompleteEvent: true)) {
+      final streamEvent = _mapStreamEvent(sseEvent);
+      if (streamEvent == null) {
+        continue;
+      }
+
+      yield streamEvent;
+      if (streamEvent.isDone || streamEvent.isError) {
+        return;
+      }
+    }
+
+    yield const AiTextStreamEvent.done();
+  }
+
   Future<OpenRouterImageGenerationResult> generateImage({
     required String apiKey,
     required String modelId,
@@ -408,6 +488,257 @@ class OpenRouterService {
     return _decodePayload(response.body);
   }
 
+  Future<http.StreamedResponse> _sendChatCompletionStream({
+    required String apiKey,
+    required String modelId,
+    required String action,
+    required String requestKind,
+    String? prompt,
+    List<AiChatMessage>? messages,
+    double? temperature,
+  }) async {
+    final normalizedApiKey = apiKey.trim();
+    final normalizedModelId = modelId.trim();
+
+    if (normalizedApiKey.isEmpty) {
+      throw const OpenRouterException('OpenRouter API key is required.');
+    }
+    if (normalizedModelId.isEmpty) {
+      throw const OpenRouterException('OpenRouter model id is required.');
+    }
+
+    final payloadMessages = _normalizeMessages(
+      prompt: prompt,
+      messages: messages,
+    );
+    final payload = <String, dynamic>{
+      'model': normalizedModelId,
+      'messages': payloadMessages
+          .map((message) => <String, String>{
+                'role': message.role == AiChatMessageRole.user
+                    ? 'user'
+                    : 'assistant',
+                'content': message.normalizedContent,
+              })
+          .toList(growable: false),
+      'stream': true,
+    };
+    if (temperature != null) {
+      payload['temperature'] = temperature;
+    }
+
+    final requestHeaders = _buildHeaders(
+      apiKey: normalizedApiKey,
+      includeJsonContentType: true,
+      acceptSse: true,
+    );
+    final requestBody = jsonEncode(payload);
+    final request = http.Request('POST', _chatCompletionsUri)
+      ..headers.addAll(requestHeaders)
+      ..body = requestBody;
+
+    final requestStartedAt = _clock();
+    final http.StreamedResponse response;
+    try {
+      if (kDebugMode) {
+        _debugLog('Stream request payload: $requestBody');
+      }
+      response = await _client.send(request).timeout(_requestTimeout);
+    } on TimeoutException catch (error) {
+      unawaited(
+        _aiRequestLogService.logExchange(
+          provider: 'openrouter',
+          requestKind: requestKind,
+          attempt: 1,
+          method: 'POST',
+          uri: _chatCompletionsUri,
+          modelId: normalizedModelId,
+          requestHeaders: requestHeaders,
+          requestBody: requestBody,
+          response: null,
+          error: error,
+          duration: _clock().difference(requestStartedAt),
+        ),
+      );
+      throw OpenRouterException(
+        'OpenRouter timed out while $action. Please try again.',
+        cause: error,
+      );
+    } catch (error) {
+      unawaited(
+        _aiRequestLogService.logExchange(
+          provider: 'openrouter',
+          requestKind: requestKind,
+          attempt: 1,
+          method: 'POST',
+          uri: _chatCompletionsUri,
+          modelId: normalizedModelId,
+          requestHeaders: requestHeaders,
+          requestBody: requestBody,
+          response: null,
+          error: error,
+          duration: _clock().difference(requestStartedAt),
+        ),
+      );
+      throw OpenRouterException(
+        'Failed to connect to OpenRouter.',
+        cause: error,
+      );
+    }
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      final responseBody = await response.stream.bytesToString();
+
+      unawaited(
+        _aiRequestLogService.logExchange(
+          provider: 'openrouter',
+          requestKind: requestKind,
+          attempt: 1,
+          method: 'POST',
+          uri: _chatCompletionsUri,
+          modelId: normalizedModelId,
+          requestHeaders: requestHeaders,
+          requestBody: requestBody,
+          response: http.Response(
+            responseBody,
+            response.statusCode,
+            headers: response.headers,
+            request: request,
+          ),
+          duration: _clock().difference(requestStartedAt),
+        ),
+      );
+
+      throw OpenRouterException(
+        _buildStatusErrorMessage(
+          statusCode: response.statusCode,
+          action: action,
+          responseBody: responseBody,
+        ),
+      );
+    }
+
+    unawaited(
+      _aiRequestLogService.logExchange(
+        provider: 'openrouter',
+        requestKind: requestKind,
+        attempt: 1,
+        method: 'POST',
+        uri: _chatCompletionsUri,
+        modelId: normalizedModelId,
+        requestHeaders: requestHeaders,
+        requestBody: requestBody,
+        response: http.Response(
+          '',
+          response.statusCode,
+          headers: response.headers,
+          request: request,
+        ),
+        duration: _clock().difference(requestStartedAt),
+      ),
+    );
+
+    return response;
+  }
+
+  AiTextStreamEvent? _mapStreamEvent(SseDataEvent sseEvent) {
+    if (sseEvent.isDone) {
+      return const AiTextStreamEvent.done();
+    }
+
+    final trimmedData = sseEvent.data.trim();
+    if (trimmedData.isEmpty) {
+      return null;
+    }
+
+    final payload = _decodePayload(trimmedData);
+    final errorMessage = _extractStreamErrorMessage(payload);
+    if (errorMessage.isNotEmpty) {
+      return AiTextStreamEvent.error(errorMessage, cause: payload);
+    }
+
+    final deltaText = _extractStreamDeltaText(payload);
+    if (deltaText.isNotEmpty) {
+      return AiTextStreamEvent.delta(deltaText);
+    }
+
+    return null;
+  }
+
+  String _extractStreamErrorMessage(Map<String, dynamic> payload) {
+    final rawError = payload['error'];
+    if (rawError is String) {
+      final normalized = _normalizeErrorDetail(rawError);
+      return normalized.isEmpty ? '' : _truncateErrorDetail(normalized);
+    }
+
+    if (rawError is Map) {
+      final errorMap = Map<String, dynamic>.from(rawError);
+      final candidates = <String>[
+        _extractString(errorMap['message']),
+        _extractString(errorMap['detail']),
+        _extractString(errorMap['code']),
+      ];
+      for (final candidate in candidates) {
+        final normalized = _normalizeErrorDetail(candidate);
+        if (normalized.isNotEmpty) {
+          return _truncateErrorDetail(normalized);
+        }
+      }
+    }
+
+    final fallbackMessage =
+        _normalizeErrorDetail(_extractString(payload['message']));
+    if (fallbackMessage.isNotEmpty) {
+      return _truncateErrorDetail(fallbackMessage);
+    }
+
+    return '';
+  }
+
+  String _extractStreamDeltaText(Map<String, dynamic> payload) {
+    final rawChoices = payload['choices'];
+    if (rawChoices is! List || rawChoices.isEmpty) {
+      return '';
+    }
+
+    final firstChoice = rawChoices.first;
+    if (firstChoice is! Map) {
+      return '';
+    }
+
+    final choice = Map<String, dynamic>.from(firstChoice);
+    final rawDelta = choice['delta'];
+    if (rawDelta is Map) {
+      final delta = Map<String, dynamic>.from(rawDelta);
+      final content = delta['content'];
+      if (content is String) {
+        return content;
+      }
+
+      if (content is List) {
+        final buffer = StringBuffer();
+        for (final item in content) {
+          if (item is! Map) {
+            continue;
+          }
+          final text = item['text'];
+          if (text is String && text.isNotEmpty) {
+            buffer.write(text);
+          }
+        }
+        return buffer.toString();
+      }
+    }
+
+    final fallbackText = choice['text'];
+    if (fallbackText is String) {
+      return fallbackText;
+    }
+
+    return '';
+  }
+
   List<AiChatMessage> _normalizeMessages({
     String? prompt,
     List<AiChatMessage>? messages,
@@ -583,9 +914,10 @@ class OpenRouterService {
   Map<String, String> _buildHeaders({
     String? apiKey,
     bool includeJsonContentType = false,
+    bool acceptSse = false,
   }) {
     final headers = <String, String>{
-      'Accept': 'application/json',
+      'Accept': acceptSse ? 'text/event-stream' : 'application/json',
       'HTTP-Referer': _appReferer,
       'X-Title': _appTitle,
     };

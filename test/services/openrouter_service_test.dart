@@ -286,6 +286,268 @@ void main() {
       expect(text, 'They meet again during a storm.');
     });
 
+    test('streamTextMessages emits ordered deltas and done', () async {
+      final client = MockClient.streaming((request, bodyStream) async {
+        expect(
+          request.url.toString(),
+          'https://openrouter.ai/api/v1/chat/completions',
+        );
+        expect(request.method, 'POST');
+        expect(request.headers['authorization'], 'Bearer test-key');
+        expect(request.headers['content-type'], 'application/json');
+        expect(request.headers['accept'], 'text/event-stream');
+        expect(request.headers['http-referer'], 'https://bookai.app');
+        expect(request.headers['x-title'], 'BookAI');
+
+        final requestBody = await bodyStream.bytesToString();
+        final body = jsonDecode(requestBody) as Map<String, dynamic>;
+        expect(body['model'], 'openai/gpt-4.1-mini');
+        expect(body['temperature'], 0.2);
+        expect(body['stream'], isTrue);
+
+        final messages = body['messages'] as List<dynamic>;
+        expect(messages, hasLength(2));
+        expect(messages[0], {
+          'role': 'user',
+          'content': 'Summarize this scene.',
+        });
+        expect(messages[1], {
+          'role': 'assistant',
+          'content': 'It is a stormy reunion.',
+        });
+
+        final chunks = <List<int>>[
+          utf8.encode(
+            'data: {"choices":[{"delta":{"content":"They meet again "}}]}\n\n',
+          ),
+          utf8.encode(
+            'data: {"choices":[{"delta":{"content":"during a storm."}}]}\n\n',
+          ),
+          utf8.encode('data: [DONE]\n\n'),
+        ];
+        return http.StreamedResponse(
+          Stream<List<int>>.fromIterable(chunks),
+          200,
+          headers: <String, String>{
+            'content-type': 'text/event-stream',
+          },
+          request: request,
+        );
+      });
+
+      final service = OpenRouterService(client: client);
+      final events = await service.streamTextMessages(
+        apiKey: 'test-key',
+        modelId: 'openai/gpt-4.1-mini',
+        temperature: 0.2,
+        messages: const <AiChatMessage>[
+          AiChatMessage.user('Summarize this scene.'),
+          AiChatMessage.assistant('It is a stormy reunion.'),
+        ],
+      ).toList();
+
+      expect(events, hasLength(3));
+      expect(events[0].isDelta, isTrue);
+      expect(events[0].deltaText, 'They meet again ');
+      expect(events[1].isDelta, isTrue);
+      expect(events[1].deltaText, 'during a storm.');
+      expect(events[2].isDone, isTrue);
+    });
+
+    test('streamText emits error event when stream payload has error',
+        () async {
+      final client = MockClient.streaming((request, bodyStream) async {
+        final requestBody = await bodyStream.bytesToString();
+        final body = jsonDecode(requestBody) as Map<String, dynamic>;
+        expect(body['stream'], isTrue);
+
+        final chunks = <List<int>>[
+          utf8.encode('data: {"choices":[{"delta":{"content":"Hi"}}]}\n\n'),
+          utf8.encode(
+            'data: {"error":{"message":"Model overload"}}\n\n',
+          ),
+          utf8.encode('data: [DONE]\n\n'),
+        ];
+        return http.StreamedResponse(
+          Stream<List<int>>.fromIterable(chunks),
+          200,
+          headers: <String, String>{
+            'content-type': 'text/event-stream',
+          },
+          request: request,
+        );
+      });
+
+      final service = OpenRouterService(client: client);
+      final events = await service
+          .streamText(
+            apiKey: 'test-key',
+            modelId: 'openai/gpt-4.1-mini',
+            prompt: 'Say hi',
+          )
+          .toList();
+
+      expect(events, hasLength(2));
+      expect(events[0].isDelta, isTrue);
+      expect(events[0].deltaText, 'Hi');
+      expect(events[1].isError, isTrue);
+      expect(events[1].errorMessage, contains('Model overload'));
+    });
+
+    test('streamText emits synthetic done when stream closes without [DONE]',
+        () async {
+      final client = MockClient.streaming((request, bodyStream) async {
+        await bodyStream.drain<void>();
+        final chunks = <List<int>>[
+          utf8.encode(
+            'data: {"choices":[{"delta":{"content":"Hello "}}]}\n\n',
+          ),
+          utf8.encode(
+            'data: {"choices":[{"delta":{"content":"world"}}]}\n\n',
+          ),
+        ];
+        return http.StreamedResponse(
+          Stream<List<int>>.fromIterable(chunks),
+          200,
+          headers: <String, String>{
+            'content-type': 'text/event-stream',
+          },
+          request: request,
+        );
+      });
+
+      final service = OpenRouterService(client: client);
+      final events = await service
+          .streamText(
+            apiKey: 'test-key',
+            modelId: 'openai/gpt-4.1-mini',
+            prompt: 'Say hello',
+          )
+          .toList();
+
+      expect(events, hasLength(3));
+      expect(events[0].isDelta, isTrue);
+      expect(events[0].deltaText, 'Hello ');
+      expect(events[1].isDelta, isTrue);
+      expect(events[1].deltaText, 'world');
+      expect(events[2].isDone, isTrue);
+    });
+
+    test('streamText throws when SSE payload contains malformed JSON',
+        () async {
+      final client = MockClient.streaming((request, bodyStream) async {
+        await bodyStream.drain<void>();
+        final chunks = <List<int>>[
+          utf8.encode('data: {not-json}\n\n'),
+        ];
+        return http.StreamedResponse(
+          Stream<List<int>>.fromIterable(chunks),
+          200,
+          headers: <String, String>{
+            'content-type': 'text/event-stream',
+          },
+          request: request,
+        );
+      });
+
+      final service = OpenRouterService(client: client);
+
+      await expectLater(
+        service
+            .streamText(
+              apiKey: 'test-key',
+              modelId: 'openai/gpt-4.1-mini',
+              prompt: 'Say hello',
+            )
+            .toList(),
+        throwsA(
+          isA<OpenRouterException>().having(
+            (error) => error.message,
+            'message',
+            contains('malformed JSON'),
+          ),
+        ),
+      );
+    });
+
+    test('streamText emits OpenRouter timeout error when SSE stalls', () async {
+      final controller = StreamController<List<int>>();
+      addTearDown(controller.close);
+
+      final client = MockClient.streaming((request, bodyStream) async {
+        await bodyStream.drain<void>();
+        controller.add(
+          utf8.encode('data: {"choices":[{"delta":{"content":"Hi"}}]}\n\n'),
+        );
+        return http.StreamedResponse(
+          controller.stream,
+          200,
+          headers: <String, String>{
+            'content-type': 'text/event-stream',
+          },
+          request: request,
+        );
+      });
+
+      final service = OpenRouterService(
+        client: client,
+        requestTimeout: const Duration(milliseconds: 20),
+      );
+
+      final events = await service
+          .streamText(
+            apiKey: 'test-key',
+            modelId: 'openai/gpt-4.1-mini',
+            prompt: 'Say hi',
+          )
+          .toList();
+
+      expect(events, hasLength(2));
+      expect(events[0].isDelta, isTrue);
+      expect(events[0].deltaText, 'Hi');
+      expect(events[1].isError, isTrue);
+      expect(
+          events[1].errorMessage, contains('timed out while streaming text'));
+      expect(events[1].errorCause, isA<TimeoutException>());
+    });
+
+    test('streamText emits OpenRouter error when SSE socket fails', () async {
+      final client = MockClient.streaming((request, bodyStream) async {
+        await bodyStream.drain<void>();
+
+        Stream<List<int>> brokenStream() async* {
+          yield utf8
+              .encode('data: {"choices":[{"delta":{"content":"Hi"}}]}\n\n');
+          throw StateError('socket closed');
+        }
+
+        return http.StreamedResponse(
+          brokenStream(),
+          200,
+          headers: <String, String>{
+            'content-type': 'text/event-stream',
+          },
+          request: request,
+        );
+      });
+
+      final service = OpenRouterService(client: client);
+      final events = await service
+          .streamText(
+            apiKey: 'test-key',
+            modelId: 'openai/gpt-4.1-mini',
+            prompt: 'Say hi',
+          )
+          .toList();
+
+      expect(events, hasLength(2));
+      expect(events[0].isDelta, isTrue);
+      expect(events[0].deltaText, 'Hi');
+      expect(events[1].isError, isTrue);
+      expect(events[1].errorMessage, 'Failed to connect to OpenRouter.');
+      expect(events[1].errorCause, isA<StateError>());
+    });
+
     test('generateText throws on non-2xx status', () async {
       final client = MockClient((_) async => http.Response('fail', 429));
       final service = OpenRouterService(client: client);
