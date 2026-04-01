@@ -238,6 +238,134 @@ void main() {
       expect(find.text('Regenerate with Fallback'), findsOneWidget);
     });
 
+    testWidgets(
+        'canceling initial streaming sheet ignores late chunks and completion',
+        (tester) async {
+      final firstChunkGate = Completer<void>();
+      final secondChunkGate = Completer<void>();
+      final doneGate = Completer<void>();
+
+      final openRouter = _FakeOpenRouterService(
+        generateTextHandler: ({
+          required apiKey,
+          required modelId,
+          required prompt,
+          temperature,
+        }) async =>
+            'unused',
+        streamTextHandler: ({
+          required apiKey,
+          required modelId,
+          required prompt,
+          temperature,
+        }) async* {
+          await firstChunkGate.future;
+          yield const AiTextStreamEvent.delta('Definition: vague');
+          await secondChunkGate.future;
+          yield const AiTextStreamEvent.delta('\nTranslation: ignored');
+          await doneGate.future;
+          yield const AiTextStreamEvent.done();
+        },
+      );
+
+      await _pumpReaderScreen(
+        tester,
+        openRouterService: openRouter,
+      );
+
+      await _startDefineAndTranslate(tester);
+
+      firstChunkGate.complete();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+
+      expect(
+        find.byKey(const ValueKey<String>('reader-ai-streaming-sheet')),
+        findsOneWidget,
+      );
+      expect(find.text('Definition: vague'), findsOneWidget);
+
+      final cancelButtonInStreamingSheet = find.descendant(
+        of: find.byKey(const ValueKey<String>('reader-ai-streaming-sheet')),
+        matching: find.byTooltip('Cancel AI Request'),
+      );
+      await tester.tap(cancelButtonInStreamingSheet);
+      await tester.pump();
+
+      expect(
+        find.byKey(const ValueKey<String>('reader-ai-streaming-sheet')),
+        findsNothing,
+      );
+      expect(find.text('AI request canceled.'), findsOneWidget);
+      await tester.pump(const Duration(seconds: 2));
+
+      secondChunkGate.complete();
+      doneGate.complete();
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const ValueKey<String>('reader-ai-streaming-sheet')),
+        findsNothing,
+      );
+      expect(
+          find.text('Definition: vague\nTranslation: ignored'), findsNothing);
+    });
+
+    testWidgets('uses error sheet when stream fails after first chunk',
+        (tester) async {
+      final firstChunkGate = Completer<void>();
+      final throwGate = Completer<void>();
+
+      final openRouter = _FakeOpenRouterService(
+        generateTextHandler: ({
+          required apiKey,
+          required modelId,
+          required prompt,
+          temperature,
+        }) async =>
+            'unused',
+        streamTextHandler: ({
+          required apiKey,
+          required modelId,
+          required prompt,
+          temperature,
+        }) async* {
+          await firstChunkGate.future;
+          yield const AiTextStreamEvent.delta('Definition: vague');
+          await throwGate.future;
+          throw const OpenRouterException('Stream interrupted.');
+        },
+      );
+
+      await _pumpReaderScreen(
+        tester,
+        openRouterService: openRouter,
+      );
+
+      await _startDefineAndTranslate(tester);
+
+      firstChunkGate.complete();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+
+      expect(
+        find.byKey(const ValueKey<String>('reader-ai-streaming-sheet')),
+        findsOneWidget,
+      );
+      expect(find.text('Definition: vague'), findsOneWidget);
+
+      throwGate.complete();
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const ValueKey<String>('reader-ai-streaming-sheet')),
+        findsNothing,
+      );
+      expect(find.text('Define & Translate'), findsOneWidget);
+      expect(find.text('Stream interrupted.'), findsOneWidget);
+      expect(find.text('Regenerate with Fallback'), findsOneWidget);
+    });
+
     testWidgets('canceling the loading sheet hides it and ignores late results',
         (tester) async {
       final completer = Completer<String>();

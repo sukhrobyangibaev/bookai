@@ -300,7 +300,7 @@ For fastest value with minimal risk, ship after Task 6:
 - [x] Task 5 - Initial response UX: thinking indicator -> streaming bottom sheet
 - [x] Task 6 - Conversation sheet streaming state (initial assistant message)
 - [x] Task 7 - Follow-up streaming in bottom sheet (phase 2)
-- [ ] Task 8 - Regression pass, tests, and rollout safety
+- [x] Task 8 - Regression pass, tests, and rollout safety
 
 ## Session handoff log (append-only)
 
@@ -492,3 +492,31 @@ Follow-ups / risks:
 
 Next session start point:
 - Start Task 8: run full streaming regression pass (services + reader), add targeted cancel/error edge tests, and document rollout safety notes.
+
+### 2026-04-01 - Task 8 - Regression pass, tests, and rollout safety
+Status: completed
+
+What was done:
+- Added targeted streaming regression tests for OpenRouter and Gemini service layers to cover stream-close-without-`[DONE]` fallback completion and malformed SSE JSON error handling.
+- Added reader streaming regression tests for cancel and error edge cases in the first-chunk transition path:
+  - cancel from active streaming sheet ignores late chunks/completion,
+  - error after first chunk returns to existing error sheet behavior.
+- Added rollout safety notes and a manual smoke checklist to `README.md` under a new "Streaming Rollout Notes" section.
+
+Files changed:
+- `test/services/openrouter_service_test.dart`
+- `test/services/gemini_service_test.dart`
+- `test/screens/reader_screen_test.dart`
+- `README.md`
+- `streaming_plan.md`
+
+Tests run:
+- `flutter test test/services/openrouter_service_test.dart test/services/gemini_service_test.dart test/screens/reader_screen_test.dart` - pass
+- `flutter test` - pass
+
+Follow-ups / risks:
+- Manual on-device smoke validation is still recommended before production rollout (the README checklist now captures the required path checks).
+- Debug payload logs in service tests are expected in test output and are non-blocking.
+
+Next session start point:
+- Streaming migration plan is complete; next work can focus on unrelated feature backlog or post-rollout telemetry/monitoring.

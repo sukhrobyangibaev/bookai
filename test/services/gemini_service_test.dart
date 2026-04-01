@@ -356,6 +356,84 @@ void main() {
       expect(events[1].errorMessage, contains('Model overloaded'));
     });
 
+    test('streamText emits synthetic done when stream closes without [DONE]',
+        () async {
+      final client = MockClient.streaming((request, bodyStream) async {
+        await bodyStream.drain<void>();
+        final chunks = <List<int>>[
+          utf8.encode(
+            'data: {"candidates":[{"content":{"parts":[{"text":"Hello "}]}}]}\n\n',
+          ),
+          utf8.encode(
+            'data: {"candidates":[{"content":{"parts":[{"text":"world"}]}}]}\n\n',
+          ),
+        ];
+
+        return http.StreamedResponse(
+          Stream<List<int>>.fromIterable(chunks),
+          200,
+          headers: <String, String>{
+            'content-type': 'text/event-stream',
+          },
+          request: request,
+        );
+      });
+
+      final service = GeminiService(client: client);
+      final events = await service
+          .streamText(
+            apiKey: 'test-key',
+            modelId: 'gemini-2.5-flash',
+            prompt: 'Say hello',
+          )
+          .toList();
+
+      expect(events, hasLength(3));
+      expect(events[0].isDelta, isTrue);
+      expect(events[0].deltaText, 'Hello ');
+      expect(events[1].isDelta, isTrue);
+      expect(events[1].deltaText, 'world');
+      expect(events[2].isDone, isTrue);
+    });
+
+    test('streamText throws when SSE payload contains malformed JSON',
+        () async {
+      final client = MockClient.streaming((request, bodyStream) async {
+        await bodyStream.drain<void>();
+        final chunks = <List<int>>[
+          utf8.encode('data: {not-json}\n\n'),
+        ];
+
+        return http.StreamedResponse(
+          Stream<List<int>>.fromIterable(chunks),
+          200,
+          headers: <String, String>{
+            'content-type': 'text/event-stream',
+          },
+          request: request,
+        );
+      });
+
+      final service = GeminiService(client: client);
+
+      await expectLater(
+        service
+            .streamText(
+              apiKey: 'test-key',
+              modelId: 'gemini-2.5-flash',
+              prompt: 'Say hello',
+            )
+            .toList(),
+        throwsA(
+          isA<GeminiException>().having(
+            (error) => error.message,
+            'message',
+            contains('malformed JSON'),
+          ),
+        ),
+      );
+    });
+
     test('generateText sends Gemini 3 Flash Preview defaults', () async {
       final client = MockClient((request) async {
         final body = jsonDecode(request.body) as Map<String, dynamic>;
