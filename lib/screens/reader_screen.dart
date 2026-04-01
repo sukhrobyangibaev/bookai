@@ -1489,12 +1489,12 @@ class _ReaderScreenState extends State<ReaderScreen> {
     }
   }
 
-  Future<T> _runBackgroundAiTask<T>({
-    required Future<T> Function() task,
-  }) async {
+  Stream<T> _runBackgroundAiStreamTask<T>({
+    required Stream<T> Function() task,
+  }) async* {
     _hasBackgroundAiRequest = true;
     try {
-      return await task();
+      yield* task();
     } finally {
       _hasBackgroundAiRequest = false;
     }
@@ -1990,8 +1990,9 @@ class _ReaderScreenState extends State<ReaderScreen> {
                           isInitialAssistantStreaming:
                               sheetState.isStreamingInitialAssistant,
                           onClose: () => Navigator.of(sheetContext).pop(),
-                          onSendFollowUp: (messages) => _runBackgroundAiTask(
-                            task: () => _generateTextForMessages(
+                          onSendFollowUp: (messages) =>
+                              _runBackgroundAiStreamTask(
+                            task: () => _streamTextForMessages(
                               selection: sheetState.requestSpec.modelSelection,
                               messages: messages,
                             ),
@@ -2554,8 +2555,8 @@ class _ReaderScreenState extends State<ReaderScreen> {
                   followUpHintText: followUpHintText,
                   resultTextStyle: resultTextStyle,
                   initialMessages: initialMessages,
-                  onSendFollowUp: (messages) => _runBackgroundAiTask(
-                    task: () => _generateTextForMessages(
+                  onSendFollowUp: (messages) => _runBackgroundAiStreamTask(
+                    task: () => _streamTextForMessages(
                       selection: modelSelection,
                       messages: messages,
                     ),
@@ -2637,8 +2638,8 @@ class _ReaderScreenState extends State<ReaderScreen> {
                     _AiConversationMessage.hiddenUser(request.prompt),
                     _AiConversationMessage.assistant(generatedPrompt),
                   ],
-                  onSendFollowUp: (messages) => _runBackgroundAiTask(
-                    task: () => _generateTextForMessages(
+                  onSendFollowUp: (messages) => _runBackgroundAiStreamTask(
+                    task: () => _streamTextForMessages(
                       selection: request.promptModelSelection,
                       messages: messages,
                     ),
@@ -3936,6 +3937,15 @@ class _AiResultSheetAction {
         );
 }
 
+class _AiFollowUpException implements Exception {
+  final String message;
+
+  const _AiFollowUpException(this.message);
+
+  @override
+  String toString() => message;
+}
+
 class _AiConversationMessage {
   final AiChatMessageRole role;
   final String text;
@@ -3981,6 +3991,14 @@ class _AiConversationMessage {
           includeInApi: true,
         );
 
+  const _AiConversationMessage.assistantDraft(String value)
+      : this._(
+          role: AiChatMessageRole.assistant,
+          text: value,
+          isVisible: true,
+          includeInApi: false,
+        );
+
   AiChatMessage toApiMessage() => AiChatMessage(
         role: role,
         content: text,
@@ -4013,7 +4031,8 @@ class _AiConversationSheet extends StatefulWidget {
   final String followUpHintText;
   final TextStyle resultTextStyle;
   final List<_AiConversationMessage> initialMessages;
-  final Future<String> Function(List<AiChatMessage> messages) onSendFollowUp;
+  final Stream<AiTextStreamEvent> Function(List<AiChatMessage> messages)
+      onSendFollowUp;
   final bool isInitialAssistantStreaming;
   final VoidCallback? onClose;
   final VoidCallback? onRegenerateWithFallback;
@@ -4146,34 +4165,83 @@ class _AiConversationSheetState extends State<_AiConversationSheet> {
       return;
     }
 
+    final placeholderMessage = _AiConversationMessage.assistantDraft('');
+
     setState(() {
       _followUpMessages.add(_AiConversationMessage.user(question));
+      _followUpMessages.add(placeholderMessage);
       _controller.clear();
       _errorText = null;
       _isSending = true;
     });
     _scheduleScrollToBottom();
 
+    final assistantMessageIndex = _followUpMessages.length - 1;
+    final responseBuffer = StringBuffer();
+
     try {
-      final response = await widget.onSendFollowUp(
+      await for (final event in widget.onSendFollowUp(
         _AiConversationMessage.apiMessages(_conversationMessages),
-      );
-      final trimmedResponse = response.trim();
+      )) {
+        if (!mounted) return;
+
+        if (event.isDelta) {
+          final deltaText = event.deltaText;
+          if (deltaText == null || deltaText.isEmpty) {
+            continue;
+          }
+
+          responseBuffer.write(deltaText);
+          setState(() {
+            _followUpMessages[assistantMessageIndex] =
+                _AiConversationMessage.assistantDraft(
+              responseBuffer.toString(),
+            );
+          });
+          _scheduleScrollToBottom();
+          continue;
+        }
+
+        if (event.isError) {
+          final message = (event.errorMessage ?? '').trim();
+          throw _AiFollowUpException(
+            message.isEmpty ? 'Text stream failed before completing.' : message,
+          );
+        }
+
+        if (event.isDone) {
+          break;
+        }
+      }
+
+      final trimmedResponse = responseBuffer.toString().trim();
       if (!mounted) return;
 
       if (trimmedResponse.isEmpty) {
-        setState(() => _errorText = widget.emptyAssistantMessage);
+        setState(() {
+          _followUpMessages.removeAt(assistantMessageIndex);
+          _errorText = widget.emptyAssistantMessage;
+        });
         return;
       }
 
       setState(() {
-        _followUpMessages
-            .add(_AiConversationMessage.assistant(trimmedResponse));
+        _followUpMessages[assistantMessageIndex] =
+            _AiConversationMessage.assistant(trimmedResponse);
       });
       _scheduleScrollToBottom();
     } catch (error) {
       if (!mounted) return;
-      setState(() => _errorText = error.toString());
+      setState(() {
+        final assistantMessage = _followUpMessages[assistantMessageIndex];
+        if (assistantMessage.text.trim().isEmpty) {
+          _followUpMessages.removeAt(assistantMessageIndex);
+        } else {
+          _followUpMessages[assistantMessageIndex] =
+              _AiConversationMessage.assistant(assistantMessage.text.trim());
+        }
+        _errorText = error.toString();
+      });
     } finally {
       if (mounted) {
         setState(() => _isSending = false);

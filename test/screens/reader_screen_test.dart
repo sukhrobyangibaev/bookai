@@ -971,8 +971,11 @@ void main() {
       );
     });
 
-    testWidgets('supports follow-up questions inside the result sheet',
+    testWidgets('streams follow-up questions inside the result sheet live',
         (tester) async {
+      final firstChunkGate = Completer<void>();
+      final doneGate = Completer<void>();
+
       final openRouter = _FakeOpenRouterService(
         generateTextHandler: ({
           required apiKey,
@@ -981,18 +984,23 @@ void main() {
           temperature,
         }) async =>
             'Definition: vague\nTranslation: neyasny',
-        generateTextMessagesHandler: ({
+        streamTextMessagesHandler: ({
           required apiKey,
           required modelId,
           required messages,
           temperature,
-        }) async {
+          required requestKind,
+        }) async* {
           expect(messages, hasLength(3));
           expect(messages[0].role, AiChatMessageRole.user);
           expect(messages[1].role, AiChatMessageRole.assistant);
           expect(messages[2].role, AiChatMessageRole.user);
           expect(messages[2].content, 'Explain it more simply.');
-          return 'It means the plan feels unclear.';
+          await firstChunkGate.future;
+          yield const AiTextStreamEvent.delta('It means ');
+          await doneGate.future;
+          yield const AiTextStreamEvent.delta('the plan feels unclear.');
+          yield const AiTextStreamEvent.done();
         },
       );
 
@@ -1009,11 +1017,29 @@ void main() {
       await tester.pump();
       await tester.tap(find.text('Send'));
       await tester.pump();
+
+      expect(openRouter.streamTextMessagesCallCount, 1);
+      expect(
+        find.byKey(const ValueKey<String>('reader-ai-streaming-sheet')),
+        findsOneWidget,
+      );
+      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+
+      final composerWhileSending =
+          tester.widget<TextField>(find.byType(TextField).last);
+      expect(composerWhileSending.enabled, isFalse);
+
+      firstChunkGate.complete();
+      await tester.pump();
+
+      expect(find.textContaining('It means'), findsOneWidget);
+      expect(find.text('It means the plan feels unclear.'), findsNothing);
+
+      doneGate.complete();
+      await tester.pump();
       await tester.pumpAndSettle();
 
       expect(openRouter.generateTextCallCount, 1);
-      expect(openRouter.generateTextMessagesCallCount, 1);
-      expect(openRouter.streamTextMessagesCallCount, 1);
       expect(find.text('Explain it more simply.'), findsOneWidget);
       expect(find.text('It means the plan feels unclear.'), findsOneWidget);
     });
@@ -1028,13 +1054,15 @@ void main() {
           temperature,
         }) async =>
             'Definition: vague\nTranslation: neyasny',
-        generateTextMessagesHandler: ({
+        streamTextMessagesHandler: ({
           required apiKey,
           required modelId,
           required messages,
           temperature,
-        }) async {
-          throw const OpenRouterException('Follow-up failed.');
+          required requestKind,
+        }) async* {
+          yield const AiTextStreamEvent.delta('It means the plan is unclear.');
+          yield const AiTextStreamEvent.error('Follow-up failed.');
         },
       );
 
@@ -1056,7 +1084,12 @@ void main() {
       expect(
           find.text('Definition: vague\nTranslation: neyasny'), findsOneWidget);
       expect(find.text('Explain it more simply.'), findsOneWidget);
+      expect(find.text('It means the plan is unclear.'), findsOneWidget);
       expect(find.text('Follow-up failed.'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey<String>('reader-ai-streaming-sheet')),
+        findsOneWidget,
+      );
     });
 
     testWidgets('ask ai shows the first user question and supports follow-ups',

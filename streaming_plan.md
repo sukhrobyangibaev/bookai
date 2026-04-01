@@ -299,7 +299,7 @@ For fastest value with minimal risk, ship after Task 6:
 - [x] Task 4 - Reader provider-agnostic streaming bridge
 - [x] Task 5 - Initial response UX: thinking indicator -> streaming bottom sheet
 - [x] Task 6 - Conversation sheet streaming state (initial assistant message)
-- [ ] Task 7 - Follow-up streaming in bottom sheet (phase 2)
+- [x] Task 7 - Follow-up streaming in bottom sheet (phase 2)
 - [ ] Task 8 - Regression pass, tests, and rollout safety
 
 ## Session handoff log (append-only)
@@ -468,3 +468,27 @@ Follow-ups / risks:
 
 Next session start point:
 - Start Task 7 by changing `_AiConversationSheet.onSendFollowUp` from a complete-response future into a streaming callback and append follow-up assistant chunks in place.
+
+### 2026-04-01 - Task 7 - Follow-up streaming in bottom sheet (phase 2)
+Status: completed
+
+What was done:
+- Upgraded `_AiConversationSheet.onSendFollowUp` from a `Future<String>` callback to a streaming callback and switched all follow-up call sites to provider stream APIs.
+- Reworked follow-up send flow to append the user message, create one in-progress assistant bubble, append deltas chunk-by-chunk, and finalize the same bubble on completion.
+- Preserved inline follow-up error behavior and improved it for streaming by keeping partial assistant text visible when an error arrives after some chunks.
+- Added/updated widget tests to verify live follow-up streaming in the open sheet, disabled composer state while streaming, and inline error visibility with partial streamed output.
+
+Files changed:
+- `lib/screens/reader_screen.dart`
+- `test/screens/reader_screen_test.dart`
+- `streaming_plan.md`
+
+Tests run:
+- `flutter test test/screens/reader_screen_test.dart` - pass
+
+Follow-ups / risks:
+- Follow-up stream error mapping in `_AiConversationSheet` now normalizes stream error events into user-facing inline text, but provider-specific exception typing is intentionally not surfaced in-sheet.
+- Task 8 still needs broader regression/edge-case validation across service layers and cancellation paths beyond this widget-focused pass.
+
+Next session start point:
+- Start Task 8: run full streaming regression pass (services + reader), add targeted cancel/error edge tests, and document rollout safety notes.
