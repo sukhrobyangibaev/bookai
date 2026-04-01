@@ -264,18 +264,34 @@ class GeminiService {
 
     final sseDecoder = SseDecoder();
 
-    await for (final chunk in response.stream.timeout(_requestTimeout)) {
-      for (final sseEvent in sseDecoder.addChunk(chunk)) {
-        final streamEvent = _mapStreamEvent(sseEvent);
-        if (streamEvent == null) {
-          continue;
-        }
+    try {
+      await for (final chunk in response.stream.timeout(_requestTimeout)) {
+        for (final sseEvent in sseDecoder.addChunk(chunk)) {
+          final streamEvent = _mapStreamEvent(sseEvent);
+          if (streamEvent == null) {
+            continue;
+          }
 
-        yield streamEvent;
-        if (streamEvent.isDone || streamEvent.isError) {
-          return;
+          yield streamEvent;
+          if (streamEvent.isDone || streamEvent.isError) {
+            return;
+          }
         }
       }
+    } on TimeoutException catch (error) {
+      yield AiTextStreamEvent.error(
+        'Gemini timed out while streaming text. Please try again.',
+        cause: error,
+      );
+      return;
+    } on GeminiException {
+      rethrow;
+    } catch (error) {
+      yield AiTextStreamEvent.error(
+        'Failed to connect to Gemini.',
+        cause: error,
+      );
+      return;
     }
 
     for (final sseEvent in sseDecoder.close(emitIncompleteEvent: true)) {
