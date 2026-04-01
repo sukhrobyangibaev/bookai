@@ -470,6 +470,84 @@ void main() {
       );
     });
 
+    test('streamText emits OpenRouter timeout error when SSE stalls', () async {
+      final controller = StreamController<List<int>>();
+      addTearDown(controller.close);
+
+      final client = MockClient.streaming((request, bodyStream) async {
+        await bodyStream.drain<void>();
+        controller.add(
+          utf8.encode('data: {"choices":[{"delta":{"content":"Hi"}}]}\n\n'),
+        );
+        return http.StreamedResponse(
+          controller.stream,
+          200,
+          headers: <String, String>{
+            'content-type': 'text/event-stream',
+          },
+          request: request,
+        );
+      });
+
+      final service = OpenRouterService(
+        client: client,
+        requestTimeout: const Duration(milliseconds: 20),
+      );
+
+      final events = await service
+          .streamText(
+            apiKey: 'test-key',
+            modelId: 'openai/gpt-4.1-mini',
+            prompt: 'Say hi',
+          )
+          .toList();
+
+      expect(events, hasLength(2));
+      expect(events[0].isDelta, isTrue);
+      expect(events[0].deltaText, 'Hi');
+      expect(events[1].isError, isTrue);
+      expect(
+          events[1].errorMessage, contains('timed out while streaming text'));
+      expect(events[1].errorCause, isA<TimeoutException>());
+    });
+
+    test('streamText emits OpenRouter error when SSE socket fails', () async {
+      final client = MockClient.streaming((request, bodyStream) async {
+        await bodyStream.drain<void>();
+
+        Stream<List<int>> brokenStream() async* {
+          yield utf8
+              .encode('data: {"choices":[{"delta":{"content":"Hi"}}]}\n\n');
+          throw StateError('socket closed');
+        }
+
+        return http.StreamedResponse(
+          brokenStream(),
+          200,
+          headers: <String, String>{
+            'content-type': 'text/event-stream',
+          },
+          request: request,
+        );
+      });
+
+      final service = OpenRouterService(client: client);
+      final events = await service
+          .streamText(
+            apiKey: 'test-key',
+            modelId: 'openai/gpt-4.1-mini',
+            prompt: 'Say hi',
+          )
+          .toList();
+
+      expect(events, hasLength(2));
+      expect(events[0].isDelta, isTrue);
+      expect(events[0].deltaText, 'Hi');
+      expect(events[1].isError, isTrue);
+      expect(events[1].errorMessage, 'Failed to connect to OpenRouter.');
+      expect(events[1].errorCause, isA<StateError>());
+    });
+
     test('generateText throws on non-2xx status', () async {
       final client = MockClient((_) async => http.Response('fail', 429));
       final service = OpenRouterService(client: client);
