@@ -31,19 +31,19 @@ class BookAiApp extends StatefulWidget {
 
 class _BookAiAppState extends State<BookAiApp> {
   static const List<double> _nightModeColorMatrix = <double>[
-    1.15,
-    0.08,
+    0.68,
+    0.06,
     0,
     0,
     0,
     0,
-    0.82,
+    0.50,
     0,
     0,
     0,
     0,
     0,
-    0.16,
+    0.10,
     0,
     0,
     0,
