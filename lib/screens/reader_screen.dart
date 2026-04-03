@@ -4165,7 +4165,7 @@ class _AiConversationSheetState extends State<_AiConversationSheet> {
       return;
     }
 
-    final placeholderMessage = _AiConversationMessage.assistantDraft('');
+    const placeholderMessage = _AiConversationMessage.assistantDraft('');
 
     setState(() {
       _followUpMessages.add(_AiConversationMessage.user(question));
