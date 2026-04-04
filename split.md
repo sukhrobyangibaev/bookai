@@ -210,7 +210,7 @@ Before finishing:
 - [x] Session 1 - Scaffold split + move passive models/types
 - [x] Session 2 - Extract overlays
 - [x] Session 3 - Extract content rendering + selection toolbar
-- [ ] Session 4 - Extract AI sheets/widgets
+- [x] Session 4 - Extract AI sheets/widgets
 - [ ] Session 5 - Extract AI orchestration/flow
 - [ ] Session 6 - Final cleanup + full regression
 
@@ -307,3 +307,25 @@ Risks / follow-ups:
 
 Next session start point:
 - Extract `_AiQuestionComposerSheet`, `_AiConversationSheet`, `_AiConversationBubble`, `_AiLoadingSheet`, `_AiResultError`, `_AiBasicError`, and purely UI AI sheet builders into `lib/screens/reader/reader_ai_sheets.dart`.
+
+### 2026-04-04 - Session 4 - Extract AI sheets/widgets
+Status: completed
+
+What was done:
+- Moved AI sheet UI builders from `reader_screen.dart` into `reader_ai_sheets.dart` via an extension on `_ReaderScreenState`.
+- Extracted `_showAiQuestionComposerSheet`, `_showImagePromptEditorSheet`, `_showGeneratedImageResultSheet`, `_showAiBasicErrorSheet`, `_showAiSourceModePicker`, `_showAiCompletedResultSheet`, `_popRegenerateWithFallback`, and `_showGeneratedPromptConversationSheet` with unchanged behavior.
+- Moved AI UI widget classes to `reader_ai_sheets.dart`: `_AiQuestionComposerSheet`, `_AiConversationSheet`, `_AiConversationBubble`, `_AiLoadingSheet`, `_AiResultError`, and `_AiBasicError`.
+
+Files changed:
+- `lib/screens/reader_screen.dart`
+- `lib/screens/reader/reader_ai_sheets.dart`
+- `split.md`
+
+Tests run:
+- `flutter test test/screens/reader_screen_test.dart` - pass
+
+Risks / follow-ups:
+- `_showInitialAiConversationSheetIfNeeded` remains in `reader_screen.dart` because it couples sheet presentation with AI request lifecycle control; this is a good Session 5 extraction candidate alongside AI flow methods.
+
+Next session start point:
+- Extract AI orchestration and lifecycle methods (including `_showInitialAiConversationSheetIfNeeded` and related stream/request helpers) into `lib/screens/reader/reader_ai_flow.dart` while keeping state fields in the main screen as needed.
