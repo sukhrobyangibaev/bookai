@@ -35,8 +35,6 @@ Notes:
 
 ## Session 1 prompt - Scaffold split + move passive models/types
 
-Use this exact prompt for one AI session:
-
 ```md
 Task: Session 1 - Create split scaffold and move passive private types
 
