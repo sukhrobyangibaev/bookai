@@ -209,7 +209,7 @@ Before finishing:
 
 - [x] Session 1 - Scaffold split + move passive models/types
 - [x] Session 2 - Extract overlays
-- [ ] Session 3 - Extract content rendering + selection toolbar
+- [x] Session 3 - Extract content rendering + selection toolbar
 - [ ] Session 4 - Extract AI sheets/widgets
 - [ ] Session 5 - Extract AI orchestration/flow
 - [ ] Session 6 - Final cleanup + full regression
@@ -285,3 +285,25 @@ Risks / follow-ups:
 
 Next session start point:
 - Extract `_buildBody`, `_buildError`, `_buildEmpty`, `_buildContent`, `_buildChapterEndActions`, `_buildChapterNavigationButton`, `_buildHighlightedText`, and `_buildSelectionToolbar` into `lib/screens/reader/reader_content.dart`.
+
+### 2026-04-04 - Session 3 - Extract content rendering + selection toolbar
+Status: completed
+
+What was done:
+- Moved content rendering and selection-toolbar methods from `reader_screen.dart` into `reader_content.dart` via an extension on `_ReaderScreenState`.
+- Extracted `_buildBody`, `_buildError`, `_buildEmpty`, `_buildContent`, `_buildChapterEndActions`, `_buildChapterNavigationButton`, `_buildHighlightedText`, and `_buildSelectionToolbar` with behavior unchanged.
+- Also moved `_buildHiddenNavPill` into `reader_content.dart` to keep the main screen shell cleaner while preserving all existing call sites.
+
+Files changed:
+- `lib/screens/reader_screen.dart`
+- `lib/screens/reader/reader_content.dart`
+- `split.md`
+
+Tests run:
+- `flutter test test/screens/reader_screen_test.dart` - pass
+
+Risks / follow-ups:
+- No behavior changes observed in reader tests; Session 4 can focus on AI sheet/widget UI extraction.
+
+Next session start point:
+- Extract `_AiQuestionComposerSheet`, `_AiConversationSheet`, `_AiConversationBubble`, `_AiLoadingSheet`, `_AiResultError`, `_AiBasicError`, and purely UI AI sheet builders into `lib/screens/reader/reader_ai_sheets.dart`.
