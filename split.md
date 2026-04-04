@@ -211,7 +211,7 @@ Before finishing:
 - [x] Session 2 - Extract overlays
 - [x] Session 3 - Extract content rendering + selection toolbar
 - [x] Session 4 - Extract AI sheets/widgets
-- [ ] Session 5 - Extract AI orchestration/flow
+- [x] Session 5 - Extract AI orchestration/flow
 - [ ] Session 6 - Final cleanup + full regression
 
 ## Session completion log (append-only)
@@ -329,3 +329,26 @@ Risks / follow-ups:
 
 Next session start point:
 - Extract AI orchestration and lifecycle methods (including `_showInitialAiConversationSheetIfNeeded` and related stream/request helpers) into `lib/screens/reader/reader_ai_flow.dart` while keeping state fields in the main screen as needed.
+
+### 2026-04-04 - Session 5 - Extract AI orchestration/flow
+Status: completed
+
+What was done:
+- Moved AI orchestration and request lifecycle logic from `reader_screen.dart` into `reader_ai_flow.dart` via an extension on `_ReaderScreenState`.
+- Extracted source-mode runners, request-spec builders, stream/provider/model helpers, initial conversation-sheet lifecycle methods, fallback/switch flow, and image-generation orchestration while preserving behavior.
+- Kept screen shell/core state in `reader_screen.dart` and preserved all existing method names/call sites.
+
+Files changed:
+- `lib/screens/reader_screen.dart`
+- `lib/screens/reader/reader_ai_flow.dart`
+- `split.md`
+
+Tests run:
+- `flutter test test/screens/reader_screen_test.dart` - pass
+- `flutter test test/services/openrouter_service_test.dart test/services/gemini_service_test.dart` - pass
+
+Risks / follow-ups:
+- Main screen still contains some AI-related state fields by design; Session 6 should focus on final readability cleanup and import/dead-code verification.
+
+Next session start point:
+- Run full cleanup/formatting pass and full regression (`flutter test`), then ensure `reader_screen.dart` remains focused on screen shell/lifecycle/core state.
