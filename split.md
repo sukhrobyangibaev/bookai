@@ -216,29 +216,6 @@ Before finishing:
 - [ ] Session 5 - Extract AI orchestration/flow
 - [ ] Session 6 - Final cleanup + full regression
 
-## Timeline guide
-
-Recommended per-session effort (balanced pace):
-
-- Session 1: 45-75 min
-- Session 2: 45-75 min
-- Session 3: 60-90 min
-- Session 4: 75-120 min
-- Session 5: 90-150 min
-- Session 6: 45-90 min
-
-Suggested schedules:
-
-- Aggressive: 2-3 days (2 sessions/day)
-- Balanced: 1 week (1 session/day)
-- Low-risk: 2 weeks (buffer for fixes)
-
-Timeline rules:
-
-1. Do not start next session until current session tests pass.
-2. If a session exceeds its estimate by >50%, stop and log partial progress.
-3. Keep behavior parity as the top priority; postpone non-essential cleanup.
-
 ## Session completion log (append-only)
 
 Each time an AI agent completes a session, append an entry to the end of this file using this template:
