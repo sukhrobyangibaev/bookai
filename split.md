@@ -208,7 +208,7 @@ Before finishing:
 ## Task status board
 
 - [x] Session 1 - Scaffold split + move passive models/types
-- [ ] Session 2 - Extract overlays
+- [x] Session 2 - Extract overlays
 - [ ] Session 3 - Extract content rendering + selection toolbar
 - [ ] Session 4 - Extract AI sheets/widgets
 - [ ] Session 5 - Extract AI orchestration/flow
@@ -263,3 +263,25 @@ Risks / follow-ups:
 
 Next session start point:
 - Extract `_showHighlights`, `_showTableOfContents`, and any tiny overlay-only helpers into `lib/screens/reader/reader_overlays.dart`.
+
+### 2026-04-04 - Session 2 - Extract overlays
+Status: completed
+
+What was done:
+- Moved `_showHighlights` and `_showTableOfContents` out of `reader_screen.dart` into `reader_overlays.dart`.
+- Kept method names and all call sites unchanged by exposing them via an extension on `_ReaderScreenState`.
+- Preserved overlay UI and behavior (highlight deletion, chapter navigation, and sheet interactions) exactly as before.
+
+Files changed:
+- `lib/screens/reader_screen.dart`
+- `lib/screens/reader/reader_overlays.dart`
+- `split.md`
+
+Tests run:
+- `flutter test test/screens/reader_screen_test.dart` - pass
+
+Risks / follow-ups:
+- No behavior changes observed; Session 3 can now move content rendering methods into `reader_content.dart`.
+
+Next session start point:
+- Extract `_buildBody`, `_buildError`, `_buildEmpty`, `_buildContent`, `_buildChapterEndActions`, `_buildChapterNavigationButton`, `_buildHighlightedText`, and `_buildSelectionToolbar` into `lib/screens/reader/reader_content.dart`.
