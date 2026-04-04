@@ -9,6 +9,7 @@ void main() {
         repo: '  private-sync  ',
         filePath: ' /sync // snapshots /state.json ',
         token: '  ghp_secret  ',
+        includeApiKeysInUploads: true,
       );
 
       final normalized = settings.normalized();
@@ -17,6 +18,7 @@ void main() {
       expect(normalized.normalizedRepo, 'private-sync');
       expect(normalized.normalizedFilePath, 'sync/snapshots/state.json');
       expect(normalized.normalizedToken, 'ghp_secret');
+      expect(normalized.includeApiKeysInUploads, isTrue);
       expect(normalized.isConfigured, isTrue);
     });
 
@@ -26,6 +28,7 @@ void main() {
         repo: 'private-sync',
         filePath: 'sync/state.json',
         token: 'ghp_secret',
+        includeApiKeysInUploads: true,
       );
 
       expect(
@@ -44,6 +47,10 @@ void main() {
         ).isConfigured,
         isFalse,
       );
+    });
+
+    test('includeApiKeysInUploads defaults to false', () {
+      expect(GitHubSyncSettings.empty.includeApiKeysInUploads, isFalse);
     });
   });
 }

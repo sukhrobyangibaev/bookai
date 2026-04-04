@@ -360,6 +360,11 @@ class DatabaseService {
     return ReadingProgress.fromMap(rows.first);
   }
 
+  Future<void> deleteProgressByBookId(int bookId) async {
+    final db = await database;
+    await db.delete('progress', where: 'bookId = ?', whereArgs: [bookId]);
+  }
+
   // ── Resume Markers ────────────────────────────────────────────────────────
 
   Future<void> upsertResumeMarker(ResumeMarker marker) async {
@@ -381,6 +386,11 @@ class DatabaseService {
     );
     if (rows.isEmpty) return null;
     return ResumeMarker.fromMap(rows.first);
+  }
+
+  Future<void> deleteResumeMarkerByBookId(int bookId) async {
+    final db = await database;
+    await db.delete('resume_markers', where: 'bookId = ?', whereArgs: [bookId]);
   }
 
   // ── Highlights ────────────────────────────────────────────────────────────
@@ -418,6 +428,11 @@ class DatabaseService {
       where: 'bookId = ? AND chapterIndex = ? AND selectedText = ?',
       whereArgs: [bookId, chapterIndex, selectedText],
     );
+  }
+
+  Future<void> deleteHighlightsByBookId(int bookId) async {
+    final db = await database;
+    await db.delete('highlights', where: 'bookId = ?', whereArgs: [bookId]);
   }
 
   // ── Generated Images ──────────────────────────────────────────────────────

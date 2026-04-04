@@ -206,6 +206,7 @@ void main() {
           repo: '  private-sync  ',
           filePath: ' /sync // snapshots /state.json ',
           token: '  ghp_secret  ',
+          includeApiKeysInUploads: true,
         ),
       );
 
@@ -217,6 +218,7 @@ void main() {
           repo: 'private-sync',
           filePath: 'sync/snapshots/state.json',
           token: 'ghp_secret',
+          includeApiKeysInUploads: true,
         ),
       );
     });
@@ -227,6 +229,7 @@ void main() {
         'github_sync_repo': 'private-sync',
         'github_sync_file_path': 'sync/state.json',
         'github_sync_token': 'ghp_secret',
+        'github_sync_include_api_keys': true,
       });
 
       final service = SettingsService();
@@ -234,6 +237,19 @@ void main() {
 
       final loaded = await service.loadGitHubSyncSettings();
       expect(loaded, GitHubSyncSettings.empty);
+    });
+
+    test('load GitHub sync settings defaults includeApiKeysInUploads to false',
+        () async {
+      SharedPreferences.setMockInitialValues({
+        'github_sync_owner': 'octocat',
+        'github_sync_repo': 'private-sync',
+        'github_sync_file_path': 'sync/state.json',
+        'github_sync_token': 'ghp_secret',
+      });
+
+      final loaded = await SettingsService().loadGitHubSyncSettings();
+      expect(loaded.includeApiKeysInUploads, isFalse);
     });
   });
 

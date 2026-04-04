@@ -30,6 +30,7 @@ class SettingsService {
   static const _keyGitHubSyncRepo = 'github_sync_repo';
   static const _keyGitHubSyncFilePath = 'github_sync_file_path';
   static const _keyGitHubSyncToken = 'github_sync_token';
+  static const _keyGitHubSyncIncludeApiKeys = 'github_sync_include_api_keys';
 
   Future<ReaderSettings> load() async {
     final prefs = await SharedPreferences.getInstance();
@@ -112,6 +113,8 @@ class SettingsService {
       repo: prefs.getString(_keyGitHubSyncRepo) ?? '',
       filePath: prefs.getString(_keyGitHubSyncFilePath) ?? '',
       token: prefs.getString(_keyGitHubSyncToken) ?? '',
+      includeApiKeysInUploads:
+          prefs.getBool(_keyGitHubSyncIncludeApiKeys) ?? false,
     ).normalized();
   }
 
@@ -138,6 +141,12 @@ class SettingsService {
       prefs: prefs,
       key: _keyGitHubSyncToken,
       value: normalized.normalizedToken,
+    );
+    await _saveBoolOrRemove(
+      prefs: prefs,
+      key: _keyGitHubSyncIncludeApiKeys,
+      value: normalized.includeApiKeysInUploads,
+      removeWhenFalse: true,
     );
   }
 
@@ -349,5 +358,18 @@ class SettingsService {
       return;
     }
     await prefs.setString(key, value);
+  }
+
+  Future<void> _saveBoolOrRemove({
+    required SharedPreferences prefs,
+    required String key,
+    required bool value,
+    bool removeWhenFalse = false,
+  }) async {
+    if (!value && removeWhenFalse) {
+      await prefs.remove(key);
+      return;
+    }
+    await prefs.setBool(key, value);
   }
 }

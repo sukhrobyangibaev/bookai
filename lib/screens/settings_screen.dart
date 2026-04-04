@@ -6,22 +6,29 @@ import '../models/ai_feature_config.dart';
 import '../models/ai_model_info.dart';
 import '../models/ai_model_selection.dart';
 import '../models/ai_provider.dart';
+import '../models/github_sync_settings.dart';
 import '../models/reader_settings.dart';
 import 'ai_logs_screen.dart';
 import '../services/gemini_service.dart';
+import '../services/github_sync_service.dart';
 import '../services/openrouter_service.dart';
 import '../services/settings_controller.dart';
+import '../services/sync_snapshot_service.dart';
 import '../theme/reader_typography.dart';
 import '../widgets/mobile_scrollbar.dart';
 
 class SettingsScreen extends StatefulWidget {
   final OpenRouterService? openRouterService;
   final GeminiService? geminiService;
+  final GitHubSyncService? gitHubSyncService;
+  final SyncSnapshotService? syncSnapshotService;
 
   const SettingsScreen({
     super.key,
     this.openRouterService,
     this.geminiService,
+    this.gitHubSyncService,
+    this.syncSnapshotService,
   });
 
   @override
@@ -39,11 +46,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   late final TextEditingController _openRouterApiKeyController;
   late final TextEditingController _geminiApiKeyController;
+  late final TextEditingController _gitHubRepoController;
+  late final TextEditingController _gitHubFilePathController;
+  late final TextEditingController _gitHubTokenController;
   late final OpenRouterService _openRouterService;
   late final GeminiService _geminiService;
+  late final GitHubSyncService _gitHubSyncService;
+  late final SyncSnapshotService _syncSnapshotService;
   final ScrollController _scrollController = ScrollController();
   bool _obscureOpenRouterApiKey = true;
   bool _obscureGeminiApiKey = true;
+  bool _obscureGitHubToken = true;
+  bool _includeApiKeysInSyncUploads = false;
+  bool _isSyncInProgress = false;
+  bool _isLoadingGitHubSettings = true;
+  String? _syncProgressMessage;
   SettingsController? _controllerForSync;
 
   @override
@@ -51,8 +68,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
     super.initState();
     _openRouterApiKeyController = TextEditingController();
     _geminiApiKeyController = TextEditingController();
+    _gitHubRepoController = TextEditingController();
+    _gitHubFilePathController = TextEditingController();
+    _gitHubTokenController = TextEditingController();
     _openRouterService = widget.openRouterService ?? OpenRouterService();
     _geminiService = widget.geminiService ?? GeminiService();
+    _gitHubSyncService = widget.gitHubSyncService ?? GitHubSyncService();
+    _syncSnapshotService = widget.syncSnapshotService ?? SyncSnapshotService();
+    _loadGitHubSyncSettings();
   }
 
   @override
@@ -73,6 +96,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _controllerForSync?.removeListener(_syncApiKeyFields);
     _openRouterApiKeyController.dispose();
     _geminiApiKeyController.dispose();
+    _gitHubRepoController.dispose();
+    _gitHubFilePathController.dispose();
+    _gitHubTokenController.dispose();
     _scrollController.dispose();
     super.dispose();
   }
@@ -370,6 +396,429 @@ class _SettingsScreenState extends State<SettingsScreen> {
         : 'Prompt model: Override not set';
   }
 
+  Future<void> _loadGitHubSyncSettings() async {
+    try {
+      final settings = await _gitHubSyncService.loadSettings();
+      if (!mounted) return;
+
+      _gitHubRepoController.text = _repoFieldValueForSettings(settings);
+      _gitHubFilePathController.text = settings.normalizedFilePath;
+      _gitHubTokenController.text = settings.normalizedToken;
+      setState(() {
+        _includeApiKeysInSyncUploads = settings.includeApiKeysInUploads;
+        _isLoadingGitHubSettings = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _isLoadingGitHubSettings = false;
+      });
+      _showSyncSnackBar(
+        'Failed to load GitHub sync settings: $error',
+        isError: true,
+      );
+    }
+  }
+
+  (String owner, String repo) _parseRepoInput(String rawRepo) {
+    final parts = rawRepo
+        .trim()
+        .split('/')
+        .map((part) => part.trim())
+        .where((part) => part.isNotEmpty)
+        .toList(growable: false);
+    if (parts.isEmpty) {
+      return ('', '');
+    }
+    if (parts.length == 1) {
+      return ('', parts.first);
+    }
+    return (parts.first, parts.sublist(1).join('/'));
+  }
+
+  String _repoFieldValueForSettings(GitHubSyncSettings settings) {
+    final owner = settings.normalizedOwner;
+    final repo = settings.normalizedRepo;
+    if (owner.isEmpty) {
+      return repo;
+    }
+    if (repo.isEmpty) {
+      return owner;
+    }
+    return '$owner/$repo';
+  }
+
+  GitHubSyncSettings _settingsFromGitHubFields() {
+    final parsedRepo = _parseRepoInput(_gitHubRepoController.text);
+    return GitHubSyncSettings(
+      owner: parsedRepo.$1,
+      repo: parsedRepo.$2,
+      filePath: _gitHubFilePathController.text,
+      token: _gitHubTokenController.text,
+      includeApiKeysInUploads: _includeApiKeysInSyncUploads,
+    ).normalized();
+  }
+
+  Future<void> _saveGitHubSyncSettingsSilently() async {
+    try {
+      await _gitHubSyncService.saveSettings(_settingsFromGitHubFields());
+    } catch (_) {
+      // Keep editing responsive; upload/download surfaces hard failures.
+    }
+  }
+
+  GitHubSyncSettings? _validatedGitHubSyncSettingsForAction() {
+    final repoInput = _gitHubRepoController.text.trim();
+    final repoParts = repoInput
+        .split('/')
+        .map((part) => part.trim())
+        .where((part) => part.isNotEmpty)
+        .toList(growable: false);
+    if (repoParts.length != 2) {
+      _showSyncSnackBar(
+        'GitHub repo must be in owner/repo format.',
+        isError: true,
+      );
+      return null;
+    }
+
+    final filePath = _gitHubFilePathController.text.trim();
+    if (filePath.isEmpty) {
+      _showSyncSnackBar('Remote file path is required.', isError: true);
+      return null;
+    }
+
+    final token = _gitHubTokenController.text.trim();
+    if (token.isEmpty) {
+      _showSyncSnackBar('GitHub token is required.', isError: true);
+      return null;
+    }
+
+    return GitHubSyncSettings(
+      owner: repoParts[0],
+      repo: repoParts[1],
+      filePath: filePath,
+      token: token,
+      includeApiKeysInUploads: _includeApiKeysInSyncUploads,
+    ).normalized();
+  }
+
+  Future<bool> _confirmDownloadOverwrite() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Download?'),
+          content: const Text(
+            'This replaces local syncable settings and matching book state '
+            '(progress, resume marker, highlights) with data from GitHub. '
+            'Continue?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Download'),
+            ),
+          ],
+        );
+      },
+    );
+
+    return confirmed == true;
+  }
+
+  void _showSyncSnackBar(String message, {bool isError = false}) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: isError ? Theme.of(context).colorScheme.error : null,
+      ),
+    );
+  }
+
+  Future<void> _uploadSyncState(SettingsController controller) async {
+    if (_isSyncInProgress || _isLoadingGitHubSettings) {
+      return;
+    }
+
+    final settings = _validatedGitHubSyncSettingsForAction();
+    if (settings == null) {
+      return;
+    }
+
+    setState(() {
+      _isSyncInProgress = true;
+      _syncProgressMessage = 'Exporting local sync state...';
+    });
+
+    try {
+      await _gitHubSyncService.saveSettings(settings);
+      final snapshotJson = await _syncSnapshotService.exportSnapshotJson(
+        includeApiKeys: settings.includeApiKeysInUploads,
+      );
+
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _syncProgressMessage = 'Uploading snapshot to GitHub...';
+      });
+
+      final uploadResult = await _gitHubSyncService.uploadSyncFileContents(
+        snapshotJson,
+        settings: settings,
+      );
+
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isSyncInProgress = false;
+        _syncProgressMessage = uploadResult.created
+            ? 'Upload complete. Remote sync file created.'
+            : 'Upload complete. Remote sync file updated.';
+      });
+      _showSyncSnackBar(_syncProgressMessage!);
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isSyncInProgress = false;
+        _syncProgressMessage = 'Upload failed.';
+      });
+      _showSyncSnackBar('Upload failed: $error', isError: true);
+      await controller.load();
+    }
+  }
+
+  Future<void> _downloadSyncState(SettingsController controller) async {
+    if (_isSyncInProgress || _isLoadingGitHubSettings) {
+      return;
+    }
+
+    final settings = _validatedGitHubSyncSettingsForAction();
+    if (settings == null) {
+      return;
+    }
+
+    final confirmed = await _confirmDownloadOverwrite();
+    if (!confirmed || !mounted) {
+      return;
+    }
+
+    setState(() {
+      _isSyncInProgress = true;
+      _syncProgressMessage = 'Downloading snapshot from GitHub...';
+    });
+
+    try {
+      await _gitHubSyncService.saveSettings(settings);
+      final snapshotJson = await _gitHubSyncService.downloadSyncFileContents(
+        settings: settings,
+      );
+
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _syncProgressMessage = 'Applying snapshot locally...';
+      });
+
+      final importResult = await _syncSnapshotService.importSnapshotJson(
+        snapshotJson,
+        clearMissingBookState: true,
+        overwriteMatchingBookState: true,
+      );
+      await controller.load();
+
+      if (!mounted) {
+        return;
+      }
+      final summary = _downloadResultSummary(importResult);
+      setState(() {
+        _isSyncInProgress = false;
+        _syncProgressMessage = 'Download complete. $summary';
+      });
+      _showSyncSnackBar(_syncProgressMessage!);
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isSyncInProgress = false;
+        _syncProgressMessage = 'Download failed.';
+      });
+      _showSyncSnackBar('Download failed: $error', isError: true);
+    }
+  }
+
+  String _downloadResultSummary(SyncSnapshotImportResult importResult) {
+    return 'Matched ${importResult.matchedBooks} books, '
+        'skipped ${importResult.skippedBooks}, '
+        'updated ${importResult.importedProgressCount} progress, '
+        '${importResult.totalHighlightChanges} highlights.';
+  }
+
+  Widget _buildSyncSection(
+    BuildContext context,
+    SettingsController controller,
+  ) {
+    final syncBusy = _isSyncInProgress || _isLoadingGitHubSettings;
+    final tone = Theme.of(context).colorScheme;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Sync',
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Manual GitHub sync for reading state. No background sync.',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _gitHubRepoController,
+            autocorrect: false,
+            enableSuggestions: false,
+            textInputAction: TextInputAction.next,
+            onChanged: (_) => _saveGitHubSyncSettingsSilently(),
+            decoration: const InputDecoration(
+              border: OutlineInputBorder(),
+              labelText: 'GitHub Repo',
+              hintText: 'owner/repo',
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _gitHubFilePathController,
+            autocorrect: false,
+            enableSuggestions: false,
+            textInputAction: TextInputAction.next,
+            onChanged: (_) => _saveGitHubSyncSettingsSilently(),
+            decoration: const InputDecoration(
+              border: OutlineInputBorder(),
+              labelText: 'Remote File Path',
+              hintText: 'sync/state.json',
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _gitHubTokenController,
+            obscureText: _obscureGitHubToken,
+            autocorrect: false,
+            enableSuggestions: false,
+            textInputAction: TextInputAction.done,
+            onChanged: (_) => _saveGitHubSyncSettingsSilently(),
+            decoration: InputDecoration(
+              border: const OutlineInputBorder(),
+              labelText: 'GitHub Token',
+              hintText: 'ghp_...',
+              helperText: 'Stored locally on this device.',
+              suffixIcon: IconButton(
+                onPressed: () {
+                  setState(() {
+                    _obscureGitHubToken = !_obscureGitHubToken;
+                  });
+                },
+                icon: Icon(
+                  _obscureGitHubToken
+                      ? Icons.visibility_outlined
+                      : Icons.visibility_off_outlined,
+                ),
+                tooltip: _obscureGitHubToken ? 'Show token' : 'Hide token',
+              ),
+            ),
+          ),
+          const SizedBox(height: 4),
+          SwitchListTile.adaptive(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Include API keys in uploads'),
+            subtitle: const Text(
+              'When enabled, Upload includes OpenRouter and Gemini keys.',
+            ),
+            value: _includeApiKeysInSyncUploads,
+            onChanged: _isLoadingGitHubSettings
+                ? null
+                : (value) {
+                    setState(() {
+                      _includeApiKeysInSyncUploads = value;
+                    });
+                    _saveGitHubSyncSettingsSilently();
+                  },
+          ),
+          if (_isSyncInProgress)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: Row(
+                children: [
+                  const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      _syncProgressMessage ?? 'Sync in progress...',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ),
+                ],
+              ),
+            )
+          else if (_syncProgressMessage != null)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: tone.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  _syncProgressMessage!,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ),
+            ),
+          Row(
+            children: [
+              Expanded(
+                child: FilledButton.tonalIcon(
+                  onPressed:
+                      syncBusy ? null : () => _uploadSyncState(controller),
+                  icon: const Icon(Icons.upload_outlined),
+                  label: const Text('Upload'),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed:
+                      syncBusy ? null : () => _downloadSyncState(controller),
+                  icon: const Icon(Icons.download_outlined),
+                  label: const Text('Download'),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final controller = SettingsControllerScope.of(context);
@@ -394,6 +843,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 _buildThemeSection(context, controller),
                 const Divider(height: 32),
                 _buildAiSection(context, controller),
+                const Divider(height: 32),
+                _buildSyncSection(context, controller),
               ],
             ),
           );

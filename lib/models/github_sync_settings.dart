@@ -3,12 +3,14 @@ class GitHubSyncSettings {
   final String repo;
   final String filePath;
   final String token;
+  final bool includeApiKeysInUploads;
 
   const GitHubSyncSettings({
     this.owner = '',
     this.repo = '',
     this.filePath = '',
     this.token = '',
+    this.includeApiKeysInUploads = false,
   });
 
   static const empty = GitHubSyncSettings();
@@ -34,6 +36,7 @@ class GitHubSyncSettings {
       repo: normalizedRepo,
       filePath: normalizedFilePath,
       token: normalizedToken,
+      includeApiKeysInUploads: includeApiKeysInUploads,
     );
   }
 
@@ -42,12 +45,15 @@ class GitHubSyncSettings {
     String? repo,
     String? filePath,
     String? token,
+    bool? includeApiKeysInUploads,
   }) {
     return GitHubSyncSettings(
       owner: owner ?? this.owner,
       repo: repo ?? this.repo,
       filePath: filePath ?? this.filePath,
       token: token ?? this.token,
+      includeApiKeysInUploads:
+          includeApiKeysInUploads ?? this.includeApiKeysInUploads,
     );
   }
 
@@ -57,6 +63,7 @@ class GitHubSyncSettings {
       'repo': normalizedRepo,
       'filePath': normalizedFilePath,
       'token': normalizedToken,
+      'includeApiKeysInUploads': includeApiKeysInUploads,
     };
   }
 
@@ -66,6 +73,7 @@ class GitHubSyncSettings {
       repo: (map['repo'] as String? ?? '').trim(),
       filePath: _normalizeFilePath(map['filePath'] as String? ?? ''),
       token: (map['token'] as String? ?? '').trim(),
+      includeApiKeysInUploads: map['includeApiKeysInUploads'] as bool? ?? false,
     );
   }
 
@@ -75,6 +83,7 @@ class GitHubSyncSettings {
         'owner: $normalizedOwner, '
         'repo: $normalizedRepo, '
         'filePath: $normalizedFilePath, '
+        'includeApiKeysInUploads: $includeApiKeysInUploads, '
         'token: ${normalizedToken.isEmpty ? '<empty>' : '<redacted>'}'
         ')';
   }
@@ -86,6 +95,7 @@ class GitHubSyncSettings {
         other.normalizedOwner == normalizedOwner &&
         other.normalizedRepo == normalizedRepo &&
         other.normalizedFilePath == normalizedFilePath &&
+        other.includeApiKeysInUploads == includeApiKeysInUploads &&
         other.normalizedToken == normalizedToken;
   }
 
@@ -94,6 +104,7 @@ class GitHubSyncSettings {
         normalizedOwner,
         normalizedRepo,
         normalizedFilePath,
+        includeApiKeysInUploads,
         normalizedToken,
       );
 }

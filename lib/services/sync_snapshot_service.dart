@@ -96,11 +96,23 @@ class SyncSnapshotService {
     return snapshot.toJson();
   }
 
-  Future<SyncSnapshotImportResult> importSnapshotJson(String json) {
-    return importSnapshot(SyncSnapshot.fromJson(json));
+  Future<SyncSnapshotImportResult> importSnapshotJson(
+    String json, {
+    bool clearMissingBookState = false,
+    bool overwriteMatchingBookState = false,
+  }) {
+    return importSnapshot(
+      SyncSnapshot.fromJson(json),
+      clearMissingBookState: clearMissingBookState,
+      overwriteMatchingBookState: overwriteMatchingBookState,
+    );
   }
 
-  Future<SyncSnapshotImportResult> importSnapshot(SyncSnapshot snapshot) async {
+  Future<SyncSnapshotImportResult> importSnapshot(
+    SyncSnapshot snapshot, {
+    bool clearMissingBookState = false,
+    bool overwriteMatchingBookState = false,
+  }) async {
     var settingsApplied = false;
     var matchedBooks = 0;
     var skippedBooks = 0;
@@ -143,47 +155,59 @@ class SyncSnapshotService {
 
       matchedBooks += 1;
 
+      final localProgress =
+          await _databaseService.getProgressByBookId(localBookId);
+      final localResumeMarker =
+          await _databaseService.getResumeMarkerByBookId(localBookId);
+      final localHighlights =
+          await _databaseService.getHighlightsByBookId(localBookId);
+
       final remoteProgress = remoteBook.progress;
       if (remoteProgress != null) {
-        final localProgress =
-            await _databaseService.getProgressByBookId(localBookId);
-        if (_shouldImportTimestampedValue(
-          incoming: remoteProgress.updatedAt,
-          existing: localProgress?.updatedAt,
-        )) {
+        if (overwriteMatchingBookState ||
+            _shouldImportTimestampedValue(
+              incoming: remoteProgress.updatedAt,
+              existing: localProgress?.updatedAt,
+            )) {
           await _databaseService.upsertProgress(
             remoteProgress.toReadingProgress(bookId: localBookId),
           );
           importedProgressCount += 1;
         }
+      } else if (clearMissingBookState && localProgress != null) {
+        await _databaseService.deleteProgressByBookId(localBookId);
       }
 
       final remoteResumeMarker = remoteBook.resumeMarker;
       if (remoteResumeMarker != null) {
-        final localResumeMarker =
-            await _databaseService.getResumeMarkerByBookId(localBookId);
-        if (_shouldImportTimestampedValue(
-          incoming: remoteResumeMarker.createdAt,
-          existing: localResumeMarker?.createdAt,
-        )) {
+        if (overwriteMatchingBookState ||
+            _shouldImportTimestampedValue(
+              incoming: remoteResumeMarker.createdAt,
+              existing: localResumeMarker?.createdAt,
+            )) {
           await _databaseService.upsertResumeMarker(
             remoteResumeMarker.toResumeMarker(bookId: localBookId),
           );
           importedResumeMarkerCount += 1;
         }
+      } else if (clearMissingBookState && localResumeMarker != null) {
+        await _databaseService.deleteResumeMarkerByBookId(localBookId);
       }
 
       final remoteHighlightsByKey =
           _latestRemoteHighlightsByKey(remoteBook.highlights);
       if (remoteHighlightsByKey.isEmpty) {
+        if (clearMissingBookState && localHighlights.isNotEmpty) {
+          await _databaseService.deleteHighlightsByBookId(localBookId);
+        }
         continue;
       }
 
-      final localHighlights =
-          await _databaseService.getHighlightsByBookId(localBookId);
       final localHighlightsByKey = _latestLocalHighlightsByKey(localHighlights);
+      final remoteHighlightKeys = <String>{};
 
       for (final entry in remoteHighlightsByKey.entries) {
+        remoteHighlightKeys.add(entry.key);
         final remoteHighlight = entry.value;
         final localHighlight = localHighlightsByKey[entry.key];
 
@@ -195,7 +219,9 @@ class SyncSnapshotService {
           continue;
         }
 
-        if (!_shouldReplaceHighlight(localHighlight, remoteHighlight)) {
+        final shouldReplace = overwriteMatchingBookState ||
+            _shouldReplaceHighlight(localHighlight, remoteHighlight);
+        if (!shouldReplace) {
           continue;
         }
 
@@ -208,6 +234,22 @@ class SyncSnapshotService {
           remoteHighlight.toHighlight(bookId: localBookId),
         );
         replacedHighlightCount += 1;
+      }
+
+      if (clearMissingBookState) {
+        final staleHighlightKeys =
+            localHighlightsByKey.keys.toSet().difference(remoteHighlightKeys);
+        for (final staleKey in staleHighlightKeys) {
+          final staleHighlight = localHighlightsByKey[staleKey];
+          if (staleHighlight == null) {
+            continue;
+          }
+          await _databaseService.deleteHighlightsBySelection(
+            bookId: localBookId,
+            chapterIndex: staleHighlight.chapterIndex,
+            selectedText: staleHighlight.selectedText,
+          );
+        }
       }
     }
 

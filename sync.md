@@ -317,3 +317,38 @@ Verification:
 Open issues / follow-ups:
 - Task 4 still needs to wire Settings UI actions (Upload/Download) to `SyncSnapshotService` + `GitHubSyncService` and add user feedback/confirmation flow.
 ```
+
+```text
+Date: 2026-04-04
+Task: Task 4: Settings UI and Manual Sync Actions
+Thread/Agent: gpt-5.3-codex / OpenCode
+Status: Completed
+
+What was done:
+- Extended Settings UI with a dedicated manual `Sync` section, including GitHub repo (`owner/repo`), remote file path, token fields, and a toggle for including API keys in uploads.
+- Added manual `Upload Sync State` and `Download Sync State` actions with in-UI progress text and success/error feedback via snack bars.
+- Wired Upload flow to persist current GitHub sync settings, export local snapshot JSON (respecting API-key toggle), and upload to GitHub.
+- Wired Download flow to require confirmation, download remote snapshot JSON, and import it locally with authoritative behavior for matching books (`overwriteMatchingBookState`) and cleanup of missing per-book state (`clearMissingBookState`).
+- Expanded sync import service and database helpers to support authoritative manual download semantics (including deleting local progress/resume marker/highlights when absent remotely).
+- Persisted `includeApiKeysInUploads` in GitHub sync settings storage and updated model equality/serialization.
+- Added and updated focused tests for new settings persistence, snapshot import behavior, and Settings screen manual sync interactions.
+
+Files changed:
+- lib/screens/settings_screen.dart
+- lib/services/sync_snapshot_service.dart
+- lib/services/database_service.dart
+- lib/services/settings_service.dart
+- lib/models/github_sync_settings.dart
+- test/screens/settings_screen_test.dart
+- test/services/sync_snapshot_service_test.dart
+- test/services/settings_test.dart
+- test/models/github_sync_settings_test.dart
+- sync.md
+
+Verification:
+- `flutter test test/models/github_sync_settings_test.dart test/services/settings_test.dart test/services/sync_snapshot_service_test.dart test/screens/settings_screen_test.dart`
+- `flutter analyze lib/models/github_sync_settings.dart lib/services/settings_service.dart lib/services/database_service.dart lib/services/sync_snapshot_service.dart lib/screens/settings_screen.dart test/models/github_sync_settings_test.dart test/services/settings_test.dart test/services/sync_snapshot_service_test.dart test/screens/settings_screen_test.dart`
+
+Open issues / follow-ups:
+- Task 5 should add final user-facing docs and hardening notes (setup guidance, what syncs/does not sync, and manual import caveats).
+```

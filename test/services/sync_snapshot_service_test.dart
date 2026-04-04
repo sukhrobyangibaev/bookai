@@ -353,4 +353,188 @@ void main() {
       isTrue,
     );
   });
+
+  test('clearMissingBookState removes local state absent from snapshot',
+      () async {
+    final localBook = await databaseService.insertBook(
+      Book(
+        syncKey: 'epub-sha256:clear-me',
+        title: 'Local Book',
+        author: 'Author',
+        filePath: '/tmp/local.epub',
+        totalChapters: 3,
+        createdAt: DateTime.utc(2026, 1, 1),
+      ),
+    );
+
+    await databaseService.upsertProgress(
+      ReadingProgress(
+        bookId: localBook.id!,
+        chapterIndex: 1,
+        scrollOffset: 10,
+        updatedAt: DateTime.utc(2026, 1, 2),
+      ),
+    );
+    await databaseService.upsertResumeMarker(
+      ResumeMarker(
+        bookId: localBook.id!,
+        chapterIndex: 1,
+        selectedText: 'Local marker',
+        selectionStart: 0,
+        selectionEnd: 5,
+        scrollOffset: 8,
+        createdAt: DateTime.utc(2026, 1, 3),
+      ),
+    );
+    await databaseService.addHighlight(
+      Highlight(
+        bookId: localBook.id!,
+        chapterIndex: 0,
+        selectedText: 'remove this',
+        colorHex: '#111111',
+        createdAt: DateTime.utc(2026, 1, 4),
+      ),
+    );
+    await databaseService.addHighlight(
+      Highlight(
+        bookId: localBook.id!,
+        chapterIndex: 0,
+        selectedText: 'keep this',
+        colorHex: '#222222',
+        createdAt: DateTime.utc(2026, 1, 5),
+      ),
+    );
+
+    final snapshot = SyncSnapshot(
+      exportedAt: DateTime.utc(2026, 4, 4, 12),
+      settings: SyncSnapshotSettings.fromReaderSettings(
+        ReaderSettings.defaults,
+        updatedAt: DateTime.utc(2026, 4, 4, 12),
+        includeApiKeys: false,
+      ),
+      books: [
+        SyncSnapshotBookState(
+          syncKey: 'epub-sha256:clear-me',
+          highlights: [
+            SyncSnapshotHighlight(
+              chapterIndex: 0,
+              selectedText: 'keep this',
+              colorHex: '#333333',
+              createdAt: DateTime.utc(2026, 2, 1),
+            ),
+          ],
+        ),
+      ],
+    );
+
+    await snapshotService.importSnapshotJson(
+      snapshot.toJson(),
+      clearMissingBookState: true,
+    );
+
+    final progress = await databaseService.getProgressByBookId(localBook.id!);
+    final marker = await databaseService.getResumeMarkerByBookId(localBook.id!);
+    final highlights =
+        await databaseService.getHighlightsByBookId(localBook.id!);
+
+    expect(progress, isNull);
+    expect(marker, isNull);
+    expect(highlights, hasLength(1));
+    expect(highlights.single.selectedText, 'keep this');
+    expect(highlights.single.colorHex, '#333333');
+  });
+
+  test('overwriteMatchingBookState forces remote state over newer local data',
+      () async {
+    final localBook = await databaseService.insertBook(
+      Book(
+        syncKey: 'epub-sha256:overwrite',
+        title: 'Local Book',
+        author: 'Author',
+        filePath: '/tmp/overwrite.epub',
+        totalChapters: 3,
+        createdAt: DateTime.utc(2026, 1, 1),
+      ),
+    );
+
+    await databaseService.upsertProgress(
+      ReadingProgress(
+        bookId: localBook.id!,
+        chapterIndex: 2,
+        scrollOffset: 99,
+        updatedAt: DateTime.utc(2026, 3, 1),
+      ),
+    );
+    await databaseService.upsertResumeMarker(
+      ResumeMarker(
+        bookId: localBook.id!,
+        chapterIndex: 2,
+        selectedText: 'New local marker',
+        selectionStart: 0,
+        selectionEnd: 5,
+        scrollOffset: 20,
+        createdAt: DateTime.utc(2026, 3, 1),
+      ),
+    );
+    await databaseService.addHighlight(
+      Highlight(
+        bookId: localBook.id!,
+        chapterIndex: 0,
+        selectedText: 'shared',
+        colorHex: '#999999',
+        createdAt: DateTime.utc(2026, 3, 1),
+      ),
+    );
+
+    final snapshot = SyncSnapshot(
+      exportedAt: DateTime.utc(2026, 4, 4, 12),
+      settings: SyncSnapshotSettings.fromReaderSettings(
+        ReaderSettings.defaults,
+        updatedAt: DateTime.utc(2026, 4, 4, 12),
+        includeApiKeys: false,
+      ),
+      books: [
+        SyncSnapshotBookState(
+          syncKey: 'epub-sha256:overwrite',
+          progress: SyncSnapshotProgress(
+            chapterIndex: 1,
+            scrollOffset: 10,
+            updatedAt: DateTime.utc(2026, 2, 1),
+          ),
+          resumeMarker: SyncSnapshotResumeMarker(
+            chapterIndex: 1,
+            selectedText: 'Older remote marker',
+            selectionStart: 0,
+            selectionEnd: 5,
+            scrollOffset: 8,
+            createdAt: DateTime.utc(2026, 2, 1),
+          ),
+          highlights: [
+            SyncSnapshotHighlight(
+              chapterIndex: 0,
+              selectedText: 'shared',
+              colorHex: '#333333',
+              createdAt: DateTime.utc(2026, 2, 1),
+            ),
+          ],
+        ),
+      ],
+    );
+
+    await snapshotService.importSnapshot(
+      snapshot,
+      overwriteMatchingBookState: true,
+    );
+
+    final progress = await databaseService.getProgressByBookId(localBook.id!);
+    final marker = await databaseService.getResumeMarkerByBookId(localBook.id!);
+    final highlights =
+        await databaseService.getHighlightsByBookId(localBook.id!);
+
+    expect(progress?.chapterIndex, 1);
+    expect(progress?.scrollOffset, 10);
+    expect(marker?.selectedText, 'Older remote marker');
+    expect(marker?.scrollOffset, 8);
+    expect(highlights.single.colorHex, '#333333');
+  });
 }
