@@ -512,7 +512,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           content: const Text(
             'This replaces local syncable settings and matching book state '
             '(progress, resume marker, highlights) with data from GitHub. '
-            'Continue?',
+            'Books are never downloaded; import the same EPUBs locally on this '
+            'device first. Continue?',
           ),
           actions: [
             TextButton(
@@ -588,11 +589,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (!mounted) {
         return;
       }
+      final message = _syncErrorMessage(error);
       setState(() {
         _isSyncInProgress = false;
         _syncProgressMessage = 'Upload failed.';
       });
-      _showSyncSnackBar('Upload failed: $error', isError: true);
+      _showSyncSnackBar('Upload failed: $message', isError: true);
       await controller.load();
     }
   }
@@ -650,19 +652,40 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (!mounted) {
         return;
       }
+      final message = _syncErrorMessage(error);
       setState(() {
         _isSyncInProgress = false;
         _syncProgressMessage = 'Download failed.';
       });
-      _showSyncSnackBar('Download failed: $error', isError: true);
+      _showSyncSnackBar('Download failed: $message', isError: true);
     }
   }
 
   String _downloadResultSummary(SyncSnapshotImportResult importResult) {
+    final settingsSummary = importResult.settingsApplied
+        ? 'settings applied'
+        : 'settings unchanged';
     return 'Matched ${importResult.matchedBooks} books, '
         'skipped ${importResult.skippedBooks}, '
         'updated ${importResult.importedProgressCount} progress, '
-        '${importResult.totalHighlightChanges} highlights.';
+        '${importResult.importedResumeMarkerCount} resume markers, '
+        '${importResult.totalHighlightChanges} highlights, '
+        '$settingsSummary.';
+  }
+
+  String _syncErrorMessage(Object error) {
+    if (error is GitHubSyncException) {
+      return error.message;
+    }
+    if (error is FormatException) {
+      return 'Remote sync file is invalid or uses an unsupported snapshot schema version.';
+    }
+
+    final message = error.toString().trim();
+    if (message.isEmpty) {
+      return 'Unexpected sync error.';
+    }
+    return message;
   }
 
   Widget _buildSyncSection(
@@ -684,6 +707,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const SizedBox(height: 6),
           Text(
             'Manual GitHub sync for reading state. No background sync.',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Syncs progress, highlights, resume markers, reader settings, and AI model settings. '
+            'Books, EPUB files, generated images, and AI logs are not synced. '
+            'Import the same EPUBs on each device before downloading.',
             style: Theme.of(context).textTheme.bodySmall,
           ),
           const SizedBox(height: 12),
@@ -745,7 +775,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             contentPadding: EdgeInsets.zero,
             title: const Text('Include API keys in uploads'),
             subtitle: const Text(
-              'When enabled, Upload includes OpenRouter and Gemini keys.',
+              'When enabled, Upload includes OpenRouter and Gemini keys. Use only with a private repository you control.',
             ),
             value: _includeApiKeysInSyncUploads,
             onChanged: _isLoadingGitHubSettings

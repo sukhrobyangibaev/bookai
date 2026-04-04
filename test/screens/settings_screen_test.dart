@@ -553,6 +553,61 @@ void main() {
       expect(importedJson, downloadedJson);
       expect(importedWithClearMissing, isTrue);
       expect(find.textContaining('Matched 1 books'), findsWidgets);
+      expect(find.textContaining('0 resume markers'), findsWidgets);
+      expect(find.textContaining('settings applied'), findsWidgets);
+    });
+
+    testWidgets('download sync shows friendly error for invalid snapshot',
+        (tester) async {
+      await _useTallSurface(tester);
+      SharedPreferences.setMockInitialValues({});
+
+      final fakeSnapshotService = _FakeSyncSnapshotService(
+        onImport: (
+          json, {
+          required bool clearMissingBookState,
+          required bool overwriteMatchingBookState,
+        }) async {
+          throw const FormatException('Unsupported sync snapshot schema');
+        },
+      );
+      final fakeGitHubService = _FakeGitHubSyncService(
+        initialSettings: const GitHubSyncSettings(
+          owner: 'octocat',
+          repo: 'private-sync',
+          filePath: 'sync/state.json',
+          token: 'ghp_sync_token',
+        ),
+        onDownload: (settings) async => '{"schemaVersion":999}',
+      );
+
+      final controller = SettingsController();
+      await tester.runAsync(() => controller.load());
+
+      await tester.pumpWidget(
+        _buildSettingsApp(
+          controller,
+          gitHubSyncService: fakeGitHubService,
+          syncSnapshotService: fakeSnapshotService,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await _scrollToSyncSection(tester);
+      final downloadButton = find.text('Download');
+      await _scrollToFinder(tester, downloadButton);
+      await tester.tap(downloadButton);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.widgetWithText(FilledButton, 'Download'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text(
+          'Download failed: Remote sync file is invalid or uses an unsupported snapshot schema version.',
+        ),
+        findsOneWidget,
+      );
     });
 
     testWidgets('upload validates owner/repo format', (tester) async {

@@ -74,6 +74,8 @@ Stored locally on the device:
 - Selected models
 - Theme, font, and AI feature settings
 
+By default this state stays local. If you enable **Settings -> Sync**, selected syncable state can be uploaded manually to your private GitHub repository.
+
 What leaves the device when you use AI:
 
 - The selected text or resume range you chose
@@ -85,10 +87,72 @@ What leaves the device when you use AI:
 BookAI currently has:
 
 - No BookAI account system
-- No BookAI cloud sync
 - No BookAI-hosted AI proxy between the app and OpenRouter/Gemini
 
 If you use AI, your requests go directly to the selected provider, and that provider's own retention and privacy policies apply.
+
+## Manual GitHub Sync (Optional)
+
+BookAI includes an optional manual sync flow for personal use. It uploads and downloads one JSON snapshot file in your own private GitHub repository.
+
+This is manual only:
+
+- No background sync
+- No live merge UI
+- No cloud account system
+
+### What Syncs
+
+- Reading progress
+- Highlights
+- Resume markers
+- Reader settings (font, theme)
+- AI settings and model selections
+- API keys only when **Include API keys in uploads** is enabled in Settings
+
+### What Does Not Sync
+
+- EPUB files
+- Books/library entries themselves
+- Pasted-text book content
+- Generated images
+- AI request logs
+
+Important: each device must import the same EPUB files locally. Sync maps state to local books using a stable EPUB fingerprint (`syncKey`). If a matching local book is missing, that remote state is skipped.
+
+### Setup (Private GitHub Repo)
+
+1. Create a private GitHub repository you control (for example `bookai-sync`).
+2. Create a personal access token that can read and write contents in that repo.
+   - Fine-grained PAT: grant repository access and **Contents: Read and write**.
+   - Classic PAT: use `repo` scope for private repositories.
+3. In BookAI, open **Settings -> Sync**.
+4. Fill:
+   - **GitHub Repo**: `owner/repo`
+   - **Remote File Path**: e.g. `sync/state.json`
+   - **GitHub Token**: your PAT
+5. Optional: enable **Include API keys in uploads** only if you trust the private repo and anyone with access to it.
+
+### Manual Upload / Download Flow
+
+- **Upload** exports local syncable state, creates a versioned snapshot JSON, and uploads it to the configured GitHub file path.
+- **Download** fetches the snapshot JSON and applies it locally for matching books.
+- Download is authoritative for matching books:
+  - local progress/resume marker/highlights for matching books are overwritten by remote snapshot state
+  - local per-book syncable records absent from the snapshot are removed for those matching books
+- Books are never created by download.
+
+### Snapshot Format and Versioning
+
+- Remote file is JSON with top-level `schemaVersion`.
+- Current schema version is `1`.
+- If `schemaVersion` is unsupported, download/import fails with a validation error instead of partially applying data.
+
+### Reliability Notes
+
+- Use a private repository only.
+- Treat GitHub token and optional synced API keys as sensitive secrets.
+- Keep one sync file path per personal library profile to avoid accidental cross-library overwrites.
 
 ## Supported Platforms
 
@@ -160,7 +224,7 @@ Planned directions for the project:
 - Richer EPUB rendering with covers, inline images, and better formatting support
 - Full-text search inside books
 - Better export and sharing for highlights and generated images
-- Sync and backup across devices
+- More robust sync and backup across devices
 - More language presets and reading-assistance workflows
 - Better multi-image generation and image management
 - Web support
@@ -170,8 +234,8 @@ Planned directions for the project:
 - EPUB chapters are currently rendered as plain text, so rich HTML/CSS formatting and inline media are not preserved in the reader.
 - Cover extraction is not implemented yet.
 - There is no full-text search.
-- There is no built-in sync or backup.
-- Highlights and resume markers cannot be exported yet.
+- Sync is manual-only and GitHub-only; there is no background sync or encrypted backup flow.
+- Download applies to matching local books only, so each device still needs manual EPUB import.
 - The image workflow currently saves a single returned image into the local library flow.
 - The default Define & Translate setup is tuned for English explanation plus Russian translation.
 - Web is not supported yet.

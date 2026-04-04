@@ -352,3 +352,30 @@ Verification:
 Open issues / follow-ups:
 - Task 5 should add final user-facing docs and hardening notes (setup guidance, what syncs/does not sync, and manual import caveats).
 ```
+
+```text
+Date: 2026-04-04
+Task: Task 5: Final Hardening, Docs, and Cleanup
+Thread/Agent: gpt-5.3-codex / OpenCode
+Status: Completed
+
+What was done:
+- Added final README documentation for manual GitHub sync setup, required private-repo token scopes, upload/download behavior, snapshot schema versioning (`schemaVersion: 1`), and explicit sync/non-sync data boundaries.
+- Updated in-app Sync explanatory copy to clearly state what syncs, what never syncs, and that the same EPUBs must be imported manually on each device before download.
+- Hardened manual sync UX by improving error handling for invalid snapshot/schema input (friendly `FormatException` message) and surfacing clearer download result summaries including settings and resume marker updates.
+- Expanded Settings screen widget tests for the new hardening behavior and updated summary expectations.
+- Aligned top-level docs with shipped functionality (removed stale “no cloud sync” wording and refreshed roadmap/limitations language to reflect current manual GitHub sync scope).
+
+Files changed:
+- README.md
+- lib/screens/settings_screen.dart
+- test/screens/settings_screen_test.dart
+- sync.md
+
+Verification:
+- `flutter test test/screens/settings_screen_test.dart`
+- `flutter analyze lib/screens/settings_screen.dart test/screens/settings_screen_test.dart`
+
+Open issues / follow-ups:
+- Manual sync remains intentionally GitHub-only and unencrypted; users should keep repositories private and limit access to synced token-bearing snapshots when API-key upload is enabled.
+```
