@@ -24,6 +24,7 @@ class SettingsService {
   static const _keyImageProvider = 'reader_ai_image_provider';
   static const _keyImageModelId = 'reader_ai_image_model_id';
   static const _keyAiFeatureConfigs = 'reader_ai_feature_configs';
+  static const _keySettingsUpdatedAt = 'reader_settings_updated_at';
 
   Future<ReaderSettings> load() async {
     final prefs = await SharedPreferences.getInstance();
@@ -85,29 +86,89 @@ class SettingsService {
     });
   }
 
+  Future<DateTime?> loadLastUpdatedAt() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_keySettingsUpdatedAt);
+    if (raw == null || raw.trim().isEmpty) {
+      return null;
+    }
+
+    try {
+      return DateTime.parse(raw);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> saveAll(
+    ReaderSettings settings, {
+    DateTime? updatedAt,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+
+    await prefs.setDouble(_keyFontSize, settings.fontSize);
+    await prefs.setString(_keyThemeMode, settings.themeMode.name);
+    await prefs.setString(_keyFontFamily, settings.fontFamily.name);
+    await prefs.setString(_keyOpenRouterApiKey, settings.openRouterApiKey);
+    await prefs.setString(_keyGeminiApiKey, settings.geminiApiKey);
+    await _saveSelection(
+      prefs: prefs,
+      providerKey: _keyDefaultProvider,
+      modelIdKey: _keyDefaultModelId,
+      selection: settings.defaultModelSelection,
+    );
+    await _saveSelection(
+      prefs: prefs,
+      providerKey: _keyFallbackProvider,
+      modelIdKey: _keyFallbackModelId,
+      selection: settings.fallbackModelSelection,
+    );
+    await _saveSelection(
+      prefs: prefs,
+      providerKey: _keyImageProvider,
+      modelIdKey: _keyImageModelId,
+      selection: settings.imageModelSelection,
+    );
+
+    final encoded = jsonEncode(
+      settings.aiFeatureConfigs
+          .map((key, value) => MapEntry(key, value.toMap())),
+    );
+    await prefs.setString(_keyAiFeatureConfigs, encoded);
+    await _saveUpdatedAt(
+      prefs,
+      updatedAt ?? DateTime.now().toUtc(),
+    );
+  }
+
   Future<void> saveFontSize(double fontSize) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setDouble(_keyFontSize, fontSize);
+    await _touchUpdatedAt(prefs);
   }
 
   Future<void> saveThemeMode(AppThemeMode themeMode) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_keyThemeMode, themeMode.name);
+    await _touchUpdatedAt(prefs);
   }
 
   Future<void> saveFontFamily(ReaderFontFamily fontFamily) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_keyFontFamily, fontFamily.name);
+    await _touchUpdatedAt(prefs);
   }
 
   Future<void> saveOpenRouterApiKey(String apiKey) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_keyOpenRouterApiKey, apiKey);
+    await _touchUpdatedAt(prefs);
   }
 
   Future<void> saveGeminiApiKey(String apiKey) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_keyGeminiApiKey, apiKey);
+    await _touchUpdatedAt(prefs);
   }
 
   Future<void> saveOpenRouterModelId(String modelId) {
@@ -124,6 +185,7 @@ class SettingsService {
       modelIdKey: _keyDefaultModelId,
       selection: selection,
     );
+    await _touchUpdatedAt(prefs);
   }
 
   Future<void> saveFallbackModelSelection(AiModelSelection selection) async {
@@ -134,6 +196,7 @@ class SettingsService {
       modelIdKey: _keyFallbackModelId,
       selection: selection,
     );
+    await _touchUpdatedAt(prefs);
   }
 
   Future<void> saveOpenRouterFallbackModelId(String modelId) {
@@ -150,6 +213,7 @@ class SettingsService {
       modelIdKey: _keyImageModelId,
       selection: selection,
     );
+    await _touchUpdatedAt(prefs);
   }
 
   Future<void> saveOpenRouterImageModelId(String modelId) {
@@ -166,6 +230,7 @@ class SettingsService {
       aiFeatureConfigs.map((key, value) => MapEntry(key, value.toMap())),
     );
     await prefs.setString(_keyAiFeatureConfigs, encoded);
+    await _touchUpdatedAt(prefs);
   }
 
   Map<String, dynamic>? _parseAiFeatureConfigsJson(String? raw) {
@@ -219,5 +284,17 @@ class SettingsService {
 
     await prefs.setString(providerKey, provider.storageValue);
     await prefs.setString(modelIdKey, modelId);
+  }
+
+  Future<void> _touchUpdatedAt(SharedPreferences prefs) {
+    return _saveUpdatedAt(prefs, DateTime.now().toUtc());
+  }
+
+  Future<void> _saveUpdatedAt(
+    SharedPreferences prefs,
+    DateTime updatedAt,
+  ) async {
+    await prefs.setString(
+        _keySettingsUpdatedAt, updatedAt.toUtc().toIso8601String());
   }
 }

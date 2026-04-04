@@ -256,3 +256,34 @@ Verification:
 Open issues / follow-ups:
 - Pasted-text books intentionally remain unsynced in v1 and keep `syncKey = null`.
 ```
+
+```text
+Date: 2026-04-04
+Task: Task 2: Local Sync Snapshot Export/Import
+Thread/Agent: T-019d5896-3d5d-777c-8ba6-b2e1fca7f5d8 / Amp
+Status: Completed
+
+What was done:
+- Added a versioned `SyncSnapshot` JSON model keyed by stable `syncKey` values instead of local book ids.
+- Added `SyncSnapshotService` to export local progress, highlights, resume markers, reader settings, model selections, and optional API keys.
+- Added snapshot import logic that applies state only to existing local books matched by `syncKey`, skips missing books, preserves local API keys when the snapshot omits them, and uses timestamp checks for settings/progress/resume marker/highlight conflicts.
+- Added settings persistence metadata for `reader_settings_updated_at` plus a bulk `saveAll` path for snapshot import.
+- Added a targeted highlight deletion helper so newer imported highlight entries can replace older local ones cleanly.
+
+Files changed:
+- lib/models/sync_snapshot.dart
+- lib/services/sync_snapshot_service.dart
+- lib/services/settings_service.dart
+- lib/services/database_service.dart
+- test/models/sync_snapshot_test.dart
+- test/services/sync_snapshot_service_test.dart
+- sync.md
+
+Verification:
+- `flutter test test/models/sync_snapshot_test.dart test/services/sync_snapshot_service_test.dart`
+- `flutter test test/services/settings_test.dart test/services/database_service_test.dart`
+- `flutter analyze lib/models/sync_snapshot.dart lib/services/settings_service.dart lib/services/database_service.dart lib/services/sync_snapshot_service.dart test/models/sync_snapshot_test.dart test/services/sync_snapshot_service_test.dart`
+
+Open issues / follow-ups:
+- Snapshot import currently merges newer remote records into matching local books but does not delete local per-book records that are absent from the snapshot; if Task 4 needs fully authoritative download semantics, that behavior should be tightened before wiring the UI.
+```

@@ -407,6 +407,19 @@ class DatabaseService {
     await db.delete('highlights', where: 'id = ?', whereArgs: [highlightId]);
   }
 
+  Future<void> deleteHighlightsBySelection({
+    required int bookId,
+    required int chapterIndex,
+    required String selectedText,
+  }) async {
+    final db = await database;
+    await db.delete(
+      'highlights',
+      where: 'bookId = ? AND chapterIndex = ? AND selectedText = ?',
+      whereArgs: [bookId, chapterIndex, selectedText],
+    );
+  }
+
   // ── Generated Images ──────────────────────────────────────────────────────
 
   Future<GeneratedImage> addGeneratedImage(
