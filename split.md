@@ -207,7 +207,7 @@ Before finishing:
 
 ## Task status board
 
-- [ ] Session 1 - Scaffold split + move passive models/types
+- [x] Session 1 - Scaffold split + move passive models/types
 - [ ] Session 2 - Extract overlays
 - [ ] Session 3 - Extract content rendering + selection toolbar
 - [ ] Session 4 - Extract AI sheets/widgets
@@ -237,3 +237,29 @@ Risks / follow-ups:
 Next session start point:
 - ...
 ```
+
+### 2026-04-04 - Session 1 - Split scaffold and passive types
+Status: completed
+
+What was done:
+- Added `part` scaffolding in `lib/screens/reader_screen.dart` for overlays/content/AI flow/AI sheets/models split files.
+- Created split files under `lib/screens/reader/` with `part of` declarations.
+- Moved passive private reader helper models/types/enums from the bottom of `reader_screen.dart` into `reader_models.dart` without behavior changes.
+
+Files changed:
+- `lib/screens/reader_screen.dart`
+- `lib/screens/reader/reader_models.dart`
+- `lib/screens/reader/reader_overlays.dart`
+- `lib/screens/reader/reader_content.dart`
+- `lib/screens/reader/reader_ai_sheets.dart`
+- `lib/screens/reader/reader_ai_flow.dart`
+- `split.md`
+
+Tests run:
+- `flutter test test/screens/reader_screen_test.dart` - pass
+
+Risks / follow-ups:
+- Session 2 can now move highlights/TOC overlay methods into `reader_overlays.dart` using the new part scaffold.
+
+Next session start point:
+- Extract `_showHighlights`, `_showTableOfContents`, and any tiny overlay-only helpers into `lib/screens/reader/reader_overlays.dart`.
