@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:bookai/services/database_service.dart';
+import 'package:bookai/services/book_sync_identity_service.dart';
 import 'package:bookai/services/library_service.dart';
 import 'package:bookai/services/storage_service.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -80,5 +81,26 @@ void main() {
         ),
       );
     });
+  });
+
+  test('importEpubFile stores a stable sync key derived from epub bytes',
+      () async {
+    final sourceFile = File(p.join(tempDir.path, 'sample.epub'));
+    await sourceFile.writeAsString('stable epub bytes');
+    final expectedSyncKey = BookSyncIdentityService.instance
+        .computeSyncKeyForBytes(await sourceFile.readAsBytes());
+
+    final result = await library.importEpubFile(sourceFile);
+
+    expect(result, isA<ImportSuccess>());
+
+    final saved = (result as ImportSuccess).book;
+    expect(saved.syncKey, expectedSyncKey);
+    expect(saved.title, 'sample');
+    expect(saved.author, 'Unknown Author');
+
+    final bySyncKey = await db.getBookBySyncKey(expectedSyncKey);
+    expect(bySyncKey?.id, saved.id);
+    expect(bySyncKey?.filePath, endsWith('books/sample.epub'));
   });
 }

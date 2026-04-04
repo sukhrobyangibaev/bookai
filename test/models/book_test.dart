@@ -8,6 +8,7 @@ void main() {
     test('toMap produces expected keys and values', () {
       final book = Book(
         id: 1,
+        syncKey: 'epub-sha256:test',
         title: 'Test Book',
         author: 'Test Author',
         filePath: '/path/to/book.epub',
@@ -19,6 +20,7 @@ void main() {
       final map = book.toMap();
 
       expect(map['id'], 1);
+      expect(map['syncKey'], 'epub-sha256:test');
       expect(map['title'], 'Test Book');
       expect(map['author'], 'Test Author');
       expect(map['filePath'], '/path/to/book.epub');
@@ -59,6 +61,7 @@ void main() {
     test('fromMap reconstructs Book correctly', () {
       final map = {
         'id': 42,
+        'syncKey': 'epub-sha256:restored',
         'title': 'Restored Book',
         'author': 'Restored Author',
         'filePath': '/restored.epub',
@@ -70,6 +73,7 @@ void main() {
       final book = Book.fromMap(map);
 
       expect(book.id, 42);
+      expect(book.syncKey, 'epub-sha256:restored');
       expect(book.title, 'Restored Book');
       expect(book.author, 'Restored Author');
       expect(book.filePath, '/restored.epub');
@@ -81,6 +85,7 @@ void main() {
     test('fromMap handles null coverPath', () {
       final map = {
         'id': 1,
+        'syncKey': null,
         'title': 'Book',
         'author': 'Author',
         'filePath': '/path.epub',
@@ -91,12 +96,14 @@ void main() {
 
       final book = Book.fromMap(map);
 
+      expect(book.syncKey, isNull);
       expect(book.coverPath, isNull);
     });
 
     test('roundtrip toMap -> fromMap preserves all fields', () {
       final original = Book(
         id: 7,
+        syncKey: 'epub-sha256:roundtrip',
         title: 'Roundtrip',
         author: 'RT Author',
         filePath: '/rt.epub',
@@ -108,6 +115,7 @@ void main() {
       final restored = Book.fromMap(original.toMap());
 
       expect(restored, equals(original));
+      expect(restored.syncKey, original.syncKey);
       expect(restored.coverPath, original.coverPath);
       expect(restored.totalChapters, original.totalChapters);
       expect(restored.createdAt, original.createdAt);
@@ -116,6 +124,7 @@ void main() {
     test('copyWith overrides specified fields only', () {
       final original = Book(
         id: 1,
+        syncKey: 'epub-sha256:original',
         title: 'Original',
         author: 'Author',
         filePath: '/file.epub',
@@ -123,8 +132,13 @@ void main() {
         createdAt: now,
       );
 
-      final modified = original.copyWith(title: 'Modified', totalChapters: 10);
+      final modified = original.copyWith(
+        syncKey: 'epub-sha256:modified',
+        title: 'Modified',
+        totalChapters: 10,
+      );
 
+      expect(modified.syncKey, 'epub-sha256:modified');
       expect(modified.title, 'Modified');
       expect(modified.totalChapters, 10);
       expect(modified.id, original.id);

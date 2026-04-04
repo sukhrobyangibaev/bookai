@@ -1,13 +1,14 @@
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 
+import '../models/ai_request_log_entry.dart';
 import '../models/book.dart';
 import '../models/chapter.dart';
-import '../models/ai_request_log_entry.dart';
 import '../models/generated_image.dart';
 import '../models/highlight.dart';
 import '../models/reading_progress.dart';
 import '../models/resume_marker.dart';
+import 'book_sync_identity_service.dart';
 
 class DatabaseService {
   DatabaseService._();
@@ -32,14 +33,17 @@ class DatabaseService {
   ///
   /// Used by the app for the default database and by tests for migration
   /// coverage without disturbing the shared singleton connection.
-  Future<Database> openDatabaseAt(String path) {
-    return openDatabase(
+  Future<Database> openDatabaseAt(String path) async {
+    final db = await openDatabase(
       path,
-      version: 7,
+      version: 8,
       onConfigure: _onConfigure,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
+
+    await _backfillMissingBookSyncKeys(db);
+    return db;
   }
 
   Future<void> close() async {
@@ -63,6 +67,7 @@ class DatabaseService {
     await db.execute('''
       CREATE TABLE books (
         id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        syncKey     TEXT,
         title       TEXT    NOT NULL,
         author      TEXT    NOT NULL,
         filePath    TEXT    NOT NULL UNIQUE,
@@ -71,6 +76,9 @@ class DatabaseService {
         createdAt   TEXT    NOT NULL
       )
     ''');
+    await db.execute(
+      'CREATE INDEX idx_books_syncKey ON books(syncKey)',
+    );
 
     await db.execute('''
       CREATE TABLE progress (
@@ -123,6 +131,21 @@ class DatabaseService {
     if (oldVersion < 7) {
       await _createAiRequestLogsTable(db);
     }
+    if (oldVersion < 8) {
+      await _ensureBooksSyncKeyColumn(db);
+    }
+  }
+
+  Future<void> _ensureBooksSyncKeyColumn(Database db) async {
+    final columns = await db.rawQuery('PRAGMA table_info(books)');
+    final hasSyncKeyColumn =
+        columns.any((column) => column['name'] == 'syncKey');
+    if (!hasSyncKeyColumn) {
+      await db.execute('ALTER TABLE books ADD COLUMN syncKey TEXT');
+    }
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_books_syncKey ON books(syncKey)',
+    );
   }
 
   Future<void> _createResumeMarkersTable(Database db) async {
@@ -237,6 +260,19 @@ class DatabaseService {
       'books',
       where: 'filePath = ?',
       whereArgs: [filePath],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return Book.fromMap(rows.first);
+  }
+
+  Future<Book?> getBookBySyncKey(String syncKey) async {
+    final db = await database;
+    final rows = await db.query(
+      'books',
+      where: 'syncKey = ?',
+      whereArgs: [syncKey],
+      orderBy: 'createdAt DESC',
       limit: 1,
     );
     if (rows.isEmpty) return null;
@@ -474,5 +510,34 @@ class DatabaseService {
     final db = await database;
     final rows = await db.rawQuery('SELECT COUNT(*) FROM ai_request_logs');
     return Sqflite.firstIntValue(rows) ?? 0;
+  }
+
+  Future<void> _backfillMissingBookSyncKeys(Database db) async {
+    final rows = await db.query(
+      'books',
+      columns: ['id', 'filePath'],
+      where: 'syncKey IS NULL',
+    );
+
+    for (final row in rows) {
+      final bookId = row['id'] as int?;
+      final filePath = row['filePath'] as String?;
+      if (bookId == null || filePath == null) {
+        continue;
+      }
+
+      final syncKey = await BookSyncIdentityService.instance
+          .computeSyncKeyForFilePath(filePath);
+      if (syncKey == null) {
+        continue;
+      }
+
+      await db.update(
+        'books',
+        {'syncKey': syncKey},
+        where: 'id = ? AND syncKey IS NULL',
+        whereArgs: [bookId],
+      );
+    }
   }
 }

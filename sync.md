@@ -222,3 +222,37 @@ Verification:
 Open issues / follow-ups:
 -
 ```
+
+```text
+Date: 2026-04-04
+Task: Task 1: Stable Book Sync Identity
+Thread/Agent: T-019d588f-2823-71f7-9a94-bac78ac28617 / Amp
+Status: Completed
+
+What was done:
+- Added a nullable `syncKey` field to `Book` and to the `books` table.
+- Added schema migration to database version 8, including a `books.syncKey` index.
+- Added `BookSyncIdentityService` to derive stable `epub-sha256:` sync keys from EPUB bytes.
+- Updated EPUB import to compute and persist the sync key during local import.
+- Added automatic backfill for existing imported EPUB rows whenever the database opens and the file is available locally.
+- Added `DatabaseService.getBookBySyncKey` for future sync mapping.
+
+Files changed:
+- pubspec.yaml
+- lib/models/book.dart
+- lib/services/book_sync_identity_service.dart
+- lib/services/database_service.dart
+- lib/services/library_service.dart
+- test/models/book_test.dart
+- test/services/database_service_test.dart
+- test/services/library_service_test.dart
+- sync.md
+
+Verification:
+- Added model tests covering `syncKey` map/copy behavior.
+- Added a database migration test covering version 7 -> 8, sync key backfill, and sync-key lookup.
+- Added a library import test covering stable sync key generation during EPUB import.
+
+Open issues / follow-ups:
+- Pasted-text books intentionally remain unsynced in v1 and keep `syncKey = null`.
+```

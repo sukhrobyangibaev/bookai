@@ -7,6 +7,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:bookai/models/book.dart';
 import 'package:bookai/models/chapter.dart';
 import 'package:bookai/models/generated_image.dart';
+import 'package:bookai/services/book_sync_identity_service.dart';
 import 'package:bookai/services/database_service.dart';
 
 void main() {
@@ -265,6 +266,79 @@ void main() {
       ),
       isTrue,
     );
+  });
+
+  test(
+      'openDatabaseAt migrates version 7 databases to version 8 and backfills sync keys',
+      () async {
+    final existingEpub = File(p.join(tempDir.path, 'migrated.epub'));
+    await existingEpub.writeAsString('same epub bytes on every device');
+    final expectedSyncKey = BookSyncIdentityService.instance
+        .computeSyncKeyForBytes(await existingEpub.readAsBytes());
+
+    final oldDb = await openDatabase(
+      databasePath,
+      version: 7,
+      onConfigure: (db) async {
+        await db.execute('PRAGMA foreign_keys = ON');
+      },
+      onCreate: (db, version) async {
+        await db.execute('''
+          CREATE TABLE books (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            title       TEXT    NOT NULL,
+            author      TEXT    NOT NULL,
+            filePath    TEXT    NOT NULL UNIQUE,
+            coverPath   TEXT,
+            totalChapters INTEGER NOT NULL DEFAULT 0,
+            createdAt   TEXT    NOT NULL
+          )
+        ''');
+        await db.insert('books', {
+          'id': 1,
+          'title': 'Migrated Book',
+          'author': 'Author',
+          'filePath': existingEpub.path,
+          'coverPath': null,
+          'totalChapters': 1,
+          'createdAt': DateTime.utc(2025, 2, 1).toIso8601String(),
+        });
+        await db.insert('books', {
+          'id': 2,
+          'title': 'Pasted Book',
+          'author': 'Author',
+          'filePath': p.join(tempDir.path, 'pasted_123.bookai'),
+          'coverPath': null,
+          'totalChapters': 1,
+          'createdAt': DateTime.utc(2025, 2, 2).toIso8601String(),
+        });
+      },
+    );
+    await oldDb.close();
+
+    final migrated = await service.openDatabaseAt(databasePath);
+    addTearDown(() async => migrated.close());
+
+    final bookColumns = await migrated.rawQuery('PRAGMA table_info(books)');
+    expect(bookColumns.any((column) => column['name'] == 'syncKey'), isTrue);
+
+    final bookIndexes = await migrated.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'books'",
+    );
+    expect(
+      bookIndexes.any((index) => index['name'] == 'idx_books_syncKey'),
+      isTrue,
+    );
+
+    final migratedBook = await service.getBookByFilePath(existingEpub.path);
+    expect(migratedBook?.syncKey, expectedSyncKey);
+
+    final pastedBook = await service
+        .getBookByFilePath(p.join(tempDir.path, 'pasted_123.bookai'));
+    expect(pastedBook?.syncKey, isNull);
+
+    final bySyncKey = await service.getBookBySyncKey(expectedSyncKey);
+    expect(bySyncKey?.id, migratedBook?.id);
   });
 
   test('ai request logs support pagination, count, and clear', () async {

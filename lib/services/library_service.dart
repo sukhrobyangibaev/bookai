@@ -1,11 +1,13 @@
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 
 import '../models/book.dart';
 import '../models/chapter.dart';
 import '../models/generated_image.dart';
+import 'book_sync_identity_service.dart';
 import 'database_service.dart';
 import 'epub_service.dart';
 import 'storage_service.dart';
@@ -40,6 +42,7 @@ class LibraryService {
   static final LibraryService instance = LibraryService._();
 
   final _db = DatabaseService.instance;
+  final _bookSyncIdentity = BookSyncIdentityService.instance;
   final _storage = StorageService.instance;
 
   // ── Import ─────────────────────────────────────────────────────────────────
@@ -76,9 +79,18 @@ class LibraryService {
       return ImportError('Selected file no longer exists.');
     }
 
+    return importEpubFile(sourceFile);
+  }
+
+  @visibleForTesting
+  Future<ImportResult> importEpubFile(File sourceFile) async {
+    if (!await sourceFile.exists()) {
+      return ImportError('Selected file no longer exists.');
+    }
+
     // 2. Check for duplicate by destination path (same filename in books dir)
     final booksDir = await _storage.getBooksDirectory();
-    final destPath = p.join(booksDir.path, p.basename(sourcePath));
+    final destPath = p.join(booksDir.path, p.basename(sourceFile.path));
 
     final existing = await _db.getBookByFilePath(destPath);
     if (existing != null) {
@@ -95,9 +107,20 @@ class LibraryService {
 
     // 4. Parse metadata + chapters in one pass so newly imported books open
     // quickly without reparsing the epub on first read.
+    final List<int> bookBytes;
+    final String syncKey;
+    try {
+      bookBytes = await destFile.readAsBytes();
+      syncKey = _bookSyncIdentity.computeSyncKeyForBytes(bookBytes);
+    } catch (e) {
+      await _storage.deleteBookFile(destFile.path);
+      return ImportError('Failed to read copied file: $e');
+    }
+
     ParsedEpub? parsed;
     try {
-      parsed = await EpubService.instance.parseBookFile(destFile.path);
+      parsed = await EpubService.instance.parseBookBytes(bookBytes);
+      EpubService.instance.cacheChapters(destFile.path, parsed.chapters);
     } catch (_) {
       parsed = null;
     }
@@ -107,6 +130,7 @@ class LibraryService {
 
     // 5. Persist book record
     final draft = Book(
+      syncKey: syncKey,
       title: title,
       author: author,
       filePath: destFile.path,

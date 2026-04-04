@@ -1,5 +1,6 @@
 class Book {
   final int? id;
+  final String? syncKey;
   final String title;
   final String author;
   final String filePath;
@@ -9,6 +10,7 @@ class Book {
 
   const Book({
     this.id,
+    this.syncKey,
     required this.title,
     required this.author,
     required this.filePath,
@@ -19,6 +21,7 @@ class Book {
 
   Book copyWith({
     int? id,
+    String? syncKey,
     String? title,
     String? author,
     String? filePath,
@@ -28,6 +31,7 @@ class Book {
   }) {
     return Book(
       id: id ?? this.id,
+      syncKey: syncKey ?? this.syncKey,
       title: title ?? this.title,
       author: author ?? this.author,
       filePath: filePath ?? this.filePath,
@@ -40,6 +44,7 @@ class Book {
   Map<String, dynamic> toMap() {
     return {
       if (id != null) 'id': id,
+      'syncKey': syncKey,
       'title': title,
       'author': author,
       'filePath': filePath,
@@ -52,6 +57,7 @@ class Book {
   factory Book.fromMap(Map<String, dynamic> map) {
     return Book(
       id: map['id'] as int?,
+      syncKey: map['syncKey'] as String?,
       title: map['title'] as String,
       author: map['author'] as String,
       filePath: map['filePath'] as String,
@@ -63,7 +69,7 @@ class Book {
 
   @override
   String toString() {
-    return 'Book(id: $id, title: $title, author: $author, '
+    return 'Book(id: $id, syncKey: $syncKey, title: $title, author: $author, '
         'filePath: $filePath, coverPath: $coverPath, '
         'totalChapters: $totalChapters, createdAt: $createdAt)';
   }
