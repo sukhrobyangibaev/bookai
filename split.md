@@ -212,7 +212,7 @@ Before finishing:
 - [x] Session 3 - Extract content rendering + selection toolbar
 - [x] Session 4 - Extract AI sheets/widgets
 - [x] Session 5 - Extract AI orchestration/flow
-- [ ] Session 6 - Final cleanup + full regression
+- [x] Session 6 - Final cleanup + full regression
 
 ## Session completion log (append-only)
 
@@ -352,3 +352,25 @@ Risks / follow-ups:
 
 Next session start point:
 - Run full cleanup/formatting pass and full regression (`flutter test`), then ensure `reader_screen.dart` remains focused on screen shell/lifecycle/core state.
+
+### 2026-04-04 - Session 6 - Final cleanup + full regression
+Status: completed
+
+What was done:
+- Performed final cleanup pass across the split reader files while preserving behavior.
+- Removed an unused `_ActiveAiRequest.generationFuture` field and corresponding constructor arguments to reduce dead code in AI flow/request models.
+- Verified formatting on touched files and kept `reader_screen.dart` focused on screen shell/lifecycle/core state.
+
+Files changed:
+- `lib/screens/reader/reader_models.dart`
+- `lib/screens/reader/reader_ai_flow.dart`
+- `split.md`
+
+Tests run:
+- `flutter test` - pass
+
+Risks / follow-ups:
+- No functional risks observed from this cleanup; change is limited to removing an unused field.
+
+Next session start point:
+- Split plan complete. If desired, next work can be non-refactor improvements or additional reader feature/test coverage.

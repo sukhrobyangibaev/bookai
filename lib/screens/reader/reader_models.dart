@@ -140,12 +140,10 @@ class _TextAiFeatureSpec {
 
 class _ActiveAiRequest {
   final int token;
-  final Future<String> generationFuture;
   final _AiRequestSpec requestSpec;
 
   const _ActiveAiRequest({
     required this.token,
-    required this.generationFuture,
     required this.requestSpec,
   });
 }

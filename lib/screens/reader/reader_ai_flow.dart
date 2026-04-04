@@ -1179,7 +1179,6 @@ extension _ReaderAiFlow on _ReaderScreenState {
 
     final loadingRequest = _ActiveAiRequest(
       token: ++_aiRequestToken,
-      generationFuture: Future<String>.value(''),
       requestSpec: _AiRequestSpec(
         modelSelection: AiModelSelection.none,
         prompt: '',
@@ -1239,7 +1238,6 @@ extension _ReaderAiFlow on _ReaderScreenState {
 
     final request = _ActiveAiRequest(
       token: ++_aiRequestToken,
-      generationFuture: Future<String>.value(''),
       requestSpec: requestSpec,
     );
 
