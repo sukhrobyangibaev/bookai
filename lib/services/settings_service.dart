@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/ai_feature_config.dart';
 import '../models/ai_model_selection.dart';
 import '../models/ai_provider.dart';
+import '../models/github_sync_settings.dart';
 import '../models/reader_settings.dart';
 
 class SettingsService {
@@ -25,6 +26,10 @@ class SettingsService {
   static const _keyImageModelId = 'reader_ai_image_model_id';
   static const _keyAiFeatureConfigs = 'reader_ai_feature_configs';
   static const _keySettingsUpdatedAt = 'reader_settings_updated_at';
+  static const _keyGitHubSyncOwner = 'github_sync_owner';
+  static const _keyGitHubSyncRepo = 'github_sync_repo';
+  static const _keyGitHubSyncFilePath = 'github_sync_file_path';
+  static const _keyGitHubSyncToken = 'github_sync_token';
 
   Future<ReaderSettings> load() async {
     final prefs = await SharedPreferences.getInstance();
@@ -98,6 +103,42 @@ class SettingsService {
     } catch (_) {
       return null;
     }
+  }
+
+  Future<GitHubSyncSettings> loadGitHubSyncSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    return GitHubSyncSettings(
+      owner: prefs.getString(_keyGitHubSyncOwner) ?? '',
+      repo: prefs.getString(_keyGitHubSyncRepo) ?? '',
+      filePath: prefs.getString(_keyGitHubSyncFilePath) ?? '',
+      token: prefs.getString(_keyGitHubSyncToken) ?? '',
+    ).normalized();
+  }
+
+  Future<void> saveGitHubSyncSettings(GitHubSyncSettings settings) async {
+    final prefs = await SharedPreferences.getInstance();
+    final normalized = settings.normalized();
+
+    await _saveStringOrRemove(
+      prefs: prefs,
+      key: _keyGitHubSyncOwner,
+      value: normalized.normalizedOwner,
+    );
+    await _saveStringOrRemove(
+      prefs: prefs,
+      key: _keyGitHubSyncRepo,
+      value: normalized.normalizedRepo,
+    );
+    await _saveStringOrRemove(
+      prefs: prefs,
+      key: _keyGitHubSyncFilePath,
+      value: normalized.normalizedFilePath,
+    );
+    await _saveStringOrRemove(
+      prefs: prefs,
+      key: _keyGitHubSyncToken,
+      value: normalized.normalizedToken,
+    );
   }
 
   Future<void> saveAll(
@@ -296,5 +337,17 @@ class SettingsService {
   ) async {
     await prefs.setString(
         _keySettingsUpdatedAt, updatedAt.toUtc().toIso8601String());
+  }
+
+  Future<void> _saveStringOrRemove({
+    required SharedPreferences prefs,
+    required String key,
+    required String value,
+  }) async {
+    if (value.isEmpty) {
+      await prefs.remove(key);
+      return;
+    }
+    await prefs.setString(key, value);
   }
 }

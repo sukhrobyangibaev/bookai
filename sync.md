@@ -287,3 +287,33 @@ Verification:
 Open issues / follow-ups:
 - Snapshot import currently merges newer remote records into matching local books but does not delete local per-book records that are absent from the snapshot; if Task 4 needs fully authoritative download semantics, that behavior should be tightened before wiring the UI.
 ```
+
+```text
+Date: 2026-04-04
+Task: Task 3: GitHub File Sync Service
+Thread/Agent: gpt-5.3-codex / OpenCode
+Status: Completed
+
+What was done:
+- Added a `GitHubSyncSettings` model with normalization helpers for owner/repo/path/token and persisted equality semantics.
+- Extended `SettingsService` with local persistence APIs for GitHub sync config (`loadGitHubSyncSettings` / `saveGitHubSyncSettings`) using dedicated SharedPreferences keys.
+- Added `GitHubSyncService` transport code using GitHub REST contents endpoints for download and upload (create/update), including SHA handling, single-retry conflict handling for 409, and clear error paths for bad token, missing repo, missing file, timeout, and network failures.
+- Kept transport and persistence separate from UI and from snapshot logic, as scoped.
+- Added targeted tests for settings persistence normalization and for GitHub request/response behavior plus error handling.
+
+Files changed:
+- lib/models/github_sync_settings.dart
+- lib/services/settings_service.dart
+- lib/services/github_sync_service.dart
+- test/models/github_sync_settings_test.dart
+- test/services/github_sync_service_test.dart
+- test/services/settings_test.dart
+- sync.md
+
+Verification:
+- `flutter test test/models/github_sync_settings_test.dart test/services/github_sync_service_test.dart test/services/settings_test.dart`
+- `flutter analyze lib/models/github_sync_settings.dart lib/services/github_sync_service.dart lib/services/settings_service.dart test/models/github_sync_settings_test.dart test/services/github_sync_service_test.dart test/services/settings_test.dart`
+
+Open issues / follow-ups:
+- Task 4 still needs to wire Settings UI actions (Upload/Download) to `SyncSnapshotService` + `GitHubSyncService` and add user feedback/confirmation flow.
+```

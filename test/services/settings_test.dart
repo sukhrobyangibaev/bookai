@@ -2,6 +2,7 @@ import 'package:bookai/models/ai_feature.dart';
 import 'package:bookai/models/ai_feature_config.dart';
 import 'package:bookai/models/ai_model_selection.dart';
 import 'package:bookai/models/ai_provider.dart';
+import 'package:bookai/models/github_sync_settings.dart';
 import 'package:bookai/models/reader_settings.dart';
 import 'package:bookai/services/settings_controller.dart';
 import 'package:bookai/services/settings_service.dart';
@@ -192,6 +193,47 @@ void main() {
           promptTemplate: 'Roundtrip {source_text}',
         ),
       );
+    });
+
+    test('save and load GitHub sync settings roundtrip normalized values',
+        () async {
+      SharedPreferences.setMockInitialValues({});
+
+      final service = SettingsService();
+      await service.saveGitHubSyncSettings(
+        const GitHubSyncSettings(
+          owner: '  octocat  ',
+          repo: '  private-sync  ',
+          filePath: ' /sync // snapshots /state.json ',
+          token: '  ghp_secret  ',
+        ),
+      );
+
+      final loaded = await service.loadGitHubSyncSettings();
+      expect(
+        loaded,
+        const GitHubSyncSettings(
+          owner: 'octocat',
+          repo: 'private-sync',
+          filePath: 'sync/snapshots/state.json',
+          token: 'ghp_secret',
+        ),
+      );
+    });
+
+    test('save GitHub sync settings removes empty values', () async {
+      SharedPreferences.setMockInitialValues({
+        'github_sync_owner': 'octocat',
+        'github_sync_repo': 'private-sync',
+        'github_sync_file_path': 'sync/state.json',
+        'github_sync_token': 'ghp_secret',
+      });
+
+      final service = SettingsService();
+      await service.saveGitHubSyncSettings(GitHubSyncSettings.empty);
+
+      final loaded = await service.loadGitHubSyncSettings();
+      expect(loaded, GitHubSyncSettings.empty);
     });
   });
 
