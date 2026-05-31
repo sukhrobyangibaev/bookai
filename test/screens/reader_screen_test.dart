@@ -11,6 +11,8 @@ import 'package:bookai/models/ai_model_selection.dart';
 import 'package:bookai/models/ai_provider.dart';
 import 'package:bookai/models/ai_text_stream_event.dart';
 import 'package:bookai/models/chapter.dart';
+import 'package:bookai/models/chapter_style.dart';
+import 'package:bookai/models/highlight.dart';
 import 'package:bookai/models/openrouter_model.dart';
 import 'package:bookai/models/reader_settings.dart';
 import 'package:bookai/models/resume_marker.dart';
@@ -501,6 +503,179 @@ void main() {
       );
 
       expect(resultText.textAlign, TextAlign.justify);
+    });
+
+    testWidgets('renders EPUB semantic text styles in reader content',
+        (tester) async {
+      final styledContentJson = const StyledChapterContent(
+        ranges: [
+          ChapterStyleRange(start: 0, end: 6, italic: true),
+          ChapterStyleRange(start: 7, end: 11, bold: true),
+          ChapterStyleRange(start: 12, end: 22, underline: true),
+        ],
+      ).toJson();
+      final openRouter = _FakeOpenRouterService(
+        generateTextHandler: ({
+          required apiKey,
+          required modelId,
+          required prompt,
+          temperature,
+        }) async =>
+            'Unused response.',
+      );
+
+      await _pumpReaderScreen(
+        tester,
+        openRouterService: openRouter,
+        chapters: [
+          Chapter(
+            index: 0,
+            title: 'Chapter 1',
+            content: 'Italic bold underlined',
+            styledContentJson: styledContentJson,
+          ),
+        ],
+      );
+
+      final readerText = tester.widget<SelectableText>(
+        find.byType(SelectableText).first,
+      );
+      final spans = _flattenTextSpans(readerText.textSpan!);
+
+      expect(_spanWithText(spans, 'Italic').style?.fontStyle, FontStyle.italic);
+      expect(_spanWithText(spans, 'bold').style?.fontWeight, FontWeight.bold);
+      expect(
+        _spanWithText(spans, 'underlined').style?.decoration,
+        TextDecoration.underline,
+      );
+    });
+
+    testWidgets('keeps EPUB styles when highlight backgrounds are applied',
+        (tester) async {
+      final tempDir = (await tester.runAsync(
+        () => Directory.systemTemp.createTemp('bookai_reader_style_test_'),
+      ))!;
+      addTearDown(() async {
+        if (await tempDir.exists()) {
+          await tempDir.delete(recursive: true);
+        }
+      });
+
+      final databaseService = DatabaseService.instance;
+      final databasePath = p.join(tempDir.path, 'reader_style_test.db');
+      await tester.runAsync(
+        () => databaseService.resetForTesting(databasePath: databasePath),
+      );
+      addTearDown(() async {
+        await databaseService.resetForTesting();
+      });
+
+      final savedBook = (await tester.runAsync(
+        () => databaseService.insertBook(
+          Book(
+            title: 'Styled Book',
+            author: 'Author',
+            filePath: '/tmp/styled-reader.epub',
+            totalChapters: 1,
+            createdAt: DateTime.utc(2025, 4, 1),
+          ),
+        ),
+      ))!;
+      await tester.runAsync(
+        () => databaseService.addHighlight(
+          Highlight(
+            bookId: savedBook.id!,
+            chapterIndex: 0,
+            selectedText: 'highlight',
+            colorHex: '#FFEB3B',
+            createdAt: DateTime.utc(2025, 4, 2),
+          ),
+        ),
+      );
+      final styledContentJson = const StyledChapterContent(
+        ranges: [
+          ChapterStyleRange(start: 7, end: 16, italic: true),
+        ],
+      ).toJson();
+      final openRouter = _FakeOpenRouterService(
+        generateTextHandler: ({
+          required apiKey,
+          required modelId,
+          required prompt,
+          temperature,
+        }) async =>
+            'Unused response.',
+      );
+
+      await _pumpReaderScreen(
+        tester,
+        openRouterService: openRouter,
+        databaseService: databaseService,
+        savedBook: savedBook,
+        chapters: [
+          Chapter(
+            index: 0,
+            title: 'Chapter 1',
+            content: 'Styled highlight text',
+            styledContentJson: styledContentJson,
+          ),
+        ],
+      );
+
+      final readerText = tester.widget<SelectableText>(
+        find.byType(SelectableText).first,
+      );
+      final highlightSpan = _spanWithText(
+        _flattenTextSpans(readerText.textSpan!),
+        'highlight',
+      );
+
+      expect(highlightSpan.style?.fontStyle, FontStyle.italic);
+      expect(highlightSpan.style?.backgroundColor, isNotNull);
+    });
+
+    testWidgets('selecting styled text sends plain text to AI actions',
+        (tester) async {
+      const selectedText = 'Anchorword';
+      final styledContentJson = const StyledChapterContent(
+        ranges: [
+          ChapterStyleRange(
+            start: 0,
+            end: 10,
+            italic: true,
+          ),
+        ],
+      ).toJson();
+      final openRouter = _FakeOpenRouterService(
+        generateTextHandler: ({
+          required apiKey,
+          required modelId,
+          required prompt,
+          temperature,
+        }) async =>
+            'Simplified text.',
+      );
+
+      await _pumpReaderScreen(
+        tester,
+        openRouterService: openRouter,
+        chapters: [
+          Chapter(
+            index: 0,
+            title: 'Chapter 1',
+            content: 'Anchorword leads the sentence.',
+            styledContentJson: styledContentJson,
+          ),
+        ],
+      );
+
+      await _openReaderSelectionToolbarForSubstring(tester, selectedText);
+      await tester.tap(find.text('Simplify Text'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Selected Text'));
+      await tester.pumpAndSettle();
+
+      expect(openRouter.lastPrompt, contains('Passage:\n$selectedText'));
     });
 
     testWidgets('shows a scrollbar for the chapter content on Android',
@@ -2816,6 +2991,20 @@ List<Chapter> _buildTestChapters({int count = 1}) {
       content: List<String>.filled(120, repeatedText).join(' '),
     );
   });
+}
+
+List<TextSpan> _flattenTextSpans(InlineSpan span) {
+  if (span is! TextSpan) return const <TextSpan>[];
+
+  return <TextSpan>[
+    if ((span.text ?? '').isNotEmpty) span,
+    for (final child in span.children ?? const <InlineSpan>[])
+      ..._flattenTextSpans(child),
+  ];
+}
+
+TextSpan _spanWithText(List<TextSpan> spans, String text) {
+  return spans.singleWhere((span) => span.text == text);
 }
 
 Future<void> _startDefineAndTranslate(WidgetTester tester) async {

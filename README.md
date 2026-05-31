@@ -202,7 +202,7 @@ flutter build apk --release
 
 Planned directions for the project:
 
-- Richer EPUB rendering with covers, inline images, and better formatting support
+- Richer EPUB rendering with covers, inline images, and broader CSS/layout support
 - Full-text search inside books
 - Better export and sharing for highlights and generated images
 - More robust sync and backup across devices
@@ -212,7 +212,7 @@ Planned directions for the project:
 
 ## Known Limitations
 
-- EPUB chapters are currently rendered as plain text, so rich HTML/CSS formatting and inline media are not preserved in the reader.
+- EPUB chapters preserve common semantic text styles such as emphasis, headings, blockquotes, and lists, but broader CSS layout and inline media are not preserved yet.
 - Cover extraction is not implemented yet.
 - There is no full-text search.
 - Sync is manual-only and GitHub-only; there is no background sync or encrypted backup flow.

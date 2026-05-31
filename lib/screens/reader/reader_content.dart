@@ -20,7 +20,7 @@ extension _ReaderContent on _ReaderScreenState {
             key: _ReaderScreenState._hiddenNavPillKey,
             elevation: 2,
             color: theme.colorScheme.surface.withAlpha(228),
-            shadowColor: Colors.black.withOpacity(0.1),
+            shadowColor: Colors.black.withValues(alpha: 0.1),
             shape: const StadiumBorder(),
             child: SizedBox(
               height: _ReaderScreenState._hiddenNavPillHeight,
@@ -178,10 +178,11 @@ extension _ReaderContent on _ReaderScreenState {
             ),
             const SizedBox(height: 16),
             SelectableText.rich(
-              _buildHighlightedText(
-                chapter.content,
+              _buildChapterTextSpan(
+                chapter,
                 currentHighlights,
                 currentResumeMarker,
+                settingsFontSize,
               ),
               textAlign: TextAlign.justify,
               style: buildReaderContentTextStyle(
@@ -237,18 +238,31 @@ extension _ReaderContent on _ReaderScreenState {
     );
   }
 
-  /// Builds a [TextSpan] tree that highlights saved highlight texts inline.
-  TextSpan _buildHighlightedText(
-    String content,
+  /// Builds a [TextSpan] tree that merges EPUB text styles with saved
+  /// highlight and resume-marker backgrounds.
+  TextSpan _buildChapterTextSpan(
+    Chapter chapter,
     List<Highlight> currentHighlights,
     ResumeMarker? currentResumeMarker,
+    double baseFontSize,
   ) {
-    if (currentHighlights.isEmpty && currentResumeMarker == null) {
+    final content = chapter.content;
+    final styledContent =
+        StyledChapterContent.tryDecode(chapter.styledContentJson);
+    final chapterStyleRanges = styledContent?.ranges
+            .map((range) => range.clampedTo(content.length))
+            .whereType<ChapterStyleRange>()
+            .toList(growable: false) ??
+        const <ChapterStyleRange>[];
+
+    if (chapterStyleRanges.isEmpty &&
+        currentHighlights.isEmpty &&
+        currentResumeMarker == null) {
       return TextSpan(text: content);
     }
 
     // Build styled ranges for both regular highlights and resume marker.
-    final List<_StyledRange> ranges = [];
+    final List<_ReaderBackgroundRange> backgroundRanges = [];
 
     final highlightColor = Color(
       int.parse(
@@ -267,11 +281,11 @@ extension _ReaderContent on _ReaderScreenState {
       while (true) {
         final idx = content.indexOf(hl.selectedText, startFrom);
         if (idx == -1) break;
-        ranges.add(
-          _StyledRange(
+        backgroundRanges.add(
+          _ReaderBackgroundRange(
             start: idx,
             end: idx + hl.selectedText.length,
-            style: TextStyle(backgroundColor: highlightColor),
+            color: highlightColor,
             priority: 1,
           ),
         );
@@ -283,23 +297,28 @@ extension _ReaderContent on _ReaderScreenState {
         currentResumeMarker.selectionStart >= 0 &&
         currentResumeMarker.selectionEnd > currentResumeMarker.selectionStart &&
         currentResumeMarker.selectionEnd <= content.length) {
-      ranges.add(
-        _StyledRange(
+      backgroundRanges.add(
+        _ReaderBackgroundRange(
           start: currentResumeMarker.selectionStart,
           end: currentResumeMarker.selectionEnd,
-          style: TextStyle(backgroundColor: resumeColor),
+          color: resumeColor,
           priority: 2,
         ),
       );
     }
 
-    if (ranges.isEmpty) {
+    if (chapterStyleRanges.isEmpty && backgroundRanges.isEmpty) {
       return TextSpan(text: content);
     }
 
-    // Build boundaries, then style each segment by highest-priority range.
+    // Build boundaries, then style each segment by all active EPUB styles and
+    // the highest-priority reader background.
     final boundaries = <int>{0, content.length};
-    for (final range in ranges) {
+    for (final range in chapterStyleRanges) {
+      boundaries.add(range.start);
+      boundaries.add(range.end);
+    }
+    for (final range in backgroundRanges) {
       boundaries.add(range.start);
       boundaries.add(range.end);
     }
@@ -311,24 +330,96 @@ extension _ReaderContent on _ReaderScreenState {
       final segEnd = sortedBoundaries[i + 1];
       if (segEnd <= segStart) continue;
 
-      _StyledRange? activeRange;
-      for (final range in ranges) {
+      final activeChapterStyles = <ChapterStyleRange>[];
+      for (final range in chapterStyleRanges) {
+        final intersects = range.start < segEnd && range.end > segStart;
+        if (intersects) activeChapterStyles.add(range);
+      }
+
+      _ReaderBackgroundRange? activeBackground;
+      for (final range in backgroundRanges) {
         final intersects = range.start < segEnd && range.end > segStart;
         if (!intersects) continue;
-        if (activeRange == null || range.priority > activeRange.priority) {
-          activeRange = range;
+        if (activeBackground == null ||
+            range.priority > activeBackground.priority) {
+          activeBackground = range;
         }
       }
 
       spans.add(
         TextSpan(
           text: content.substring(segStart, segEnd),
-          style: activeRange?.style,
+          style: _textStyleForSegment(
+            context: context,
+            ranges: activeChapterStyles,
+            baseFontSize: baseFontSize,
+            backgroundColor: activeBackground?.color,
+          ),
         ),
       );
     }
 
     return TextSpan(children: spans);
+  }
+
+  TextStyle? _textStyleForSegment({
+    required BuildContext context,
+    required List<ChapterStyleRange> ranges,
+    required double baseFontSize,
+    required Color? backgroundColor,
+  }) {
+    final hasChapterStyles = ranges.isNotEmpty;
+    if (!hasChapterStyles && backgroundColor == null) return null;
+
+    final headingLevels = ranges
+        .map((range) => range.headingLevel)
+        .whereType<int>()
+        .toList(growable: false);
+    final headingLevel = headingLevels.isEmpty
+        ? null
+        : headingLevels.reduce((a, b) => a < b ? a : b);
+    final bold = headingLevel != null || ranges.any((range) => range.bold);
+    final italic = ranges.any((range) => range.italic || range.blockquote);
+    final underline = ranges.any((range) => range.underline);
+    final strikethrough = ranges.any((range) => range.strikethrough);
+    final superscript = ranges.any((range) => range.superscript);
+    final subscript = !superscript && ranges.any((range) => range.subscript);
+    final blockquote = ranges.any((range) => range.blockquote);
+
+    final decorations = <TextDecoration>[
+      if (underline) TextDecoration.underline,
+      if (strikethrough) TextDecoration.lineThrough,
+    ];
+    final decoration = decorations.isEmpty
+        ? null
+        : (decorations.length == 1
+            ? decorations.single
+            : TextDecoration.combine(decorations));
+
+    final headingScale = switch (headingLevel) {
+      1 => 1.45,
+      2 => 1.32,
+      3 => 1.20,
+      4 => 1.12,
+      5 => 1.06,
+      6 => 1.0,
+      _ => 1.0,
+    };
+    final scriptScale = (superscript || subscript) ? 0.72 : 1.0;
+    final effectiveFontSize = baseFontSize * headingScale * scriptScale;
+
+    return TextStyle(
+      fontWeight: bold ? FontWeight.bold : null,
+      fontStyle: italic ? FontStyle.italic : null,
+      decoration: decoration,
+      fontSize: effectiveFontSize == baseFontSize ? null : effectiveFontSize,
+      height: headingLevel != null ? 1.35 : null,
+      color: blockquote ? Theme.of(context).colorScheme.onSurfaceVariant : null,
+      backgroundColor: backgroundColor,
+      fontFeatures: superscript
+          ? const <FontFeature>[FontFeature.superscripts()]
+          : (subscript ? const <FontFeature>[FontFeature.subscripts()] : null),
+    );
   }
 
   /// Custom context menu with reader actions.

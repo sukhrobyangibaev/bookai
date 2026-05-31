@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:bookai/models/chapter.dart';
+import 'package:bookai/models/chapter_style.dart';
 
 void main() {
   group('Chapter', () {
@@ -10,6 +11,7 @@ void main() {
         index: 0,
         title: 'Chapter One',
         content: 'Once upon a time...',
+        styledContentJson: '{"version":1,"ranges":[]}',
       );
 
       final map = chapter.toMap();
@@ -19,6 +21,7 @@ void main() {
       expect(map['index'], 0);
       expect(map['title'], 'Chapter One');
       expect(map['content'], 'Once upon a time...');
+      expect(map['styledContentJson'], '{"version":1,"ranges":[]}');
     });
 
     test('toMap omits id and bookId when null', () {
@@ -41,6 +44,7 @@ void main() {
         'index': 2,
         'title': 'Restored Chapter',
         'content': 'Restored content.',
+        'styledContentJson': '{"version":1,"ranges":[]}',
       };
 
       final chapter = Chapter.fromMap(map);
@@ -50,6 +54,7 @@ void main() {
       expect(chapter.index, 2);
       expect(chapter.title, 'Restored Chapter');
       expect(chapter.content, 'Restored content.');
+      expect(chapter.styledContentJson, '{"version":1,"ranges":[]}');
     });
 
     test('fromMap handles null id and bookId', () {
@@ -92,11 +97,25 @@ void main() {
         content: 'Original content',
       );
 
-      final modified =
-          original.copyWith(title: 'Modified', content: 'New content');
+      final modified = original.copyWith(
+        title: 'Modified',
+        content: 'New content',
+        styledContentJson: const StyledChapterContent(
+          ranges: [
+            ChapterStyleRange(start: 0, end: 3, italic: true),
+          ],
+        ).toJson(),
+      );
 
       expect(modified.title, 'Modified');
       expect(modified.content, 'New content');
+      expect(
+        StyledChapterContent.tryDecode(modified.styledContentJson)
+            ?.ranges
+            .single
+            .italic,
+        isTrue,
+      );
       expect(modified.id, original.id);
       expect(modified.bookId, original.bookId);
       expect(modified.index, original.index);

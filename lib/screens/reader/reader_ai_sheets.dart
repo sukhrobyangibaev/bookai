@@ -1035,7 +1035,7 @@ class _AiConversationBubble extends StatelessWidget {
                 Text(
                   isAssistant ? 'Assistant' : 'You',
                   style: theme.textTheme.labelSmall?.copyWith(
-                    color: foregroundColor.withOpacity(0.8),
+                    color: foregroundColor.withValues(alpha: 0.8),
                   ),
                 ),
                 const SizedBox(height: 6),
@@ -1092,7 +1092,7 @@ class _AiLoadingSheet extends StatelessWidget {
             key: containerKey,
             elevation: 6,
             color: theme.colorScheme.surface,
-            shadowColor: Colors.black.withOpacity(0.12),
+            shadowColor: Colors.black.withValues(alpha: 0.12),
             borderRadius: BorderRadius.circular(18),
             child: Padding(
               padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),

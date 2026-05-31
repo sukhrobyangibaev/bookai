@@ -36,7 +36,7 @@ class DatabaseService {
   Future<Database> openDatabaseAt(String path) async {
     final db = await openDatabase(
       path,
-      version: 8,
+      version: 9,
       onConfigure: _onConfigure,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
@@ -134,6 +134,9 @@ class DatabaseService {
     if (oldVersion < 8) {
       await _ensureBooksSyncKeyColumn(db);
     }
+    if (oldVersion < 9) {
+      await _ensureChaptersStyledContentColumn(db);
+    }
   }
 
   Future<void> _ensureBooksSyncKeyColumn(Database db) async {
@@ -170,10 +173,26 @@ class DatabaseService {
         chapterIndex   INTEGER NOT NULL,
         title          TEXT    NOT NULL,
         content        TEXT    NOT NULL,
+        styledContentJson TEXT,
         PRIMARY KEY (bookId, chapterIndex),
         FOREIGN KEY (bookId) REFERENCES books(id) ON DELETE CASCADE
       )
     ''');
+  }
+
+  Future<void> _ensureChaptersStyledContentColumn(Database db) async {
+    final columns = await db.rawQuery('PRAGMA table_info(chapters)');
+    if (columns.isEmpty) {
+      await _createChaptersTable(db);
+      return;
+    }
+
+    final hasStyledContentColumn =
+        columns.any((column) => column['name'] == 'styledContentJson');
+    if (!hasStyledContentColumn) {
+      await db
+          .execute('ALTER TABLE chapters ADD COLUMN styledContentJson TEXT');
+    }
   }
 
   Future<void> _createGeneratedImagesTable(Database db) async {
@@ -311,6 +330,7 @@ class DatabaseService {
           'chapterIndex': chapter.index,
           'title': chapter.title,
           'content': chapter.content,
+          'styledContentJson': chapter.styledContentJson,
         });
       }
       await batch.commit(noResult: true);
@@ -332,6 +352,7 @@ class DatabaseService {
             index: row['chapterIndex'] as int,
             title: row['title'] as String,
             content: row['content'] as String,
+            styledContentJson: row['styledContentJson'] as String?,
           ),
         )
         .toList();

@@ -4,6 +4,7 @@ class Chapter {
   final int index;
   final String title;
   final String content;
+  final String? styledContentJson;
 
   const Chapter({
     this.id,
@@ -11,6 +12,7 @@ class Chapter {
     required this.index,
     required this.title,
     required this.content,
+    this.styledContentJson,
   });
 
   Chapter copyWith({
@@ -19,6 +21,7 @@ class Chapter {
     int? index,
     String? title,
     String? content,
+    String? styledContentJson,
   }) {
     return Chapter(
       id: id ?? this.id,
@@ -26,6 +29,7 @@ class Chapter {
       index: index ?? this.index,
       title: title ?? this.title,
       content: content ?? this.content,
+      styledContentJson: styledContentJson ?? this.styledContentJson,
     );
   }
 
@@ -36,6 +40,7 @@ class Chapter {
       'index': index,
       'title': title,
       'content': content,
+      if (styledContentJson != null) 'styledContentJson': styledContentJson,
     };
   }
 
@@ -46,6 +51,7 @@ class Chapter {
       index: map['index'] as int,
       title: map['title'] as String,
       content: map['content'] as String,
+      styledContentJson: map['styledContentJson'] as String?,
     );
   }
 

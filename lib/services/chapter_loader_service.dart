@@ -40,6 +40,19 @@ class ChapterLoaderService {
     if (bookId != null) {
       final stored = await _readStoredChapters(bookId);
       if (stored.isNotEmpty) {
+        if (_shouldRefreshStyledChapters(book, stored)) {
+          try {
+            final parsed = await _parseChapters(book.filePath);
+            if (parsed.isNotEmpty) {
+              await _writeStoredChapters(bookId, parsed);
+              _cacheChapters(book.filePath, parsed);
+              return parsed;
+            }
+          } catch (_) {
+            // Keep older plain-text chapters readable if the original EPUB is
+            // unavailable or cannot be parsed.
+          }
+        }
         _cacheChapters(book.filePath, stored);
         return stored;
       }
@@ -52,5 +65,10 @@ class ChapterLoaderService {
     }
 
     return parsed;
+  }
+
+  bool _shouldRefreshStyledChapters(Book book, List<Chapter> chapters) {
+    if (!book.filePath.toLowerCase().endsWith('.epub')) return false;
+    return chapters.any((chapter) => chapter.styledContentJson == null);
   }
 }

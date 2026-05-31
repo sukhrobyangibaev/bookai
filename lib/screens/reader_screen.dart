@@ -12,6 +12,7 @@ import '../models/ai_provider.dart';
 import '../models/ai_text_stream_event.dart';
 import '../models/book.dart';
 import '../models/chapter.dart';
+import '../models/chapter_style.dart';
 import '../models/generated_image.dart';
 import '../models/highlight.dart';
 import '../models/reading_progress.dart';

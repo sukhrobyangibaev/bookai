@@ -6,6 +6,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:bookai/models/book.dart';
 import 'package:bookai/models/chapter.dart';
+import 'package:bookai/models/chapter_style.dart';
 import 'package:bookai/models/generated_image.dart';
 import 'package:bookai/services/book_sync_identity_service.dart';
 import 'package:bookai/services/database_service.dart';
@@ -47,7 +48,12 @@ void main() {
       );
 
       await service.replaceChaptersForBook(book.id!, const [
-        Chapter(index: 2, title: 'Three', content: 'Third'),
+        Chapter(
+          index: 2,
+          title: 'Three',
+          content: 'Third',
+          styledContentJson: '{"version":1,"ranges":[]}',
+        ),
         Chapter(index: 0, title: 'One', content: 'First'),
         Chapter(index: 1, title: 'Two', content: 'Second'),
       ]);
@@ -60,6 +66,7 @@ void main() {
         'Two',
         'Three',
       ]);
+      expect(chapters.last.styledContentJson, '{"version":1,"ranges":[]}');
       expect(chapters.every((chapter) => chapter.bookId == book.id), isTrue);
     });
 
@@ -339,6 +346,108 @@ void main() {
 
     final bySyncKey = await service.getBookBySyncKey(expectedSyncKey);
     expect(bySyncKey?.id, migratedBook?.id);
+  });
+
+  test('openDatabaseAt migrates version 8 databases to version 9', () async {
+    final oldDb = await openDatabase(
+      databasePath,
+      version: 8,
+      onConfigure: (db) async {
+        await db.execute('PRAGMA foreign_keys = ON');
+      },
+      onCreate: (db, version) async {
+        await db.execute('''
+          CREATE TABLE books (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            syncKey     TEXT,
+            title       TEXT    NOT NULL,
+            author      TEXT    NOT NULL,
+            filePath    TEXT    NOT NULL UNIQUE,
+            coverPath   TEXT,
+            totalChapters INTEGER NOT NULL DEFAULT 0,
+            createdAt   TEXT    NOT NULL
+          )
+        ''');
+        await db.execute('''
+          CREATE TABLE chapters (
+            bookId         INTEGER NOT NULL,
+            chapterIndex   INTEGER NOT NULL,
+            title          TEXT    NOT NULL,
+            content        TEXT    NOT NULL,
+            PRIMARY KEY (bookId, chapterIndex),
+            FOREIGN KEY (bookId) REFERENCES books(id) ON DELETE CASCADE
+          )
+        ''');
+        await db.insert('books', {
+          'id': 1,
+          'syncKey': 'epub-sha256:abc',
+          'title': 'Migrated Book',
+          'author': 'Author',
+          'filePath': '/tmp/migrated.epub',
+          'coverPath': null,
+          'totalChapters': 1,
+          'createdAt': DateTime.utc(2025, 3, 1).toIso8601String(),
+        });
+        await db.insert('chapters', {
+          'bookId': 1,
+          'chapterIndex': 0,
+          'title': 'Chapter 1',
+          'content': 'Stored text',
+        });
+      },
+    );
+    await oldDb.close();
+
+    final migrated = await service.openDatabaseAt(databasePath);
+    addTearDown(() async => migrated.close());
+
+    final chapterColumns =
+        await migrated.rawQuery('PRAGMA table_info(chapters)');
+    expect(
+      chapterColumns.any((column) => column['name'] == 'styledContentJson'),
+      isTrue,
+    );
+
+    final chapters = await service.getChaptersByBookId(1);
+    expect(chapters.single.content, 'Stored text');
+    expect(chapters.single.styledContentJson, isNull);
+  });
+
+  test('stores and restores styled chapter content', () async {
+    final book = await service.insertBook(
+      Book(
+        title: 'Styled Book',
+        author: 'Author',
+        filePath: '/tmp/styled.epub',
+        totalChapters: 1,
+        createdAt: DateTime.utc(2025, 3, 2),
+      ),
+    );
+    final styledContentJson = const StyledChapterContent(
+      ranges: [
+        ChapterStyleRange(start: 0, end: 6, italic: true),
+      ],
+    ).toJson();
+
+    await service.replaceChaptersForBook(book.id!, [
+      Chapter(
+        index: 0,
+        title: 'Chapter 1',
+        content: 'Styled text',
+        styledContentJson: styledContentJson,
+      ),
+    ]);
+
+    final chapters = await service.getChaptersByBookId(book.id!);
+
+    expect(chapters.single.styledContentJson, styledContentJson);
+    expect(
+      StyledChapterContent.tryDecode(chapters.single.styledContentJson)
+          ?.ranges
+          .single
+          .italic,
+      isTrue,
+    );
   });
 
   test('ai request logs support pagination, count, and clear', () async {

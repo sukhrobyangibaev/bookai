@@ -12,16 +12,16 @@ class _SavedReaderState {
   final List<Highlight> highlights;
 }
 
-class _StyledRange {
+class _ReaderBackgroundRange {
   final int start;
   final int end;
-  final TextStyle style;
+  final Color color;
   final int priority;
 
-  const _StyledRange({
+  const _ReaderBackgroundRange({
     required this.start,
     required this.end,
-    required this.style,
+    required this.color,
     required this.priority,
   });
 }

@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:epubx/epubx.dart';
 
 import '../models/chapter.dart';
+import 'epub_html_text_extractor.dart';
 
 class ParsedEpub {
   const ParsedEpub({
@@ -26,6 +27,8 @@ class EpubService {
 
   /// In-memory chapter cache keyed by absolute file path.
   final Map<String, List<Chapter>> _cache = {};
+  static const EpubHtmlTextExtractor _htmlTextExtractor =
+      EpubHtmlTextExtractor();
 
   /// Parses the epub at [filePath] and returns an ordered list of [Chapter]s.
   ///
@@ -111,14 +114,16 @@ class EpubService {
     for (final ec in source) {
       final title = (ec.Title ?? '').trim();
       final html = ec.HtmlContent ?? '';
-      final text = _stripHtml(html).trim();
+      final extracted = _htmlTextExtractor.extract(html);
+      final text = extracted.content;
 
       // Skip empty chapters (e.g. cover pages with no readable content).
-      if (text.isNotEmpty) {
+      if (text.trim().isNotEmpty) {
         out.add(Chapter(
           index: idx,
           title: title.isNotEmpty ? title : 'Chapter ${idx + 1}',
           content: text,
+          styledContentJson: extracted.styledContent.toJson(),
         ));
         idx++;
       }
@@ -141,70 +146,17 @@ class EpubService {
     var idx = 0;
     for (final entry in htmlFiles.entries) {
       final html = entry.value.Content ?? '';
-      final text = _stripHtml(html).trim();
-      if (text.isEmpty) continue;
+      final extracted = _htmlTextExtractor.extract(html);
+      final text = extracted.content;
+      if (text.trim().isEmpty) continue;
 
       out.add(Chapter(
         index: idx,
         title: 'Chapter ${idx + 1}',
         content: text,
+        styledContentJson: extracted.styledContent.toJson(),
       ));
       idx++;
     }
-  }
-
-  /// Strips HTML tags and collapses whitespace to produce plain text,
-  /// preserving paragraph breaks for block-level elements.
-  static String _stripHtml(String html) {
-    // Remove non-visible elements entirely (tag + content), e.g. <head>,
-    // <style>, <script>. Without this, text inside <title>Unknown</title>
-    // and similar tags leaks into the visible chapter content.
-    var text = html.replaceAll(
-        RegExp(r'<head[^>]*>[\s\S]*?</head>', caseSensitive: false), '');
-    text = text.replaceAll(
-        RegExp(r'<style[^>]*>[\s\S]*?</style>', caseSensitive: false), '');
-    text = text.replaceAll(
-        RegExp(r'<script[^>]*>[\s\S]*?</script>', caseSensitive: false), '');
-
-    // Replace block-level elements with a single newline marker so
-    // paragraph boundaries survive tag stripping.
-    text = text.replaceAll(
-        RegExp(
-          r'<\s*/?\s*(?:p|div|br|h[1-6]|li|blockquote|hr|section|article|aside|header|footer|nav|figure|figcaption|details|summary|main|tr|dt|dd)\b[^>]*\/?>',
-          caseSensitive: false,
-        ),
-        '\n');
-
-    // Remove all remaining HTML tags.
-    text = text.replaceAll(RegExp(r'<[^>]*>'), ' ');
-
-    // Decode common HTML entities.
-    text = text
-        .replaceAll('&nbsp;', ' ')
-        .replaceAll('&amp;', '&')
-        .replaceAll('&lt;', '<')
-        .replaceAll('&gt;', '>')
-        .replaceAll('&quot;', '"')
-        .replaceAll('&#39;', "'")
-        .replaceAll('&apos;', "'");
-
-    // Normalise line endings.
-    text = text.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
-
-    // Any whitespace run that contains at least one newline → single \n.
-    // This collapses sequences like "\n  \n  \n" into one break.
-    text = text.replaceAll(RegExp(r'[ \t]*\n[\s]*'), '\n');
-
-    // Collapse remaining horizontal whitespace into a single space.
-    text = text.replaceAll(RegExp(r'[ \t]+'), ' ');
-
-    // Trim each line.
-    text = text
-        .split('\n')
-        .map((line) => line.trim())
-        .where((line) => line.isNotEmpty)
-        .join('\n\n');
-
-    return text;
   }
 }

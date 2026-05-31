@@ -580,7 +580,7 @@ class _LibraryScreenState extends State<LibraryScreen>
             Icon(
               Icons.auto_stories_outlined,
               size: 96,
-              color: theme.colorScheme.primary.withOpacity(0.4),
+              color: theme.colorScheme.primary.withValues(alpha: 0.4),
             ),
             const SizedBox(height: 24),
             Text(
@@ -640,7 +640,7 @@ class _LibraryScreenState extends State<LibraryScreen>
             Icon(
               Icons.image_outlined,
               size: 96,
-              color: theme.colorScheme.primary.withOpacity(0.4),
+              color: theme.colorScheme.primary.withValues(alpha: 0.4),
             ),
             const SizedBox(height: 24),
             Text(

@@ -547,7 +547,12 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Download?'), findsOneWidget);
-      await tester.tap(find.widgetWithText(FilledButton, 'Download'));
+      await tester.tap(
+        find.descendant(
+          of: find.byType(AlertDialog),
+          matching: find.widgetWithText(FilledButton, 'Download'),
+        ),
+      );
       await tester.pumpAndSettle();
 
       expect(importedJson, downloadedJson);
@@ -599,7 +604,12 @@ void main() {
       await tester.tap(downloadButton);
       await tester.pumpAndSettle();
 
-      await tester.tap(find.widgetWithText(FilledButton, 'Download'));
+      await tester.tap(
+        find.descendant(
+          of: find.byType(AlertDialog),
+          matching: find.widgetWithText(FilledButton, 'Download'),
+        ),
+      );
       await tester.pumpAndSettle();
 
       expect(

@@ -229,8 +229,8 @@ class _ReaderSelectionToolbarContainer extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final borderColor = theme.colorScheme.outline.withOpacity(
-      theme.brightness == Brightness.dark ? 0.45 : 0.28,
+    final borderColor = theme.colorScheme.outline.withValues(
+      alpha: theme.brightness == Brightness.dark ? 0.45 : 0.28,
     );
     return Material(
       key: toolbarKey,
@@ -336,13 +336,14 @@ class _ToolbarActionStyle {
     final toolbarColor = _ReaderSelectionToolbarContainer._getColor(
       colorScheme,
     );
-    final neutralBorderColor = colorScheme.outline.withOpacity(
-      theme.brightness == Brightness.dark ? 0.3 : 0.22,
+    final neutralBorderColor = colorScheme.outline.withValues(
+      alpha: theme.brightness == Brightness.dark ? 0.3 : 0.22,
     );
-    final neutralForegroundColor = colorScheme.onSurface.withOpacity(0.92);
+    final neutralForegroundColor =
+        colorScheme.onSurface.withValues(alpha: 0.92);
     final neutralBackgroundColor = Color.alphaBlend(
-      colorScheme.onSurface.withOpacity(
-        theme.brightness == Brightness.dark ? 0.06 : 0.03,
+      colorScheme.onSurface.withValues(
+        alpha: theme.brightness == Brightness.dark ? 0.06 : 0.03,
       ),
       toolbarColor,
     );
@@ -400,10 +401,10 @@ class _ToolbarActionStyle {
     return _ToolbarActionStyle(
       id: id,
       backgroundColor: Color.alphaBlend(
-        accentColor.withOpacity(0.2),
+        accentColor.withValues(alpha: 0.2),
         toolbarColor,
       ),
-      borderColor: accentColor.withOpacity(0.78),
+      borderColor: accentColor.withValues(alpha: 0.78),
       foregroundColor: accentColor,
       isAiAction: true,
     );

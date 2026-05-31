@@ -157,7 +157,10 @@ void main() {
         tester,
         'reader-selection-toolbar-container',
       );
-      expect(toolbarShape.side.color.alpha, greaterThan(0));
+      expect(
+        (toolbarShape.side.color.a * 255.0).round().clamp(0, 255),
+        greaterThan(0),
+      );
       expect(toolbarShape.side.width, greaterThan(0));
     });
 
